@@ -1,0 +1,10 @@
+.git
+_build
+deps
+data
+*.db
+*.db-shm
+*.db-wal
+Dockerfile
+.dockerignore
+README.md
