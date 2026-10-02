@@ -10,6 +10,7 @@ defmodule Pesque.Application do
       Pesque.BootMigrator,
       {Registry, keys: :duplicate, name: Pesque.EventRegistry},
       {Registry, keys: :unique, name: Pesque.RepoRegistry},
+      Pesque.Identity,
       PesqueWeb.Endpoint
     ]
 
