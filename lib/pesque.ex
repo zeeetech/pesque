@@ -1,5 +1,5 @@
 defmodule Pesque do
-  @moduledoc " Top-level accessors for server-wide configuration"
+  @moduledoc "Top-level accessors for server-wide configuration."
 
   def version do
     case Application.spec(:pesque, :vsn) do

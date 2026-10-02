@@ -1,11 +1,11 @@
 defmodule PesqueWeb.Router do
-  use PesqueWeb, :router
+  use Phoenix.Router
 
-  pipeline :api do
-    plug :accepts, ["json"]
+  scope "/xrpc", PesqueWeb.Xrpc do
+    get "/_health", HealthController, :show
   end
 
-  scope "/api", PesqueWeb do
-    pipe_through :api
+  scope "/xrpc", PesqueWeb.Xrpc do
+    match :*, "/*path", FallbackController, :not_implemented
   end
 end

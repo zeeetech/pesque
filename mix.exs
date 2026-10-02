@@ -6,21 +6,16 @@ defmodule Pesque.MixProject do
       app: :pesque,
       version: "0.1.0",
       elixir: "~> 1.18",
-      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps(),
-      listeners: [Phoenix.CodeReloader]
+      deps: deps()
     ]
   end
 
-  # Configuration for the OTP application.
-  #
-  # Type `mix help compile.app` for more information.
   def application do
     [
       mod: {Pesque.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :crypto]
     ]
   end
 
@@ -30,36 +25,20 @@ defmodule Pesque.MixProject do
     ]
   end
 
-  # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
-
-  # Specifies your project dependencies.
-  #
-  # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:phoenix, "~> 1.8.15"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
+      {:phoenix, "~> 1.8"},
+      {:bandit, "~> 1.6"},
+      {:ecto_sql, "~> 3.12"},
       {:ecto_sqlite3, ">= 0.0.0"},
-      {:bandit, "~> 1.5"}
+      {:argon2_elixir, "~> 4.0"},
+      {:websock_adapter, "~> 0.5"}
     ]
   end
 
-  # Aliases are shortcuts or tasks specific to the current project.
-  # For example, to install project dependencies and perform other setup tasks, run:
-  #
-  #     $ mix setup
-  #
-  # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "format", "test"]
     ]
   end
 end
