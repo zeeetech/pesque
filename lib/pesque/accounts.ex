@@ -30,6 +30,14 @@ defmodule Pesque.Accounts do
         }
         |> User.changeset()
         |> Repo.insert()
+        |> case do
+          {:ok, user} ->
+            {:ok, _pid} = Pesque.RepoSupervisor.ensure_started(user.did)
+            {:ok, user}
+
+          error ->
+            error
+        end
     end
   end
 

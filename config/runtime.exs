@@ -22,3 +22,7 @@ config :pesque, PesqueWeb.Endpoint,
   url: [host: hostname, scheme: "https", port: 443],
   secret_key_base: Pesque.Storage.server_secret!(data_dir),
   server: true
+
+if config_env() == :test do
+  config :pesque, PesqueWeb.Endpoint, server: false
+end

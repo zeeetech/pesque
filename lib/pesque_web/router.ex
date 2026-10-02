@@ -31,6 +31,20 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
+    get "/com.atproto.repo.getRecord", RepoController, :get_record
+    get "/com.atproto.repo.listRecords", RepoController, :list_records
+    get "/com.atproto.repo.describeRepo", RepoController, :describe_repo
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :auth
+
+    post "/com.atproto.repo.createRecord", RepoController, :create_record
+    post "/com.atproto.repo.putRecord", RepoController, :put_record
+    post "/com.atproto.repo.deleteRecord", RepoController, :delete_record
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
     match :*, "/*path", FallbackController, :not_implemented
   end
 end
