@@ -14,6 +14,23 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
+    post "/com.atproto.server.createAccount", SessionController, :create_account
+    post "/com.atproto.server.createSession", SessionController, :create_session
+    post "/com.atproto.server.refreshSession", SessionController, :refresh_session
+    post "/com.atproto.server.deleteSession", SessionController, :delete_session
+  end
+
+  pipeline :auth do
+    plug PesqueWeb.Plugs.Auth
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :auth
+
+    get "/com.atproto.server.getSession", SessionController, :get_session
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
     match :*, "/*path", FallbackController, :not_implemented
   end
 end
