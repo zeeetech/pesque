@@ -45,6 +45,12 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
+    get "/com.atproto.sync.subscribeRepos", FirehoseController, :upgrade
+    get "/com.atproto.sync.getRepo", SyncController, :get_repo
+    get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
     match :*, "/*path", FallbackController, :not_implemented
   end
 end

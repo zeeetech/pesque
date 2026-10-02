@@ -35,7 +35,7 @@ defmodule Pesque.CID do
     {codec, rest} = Varint.decode(rest)
     {algo, rest} = Varint.decode(rest)
     {len, rest} = Varint.decode(rest)
-    <<digest::binary-size(^len)>> = rest
+    <<digest::binary-size(^len), _rest::binary>> = rest
 
     %__MODULE__{codec: codec, hash_algo: algo, digest: digest}
   end
