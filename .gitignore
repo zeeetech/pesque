@@ -29,3 +29,5 @@ pesque-*.tar
 *.db
 *.db-*
 
+# Server state: SQLite database, signing key, server secret
+/data/

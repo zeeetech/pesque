@@ -32,7 +32,8 @@ USER pesque
 
 COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque ./
 
-ENV PHX_SERVER=true
+ENV PDS_DATA_DIR=/data
+ENV PDS_PORT=4000
 
 VOLUME /data
 
