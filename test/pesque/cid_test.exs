@@ -1,0 +1,46 @@
+defmodule Pesque.CIDTest do
+  use ExUnit.Case, async: true
+
+  alias Pesque.CBOR
+  alias Pesque.CID
+
+  test "matches the cids computed by the reference ipld implementation" do
+    assert %{"a" => 1} |> CBOR.encode() |> CID.from_data() |> CID.to_string() ==
+             "bafyreihltcnuuyqp2jm24aqydpnlj7b6w3ogwrplomrjtg5rifv44mmjey"
+
+    assert %{"hello" => "world"} |> CBOR.encode() |> CID.from_data() |> CID.to_string() ==
+             "bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae"
+  end
+
+  test "from_data defaults to dag-cbor and accepts raw" do
+    assert CID.from_data(<<1>>).codec == CID.dag_cbor()
+    assert CID.from_data(<<1>>, CID.raw()).codec == CID.raw()
+
+    assert CID.dag_cbor() == 0x71
+    assert CID.raw() == 0x55
+  end
+
+  test "round trips the binary form" do
+    for codec <- [CID.dag_cbor(), CID.raw()] do
+      cid = CID.from_data(:crypto.strong_rand_bytes(32), codec)
+      assert CID.from_bytes(CID.to_bytes(cid)) == cid
+    end
+  end
+
+  test "round trips the string form" do
+    cid = CID.from_data(<<1, 2, 3>>, CID.raw())
+
+    assert CID.parse(CID.to_string(cid)) == cid
+  end
+
+  test "to_bytes is version, codec, multihash" do
+    cid = CID.from_data(<<1, 2, 3>>)
+
+    assert CID.to_bytes(cid) ==
+             <<0x01, 0x71, 0x12, 0x20>> <> :crypto.hash(:sha256, <<1, 2, 3>>)
+  end
+
+  test "to_string is base32 lower with a b prefix" do
+    assert String.starts_with?(CID.to_string(CID.from_data(<<1>>)), "b")
+  end
+end
