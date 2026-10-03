@@ -130,9 +130,16 @@ defmodule Pesque.Did do
   @doc """
   Resolves a local handle or DID to the canonical DID of that account.
 
+  Answers one question: is this identifier an account of THIS server, and what
+  is its canonical DID. That is the question the write boundary asks, so the
+  caller compares two resolved DIDs, which is a plain equality.
+
   Whether a handle's domain is this server's DID host is configuration, not
-  something either string carries, so the config is an argument. Callers
-  compare two DIDs, which is a plain equality and cannot get this wrong.
+  something either string carries, so the config is an argument.
+
+  Deliberately consults no database. A resolver that cannot see the users
+  table cannot be talked into accepting a remote account; whether the account
+  exists is the caller's question, not this function's.
 
   Returns :error for a DID of another host, a handle under a domain this
   server does not serve, and any path that is not exactly user/<username>.
@@ -168,7 +175,10 @@ defmodule Pesque.Did do
     end
   end
 
-  # The server itself has no username, so only conformant_single can name it.
+  # nil is the server itself, the account a bare host DID names. It mirrors
+  # bare_handle_did/1: under conformant_single both the bare DID and the bare
+  # handle resolve to the single account, and under path_multi neither does,
+  # because no account claims the bare domain.
   defp username_in_did(:conformant_single, []), do: {:ok, nil}
   defp username_in_did(:conformant_single, _path), do: :error
 
@@ -181,15 +191,40 @@ defmodule Pesque.Did do
 
   defp username_in_did(_mode, _path), do: :error
 
+  # The bare handle domain is the server's own handle in conformant_single,
+  # where there is a single account and writes are addressed to it. Under
+  # path_multi no account claims the bare domain, so it names nothing.
   defp handle_to_local_did(config, handle) do
-    with [username, domain] <- handle |> String.downcase() |> String.split(".", parts: 2),
+    handle = String.downcase(handle)
+
+    if handle == String.downcase(config.handle_domain) do
+      bare_handle_did(config)
+    else
+      labeled_handle_did(config, handle)
+    end
+  end
+
+  defp bare_handle_did(%{mode: :conformant_single} = config) do
+    {:ok, did_for_username(:conformant_single, host(config), nil)}
+  end
+
+  defp bare_handle_did(_config), do: :error
+
+  # Only path_multi has accounts named by a label, so only there does a label
+  # carry meaning. Under conformant_single the single account's handle is the
+  # bare domain, and accepting a label here would widen what the write guard
+  # takes without any account behind it.
+  defp labeled_handle_did(%{mode: :path_multi} = config, handle) do
+    with [username, domain] <- String.split(handle, ".", parts: 2),
          {:ok, username} <- normalize_username(username),
          true <- domain == String.downcase(config.handle_domain) do
-      {:ok, did_for_username(config.mode, host(config), username)}
+      {:ok, did_for_username(:path_multi, host(config), username)}
     else
       _ -> :error
     end
   end
+
+  defp labeled_handle_did(_config, _handle), do: :error
 
   defp host(config), do: did_host(config.hostname, config.port)
 

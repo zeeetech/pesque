@@ -235,8 +235,79 @@ defmodule Pesque.DidTest do
     single = server(mode: :conformant_single)
 
     assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
-    assert Did.to_local_did(single, "example.com") == :error
     assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == :error
+  end
+
+  # Each mode names its accounts differently, so the two identifier shapes
+  # are exclusive: the bare form means the single server account and only
+  # resolves there, the labeled form means a per-user account and only
+  # resolves there. Neither mode may start accepting the other's shape.
+  test "bare and labeled identifiers are exclusive to one mode each" do
+    single = server(mode: :conformant_single)
+    multi = server(mode: :path_multi)
+
+    assert Did.to_local_did(single, "example.com") == {:ok, "did:web:example.com"}
+    assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
+    assert Did.to_local_did(single, "alice.example.com") == :error
+    assert Did.to_local_did(single, "did:web:example.com:user:alice") == :error
+
+    assert Did.to_local_did(multi, "alice.example.com") ==
+             {:ok, "did:web:example.com:user:alice"}
+
+    assert Did.to_local_did(multi, "did:web:example.com:user:alice") ==
+             {:ok, "did:web:example.com:user:alice"}
+
+    assert Did.to_local_did(multi, "example.com") == :error
+    assert Did.to_local_did(multi, "did:web:example.com") == :error
+  end
+
+  test "the bare handle domain is the server's own handle under conformant_single" do
+    config = server(mode: :conformant_single)
+
+    assert Did.to_local_did(config, "example.com") == {:ok, "did:web:example.com"}
+    assert Did.to_local_did(config, "EXAMPLE.COM") == {:ok, "did:web:example.com"}
+
+    split =
+      server(mode: :conformant_single, hostname: "pds.example.com", handle_domain: "example.com")
+
+    assert Did.to_local_did(split, "example.com") == {:ok, "did:web:pds.example.com"}
+  end
+
+  test "the bare handle domain names no account under path_multi" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, "example.com") == :error
+
+    lan = server(mode: :path_multi, hostname: "127.0.0.1", port: 4111, handle_domain: "127.0.0.1")
+    assert Did.to_local_did(lan, "127.0.0.1") == :error
+  end
+
+  test "a bare handle under a domain this server does not serve is not local" do
+    config =
+      server(mode: :conformant_single, hostname: "pds.example.com", handle_domain: "example.com")
+
+    assert Did.to_local_did(config, "evil.com") == :error
+    assert Did.to_local_did(config, "pds.example.com") == :error
+  end
+
+  test "a handle with an empty or leading-dot label names nothing" do
+    for mode <- [:conformant_single, :path_multi] do
+      config = server(mode: mode)
+
+      assert Did.to_local_did(config, ".example.com") == :error
+      assert Did.to_local_did(config, ".") == :error
+      assert Did.to_local_did(config, ".alice.example.com") == :error
+      assert Did.to_local_did(config, "example.com.") == :error
+      assert Did.to_local_did(config, "") == :error
+    end
+  end
+
+  test "a handle that merely resembles the handle domain is not local" do
+    config = server(mode: :conformant_single)
+
+    assert Did.to_local_did(config, "evil-example.com") == :error
+    assert Did.to_local_did(config, "notexample.com") == :error
+    assert Did.to_local_did(config, "xexample.com") == :error
   end
 
   test "a handle under a domain this server does not serve is not local" do
