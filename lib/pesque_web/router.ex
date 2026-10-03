@@ -5,8 +5,12 @@ defmodule PesqueWeb.Router do
     get "/_health", HealthController, :show
   end
 
+  # Routes are compiled, mode is configured at boot, so a path_multi server
+  # carries the conformant_single routes too and the controller decides.
   scope "/", PesqueWeb.Xrpc do
     get "/.well-known/did.json", IdentityController, :did_document
+    get "/.well-known/atproto-did", IdentityController, :atproto_did
+    get "/user/:username/did.json", IdentityController, :user_did_document
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

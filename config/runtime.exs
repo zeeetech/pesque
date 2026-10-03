@@ -17,13 +17,21 @@ mode =
 handle_domain =
   System.get_env("PDS_HANDLE_DOMAIN", if(mode == :path_multi, do: hostname, else: handle))
 
+registration =
+  case System.get_env("PDS_REGISTRATION", "closed") do
+    "open" -> :open
+    "closed" -> :closed
+    other -> raise "PDS_REGISTRATION must be open or closed, got: #{other}"
+  end
+
 config :pesque,
   data_dir: data_dir,
   mode: mode,
   hostname: hostname,
   handle_domain: handle_domain,
   handle: handle,
-  port: port
+  port: port,
+  registration: registration
 
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),

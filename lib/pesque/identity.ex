@@ -2,21 +2,23 @@ defmodule Pesque.Identity do
   @moduledoc """
   The server's own identity: a did:web, its handle, and the DID document.
 
-  Stateless. Derivation lives in Pesque.Did, the signing key is read from
-  :persistent_term because it is on the commit path and never changes after
-  boot, and the server secret is Pesque.Secret's.
+  Stateless. Derivation lives in Pesque.Did, and the server's signing key
+  lives in Pesque.Keys like every other key, one file per DID, so the server
+  and an account are provisioned the same way.
+
+  This is the identity of did:web:<host> itself. Under conformant_single
+  that DID is also the single account's, which is why its key is created
+  here at boot rather than by create_account/3.
   """
 
-  alias Pesque.{Did, Secp256k1}
+  alias Pesque.{Did, Keys}
 
-  @priv {__MODULE__, :priv}
   @pub_multibase {__MODULE__, :pub_multibase}
 
-  @doc "Loads the signing key into :persistent_term. Called once, before the endpoint starts."
+  @doc "Loads the server's signing key. Called once, before the endpoint starts."
   def load! do
-    {pub, priv} = load_or_generate_key()
-    :persistent_term.put(@priv, priv)
-    :persistent_term.put(@pub_multibase, Secp256k1.public_key_multibase(pub))
+    {:ok, key} = Keys.ensure(did())
+    :persistent_term.put(@pub_multibase, key.pub_multibase)
   end
 
   def mode, do: Pesque.mode()
@@ -26,7 +28,7 @@ defmodule Pesque.Identity do
   def handle, do: Did.handle_for_username(mode(), handle_domain(), nil)
   def service_endpoint, do: Did.service_endpoint(hostname())
   def did_document, do: Did.did_document(mode(), identity())
-  def sign(payload), do: Secp256k1.sign(:persistent_term.get(@priv), payload)
+  def public_key_multibase, do: :persistent_term.get(@pub_multibase)
 
   defp identity do
     %{
@@ -34,23 +36,7 @@ defmodule Pesque.Identity do
       hostname: hostname(),
       port: Pesque.port(),
       handle_domain: handle_domain(),
-      pub_multibase: :persistent_term.get(@pub_multibase)
+      pub_multibase: public_key_multibase()
     }
-  end
-
-  defp load_or_generate_key do
-    path = Pesque.Storage.signing_key_path()
-
-    case File.read(path) do
-      {:ok, priv} ->
-        {Secp256k1.public_from_private(priv), priv}
-
-      {:error, _reason} ->
-        {pub, priv} = Secp256k1.generate_keypair()
-        File.mkdir_p!(Pesque.Storage.keys_dir())
-        File.write!(path, priv)
-        File.chmod!(path, 0o600)
-        {pub, priv}
-    end
   end
 end

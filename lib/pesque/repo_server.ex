@@ -1,18 +1,21 @@
 defmodule Pesque.RepoServer do
   @moduledoc """
   One process per repository. Owns the in-memory entry map, the rev
-  counter, and every commit. Writes are serialized through the process,
-  which is exactly the consistency model a single-user PDS needs.
+  counter, the account's signing key, and every commit. Writes are serialized
+  through the process, which is exactly the consistency model a PDS needs.
+
+  The signing key is the account's, not the server's, so the process that
+  owns a repo is the process that signs its commits.
   """
 
   use GenServer
 
-  alias Pesque.{CBOR, CID, Identity, Lexicon, Mst, Repo, RepoStore, Tid}
+  alias Pesque.{CBOR, CID, Keys, Lexicon, Mst, Repo, RepoStore, Secp256k1, Tid}
 
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
-  defstruct [:did, :clock_id, entries: %{}, tid_int: 0, rev: nil]
+  defstruct [:did, :clock_id, :priv, entries: %{}, tid_int: 0, rev: nil]
 
   # API
 
@@ -40,9 +43,12 @@ defmodule Pesque.RepoServer do
       |> RepoStore.records_for()
       |> Map.new(fn r -> {r.collection <> "/" <> r.rkey, CID.parse(r.cid)} end)
 
+    {:ok, key} = Keys.ensure(did)
+
     state = %__MODULE__{
       did: did,
       clock_id: :rand.uniform(1024) - 1,
+      priv: key.priv,
       entries: entries,
       tid_int: int_meta("tid_int:" <> did, 0),
       rev: RepoStore.get_meta("rev:" <> did)
@@ -137,7 +143,7 @@ defmodule Pesque.RepoServer do
       "prev" => nil
     }
 
-    sig = Identity.sign(CBOR.encode(unsigned))
+    sig = Secp256k1.sign(state.priv, CBOR.encode(unsigned))
     commit_obj = Map.put(unsigned, "sig", %CBOR.Bytes{data: sig})
     commit_bytes = CBOR.encode(commit_obj)
     commit_cid = CID.from_data(commit_bytes)

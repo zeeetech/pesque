@@ -1,19 +1,54 @@
 defmodule PesqueWeb.Xrpc.IdentityController do
+  @moduledoc "DID documents and handle resolution."
+
   use Phoenix.Controller, formats: [:json]
+
+  import Plug.Conn
+
+  alias Pesque.Accounts
+  alias PesqueWeb.Xrpc
 
   def did_document(conn, _params) do
     json(conn, Pesque.Identity.did_document())
   end
 
-  def resolve_handle(conn, %{"handle" => handle}) do
-    if String.downcase(handle) == Pesque.Identity.handle() do
-      json(conn, %{"did" => Pesque.Identity.did()})
+  def atproto_did(conn, _params) do
+    if conn.host in served_names() do
+      conn
+      |> put_resp_content_type("text/plain")
+      |> send_resp(200, Pesque.Identity.did())
     else
-      PesqueWeb.Xrpc.error(conn, 400, "HandleNotFound", "no such handle on this server")
+      send_resp(conn, 404, "")
+    end
+  end
+
+  def user_did_document(conn, %{"username" => username}) do
+    case Accounts.did_document_for(username) do
+      {:ok, doc} -> json(conn, doc)
+      :error -> send_resp(conn, 404, "")
+    end
+  end
+
+  def resolve_handle(conn, %{"handle" => handle}) do
+    case Accounts.resolve_handle(handle) do
+      {:ok, did} -> json(conn, %{"did" => did})
+      :error -> Xrpc.error(conn, 400, "HandleNotFound", "no such handle on this server")
     end
   end
 
   def resolve_handle(conn, _params) do
-    PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "missing required param: handle")
+    Xrpc.error(conn, 400, "InvalidRequest", "missing required param: handle")
+  end
+
+  # The DID a client is told depends on the name it reached us under, so the
+  # answer is only for the names this server actually serves.
+  defp served_names do
+    [Pesque.hostname(), Pesque.handle_domain()]
+    |> Enum.map(&String.downcase/1)
+    |> Enum.map(&strip_port/1)
+  end
+
+  defp strip_port(host) do
+    host |> String.split(":", parts: 2) |> hd() |> String.downcase()
   end
 end

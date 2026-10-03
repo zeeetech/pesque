@@ -6,6 +6,19 @@ defmodule PesqueWeb.Xrpc.SessionController do
   alias Pesque.Accounts
 
   def create_account(conn, params) do
+    if Pesque.registration() == :open do
+      provision(conn, params)
+    else
+      PesqueWeb.Xrpc.error(
+        conn,
+        400,
+        "InvalidRequest",
+        "registration is closed; accounts are provisioned by the operator"
+      )
+    end
+  end
+
+  defp provision(conn, params) do
     case Accounts.create_account(params["handle"], params["email"], params["password"]) do
       {:ok, user} ->
         session = Accounts.issue_session(user.did)
@@ -37,7 +50,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
           "password must be at least 8 characters"
         )
 
-      {:error, _changeset} ->
+      {:error, _reason} ->
         PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "account could not be created")
     end
   end

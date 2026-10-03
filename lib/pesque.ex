@@ -14,4 +14,5 @@ defmodule Pesque do
   def handle_domain, do: Application.get_env(:pesque, :handle_domain, hostname())
   def port, do: Application.get_env(:pesque, :port, 4000)
   def handle, do: Application.get_env(:pesque, :handle, hostname())
+  def registration, do: Application.get_env(:pesque, :registration, :closed)
 end

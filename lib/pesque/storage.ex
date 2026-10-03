@@ -11,11 +11,6 @@ defmodule Pesque.Storage do
   @doc "Directory holding the signing keys."
   def keys_dir, do: Path.join(Pesque.data_dir(), "keys")
 
-  @doc "Path of the server's own signing key."
-  def signing_key_path do
-    Path.join(keys_dir(), "did_web_" <> host_slug(Pesque.hostname()) <> ".key")
-  end
-
   @doc "Reads the server secret from disk, generating and persisting it on first boot."
   def server_secret!(data_dir \\ Pesque.data_dir()) do
     path = Path.join(data_dir, "server.secret")
@@ -32,6 +27,4 @@ defmodule Pesque.Storage do
         secret
     end
   end
-
-  defp host_slug(hostname), do: String.replace(hostname, ~r/[^A-Za-z0-9._-]/, "_")
 end
