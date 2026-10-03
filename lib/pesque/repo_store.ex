@@ -59,11 +59,11 @@ defmodule Pesque.RepoStore do
     Repo.all(from b in Block, where: b.did == ^did)
   end
 
-  def existing_cids(cid_strings) do
+  def existing_cids(did, cid_strings) do
     cid_strings
     |> Enum.chunk_every(500)
     |> Enum.flat_map(fn chunk ->
-      Repo.all(from b in Block, where: b.cid in ^chunk, select: b.cid)
+      Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: b.cid)
     end)
     |> MapSet.new()
   end
@@ -77,7 +77,7 @@ defmodule Pesque.RepoStore do
         %{cid: cid_string, did: did, data: data, inserted_at: now}
       end)
 
-    Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:cid])
+    Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:did, :cid])
   end
 
   # events
@@ -86,9 +86,25 @@ defmodule Pesque.RepoStore do
     Repo.one(from e in Event, select: max(e.seq)) || 0
   end
 
-  def insert_event!(seq, did, payload) do
+  @doc "Claims the next event sequence number, assigning it in the database."
+  def insert_event!(did, payload) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    Repo.insert!(%Event{seq: seq, did: did, payload: payload, inserted_at: now})
+
+    {1, [event]} =
+      Repo.insert_all(
+        Event,
+        [%{seq: nil, did: did, payload: payload, inserted_at: now}],
+        returning: [:seq]
+      )
+
+    event.seq
+  end
+
+  def put_event_payload!(seq, payload) do
+    query = from e in Event, where: e.seq == ^seq, update: [set: [payload: ^payload]]
+    {1, _} = Repo.update_all(query, [])
+
+    :ok
   end
 
   def events_after(cursor, limit \\ 10_000) do

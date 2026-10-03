@@ -1,6 +1,6 @@
 import Config
 
-data_dir = System.get_env("PDS_DATA_DIR", "data")
+data_dir = System.get_env("PDS_DATA_DIR", if(config_env() == :test, do: "tmp/test", else: "data"))
 hostname = System.get_env("PDS_HOSTNAME", "localhost")
 handle = System.get_env("PDS_HANDLE", hostname)
 port = String.to_integer(System.get_env("PDS_PORT", "4000"))

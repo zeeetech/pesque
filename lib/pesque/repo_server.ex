@@ -12,7 +12,7 @@ defmodule Pesque.RepoServer do
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
-  defstruct [:did, :clock_id, entries: %{}, tid_int: 0, rev: nil, seq: 0]
+  defstruct [:did, :clock_id, entries: %{}, tid_int: 0, rev: nil]
 
   # API
 
@@ -45,8 +45,7 @@ defmodule Pesque.RepoServer do
       clock_id: :rand.uniform(1024) - 1,
       entries: entries,
       tid_int: int_meta("tid_int:" <> did, 0),
-      rev: RepoStore.get_meta("rev:" <> did),
-      seq: RepoStore.max_seq()
+      rev: RepoStore.get_meta("rev:" <> did)
     }
 
     {:ok, state, {:continue, :genesis_if_needed}}
@@ -148,15 +147,16 @@ defmodule Pesque.RepoServer do
       |> Map.merge(Map.new(for %{cid: cid, data: data} <- changes, data != nil, do: {cid, data}))
       |> Map.put(commit_cid, commit_bytes)
 
-    seq = state.seq + 1
-
     {:ok, frame} =
       Repo.transaction(fn ->
-        existing =
-          all_blocks
-          |> Map.keys()
-          |> Enum.map(&CID.to_string/1)
-          |> RepoStore.existing_cids()
+        # First statement in the transaction: the database assigns the
+        # sequence number here, and the write takes SQLite's lock before
+        # anything below reads. The payload lands in put_event_payload!/2,
+        # because the frame that carries it needs this seq.
+        seq = RepoStore.insert_event!(state.did, <<>>)
+
+        cid_strings = Enum.map(Map.keys(all_blocks), &CID.to_string/1)
+        existing = RepoStore.existing_cids(state.did, cid_strings)
 
         new_blocks =
           for {cid, bytes} <- all_blocks,
@@ -182,7 +182,7 @@ defmodule Pesque.RepoServer do
         RepoStore.put_meta!("commit:" <> state.did, CID.to_string(commit_cid))
 
         frame = build_frame(state, seq, commit_cid, rev, new_blocks, changes)
-        RepoStore.insert_event!(seq, state.did, frame)
+        RepoStore.put_event_payload!(seq, frame)
         frame
       end)
 
@@ -190,7 +190,7 @@ defmodule Pesque.RepoServer do
       for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
     end)
 
-    new_state = %{state | entries: entries2, tid_int: tid_int, rev: rev, seq: seq}
+    new_state = %{state | entries: entries2, tid_int: tid_int, rev: rev}
 
     result = %{
       "commit" => %{"cid" => CID.to_string(commit_cid), "rev" => rev},
