@@ -18,6 +18,18 @@ defmodule Pesque.DidTest do
     )
   end
 
+  defp server(overrides) do
+    Enum.into(
+      overrides,
+      %{
+        mode: :conformant_single,
+        hostname: "example.com",
+        port: 443,
+        handle_domain: "example.com"
+      }
+    )
+  end
+
   test "did_host percent-encodes the port on a loopback host" do
     assert Did.did_host("localhost", 4000) == "localhost%3A4000"
     assert Did.did_host("127.0.0.1", 3000) == "127.0.0.1%3A3000"
@@ -189,23 +201,101 @@ defmodule Pesque.DidTest do
     assert Did.path_for_did(doc["id"]) == "/user/alice/did.json"
   end
 
-  test "same_account? matches identical identifiers whatever their case" do
-    assert Did.same_account?("did:web:example.com", "did:web:example.com")
-    assert Did.same_account?("Alice.Example.com", "alice.example.com")
-    assert Did.same_account?(" alice.example.com ", "alice.example.com")
+  test "a path_multi handle and its did resolve to the same did" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, "alice.example.com") ==
+             {:ok, "did:web:example.com:user:alice"}
+
+    assert Did.to_local_did(config, "did:web:example.com:user:alice") ==
+             {:ok, "did:web:example.com:user:alice"}
   end
 
-  test "same_account? matches a path did against the handle it mirrors" do
-    assert Did.same_account?("alice.example.com", "did:web:example.com:user:alice")
-    assert Did.same_account?("did:web:example.com:user:alice", "alice.example.com")
+  test "resolution holds when the did host carries a percent-encoded port" do
+    config =
+      server(mode: :path_multi, hostname: "127.0.0.1", port: 4111, handle_domain: "127.0.0.1")
+
+    did = "did:web:127.0.0.1%3A4111:user:alice"
+
+    assert Did.to_local_did(config, did) == {:ok, did}
+    assert Did.to_local_did(config, "alice.127.0.0.1") == {:ok, did}
   end
 
-  test "same_account? separates different accounts" do
-    refute Did.same_account?("alice.example.com", "bob.example.com")
-    refute Did.same_account?("did:web:example.com:user:alice", "did:web:example.com:user:bob")
-    refute Did.same_account?("did:web:other.com:user:alice", "alice.example.com")
-    refute Did.same_account?("alice.example.com", "did:web:example.com")
-    refute Did.same_account?(nil, "alice.example.com")
-    refute Did.same_account?("alice.example.com", %{})
+  test "a handle domain that differs from the did host still resolves" do
+    config = server(mode: :path_multi, hostname: "pds.example.com", handle_domain: "example.com")
+
+    assert Did.to_local_did(config, "alice.example.com") ==
+             {:ok, "did:web:pds.example.com:user:alice"}
+
+    assert Did.to_local_did(config, "did:web:pds.example.com:user:alice") ==
+             {:ok, "did:web:pds.example.com:user:alice"}
+  end
+
+  test "an identifier that resolves differently by mode is not silently accepted" do
+    single = server(mode: :conformant_single)
+
+    assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
+    assert Did.to_local_did(single, "example.com") == :error
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == :error
+  end
+
+  test "a handle under a domain this server does not serve is not local" do
+    config = server(mode: :path_multi, hostname: "pds.example.com", handle_domain: "example.com")
+
+    assert Did.to_local_did(config, "alice.evil.com") == :error
+    assert Did.to_local_did(config, "alice.pds.example.com") == :error
+  end
+
+  test "a well-formed did of another host is not local" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, "did:web:other.com:user:alice") == :error
+    assert Did.to_local_did(config, "did:plc:abc123") == :error
+  end
+
+  test "a did whose path is not exactly user/username is not local" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, "did:web:example.com:user:alice:extra") == :error
+    assert Did.to_local_did(config, "did:web:example.com:user") == :error
+    assert Did.to_local_did(config, "did:web:example.com:alice") == :error
+    assert Did.to_local_did(config, "did:web:example.com:user:no!") == :error
+  end
+
+  test "a bare host did is local in conformant_single only" do
+    assert Did.to_local_did(server(mode: :conformant_single), "did:web:example.com") ==
+             {:ok, "did:web:example.com"}
+
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == :error
+  end
+
+  test "resolution is case insensitive on the host and the handle" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, "Alice.Example.com") ==
+             {:ok, "did:web:example.com:user:alice"}
+
+    assert Did.to_local_did(config, "DID:WEB:EXAMPLE.COM:USER:ALICE") ==
+             {:ok, "did:web:example.com:user:alice"}
+
+    assert Did.to_local_did(config, " alice.example.com ") ==
+             {:ok, "did:web:example.com:user:alice"}
+  end
+
+  test "a non-identifier is not local" do
+    config = server(mode: :path_multi)
+
+    assert Did.to_local_did(config, nil) == :error
+    assert Did.to_local_did(config, 42) == :error
+    assert Did.to_local_did(config, "") == :error
+    assert Did.to_local_did(config, "alice") == :error
+  end
+
+  # The two-identifier form had to guess whether a handle domain was the did
+  # host, and guessed wrong for a percent-encoded port and for any host that
+  # differs from the handle domain. Callers resolve then compare strings.
+  test "there is no two-identifier comparison to regress into" do
+    refute function_exported?(Did, :same_account?, 2)
+    refute function_exported?(Did, :mirrors?, 2)
   end
 end

@@ -128,26 +128,70 @@ defmodule Pesque.Did do
   def normalize_username(_username), do: {:error, :not_a_string}
 
   @doc """
-  True when two repo identifiers name the same account.
+  Resolves a local handle or DID to the canonical DID of that account.
 
-  A path DID mirrors the handle it was derived from, so a handle and its DID
-  compare equal here without a database lookup.
+  Whether a handle's domain is this server's DID host is configuration, not
+  something either string carries, so the config is an argument. Callers
+  compare two DIDs, which is a plain equality and cannot get this wrong.
+
+  Returns :error for a DID of another host, a handle under a domain this
+  server does not serve, and any path that is not exactly user/<username>.
   """
-  def same_account?(left, right) when is_binary(left) and is_binary(right) do
-    left = String.downcase(String.trim(left))
-    right = String.downcase(String.trim(right))
+  def to_local_did(config, identifier) when is_binary(identifier) do
+    identifier = String.trim(identifier)
 
-    left == right or mirrors?(left, right) or mirrors?(right, left)
-  end
-
-  def same_account?(_left, _right), do: false
-
-  defp mirrors?(did, handle) do
-    case String.split(handle, ".", parts: 2) do
-      [username, domain] -> did == "did:web:" <> domain <> ":user:" <> username
-      _ -> false
+    case identifier |> String.downcase() |> String.split(":", parts: 3) do
+      ["did", "web", rest] -> did_to_local_did(config, rest)
+      _ -> handle_to_local_did(config, identifier)
     end
   end
+
+  def to_local_did(_config, _identifier), do: :error
+
+  # The host and path arrive lowercased, so the host is compared folded
+  # against did_host/2, which percent-encodes a port in uppercase hex.
+  defp did_to_local_did(config, rest) do
+    {did_host, path} = split_host_path(rest)
+
+    with true <- did_host == String.downcase(host(config)),
+         {:ok, username} <- username_in_did(config.mode, path) do
+      {:ok, did_for_username(config.mode, host(config), username)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp split_host_path(rest) do
+    case String.split(rest, ":", parts: 2) do
+      [host] -> {host, []}
+      [host, path] -> {host, String.split(path, ":")}
+    end
+  end
+
+  # The server itself has no username, so only conformant_single can name it.
+  defp username_in_did(:conformant_single, []), do: {:ok, nil}
+  defp username_in_did(:conformant_single, _path), do: :error
+
+  defp username_in_did(:path_multi, ["user", username]) do
+    case normalize_username(username) do
+      {:ok, normalized} -> {:ok, normalized}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp username_in_did(_mode, _path), do: :error
+
+  defp handle_to_local_did(config, handle) do
+    with [username, domain] <- handle |> String.downcase() |> String.split(".", parts: 2),
+         {:ok, username} <- normalize_username(username),
+         true <- domain == String.downcase(config.handle_domain) do
+      {:ok, did_for_username(config.mode, host(config), username)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp host(config), do: did_host(config.hostname, config.port)
 
   defp did_parts(did) do
     case String.split(did, ":") do
