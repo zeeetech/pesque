@@ -4,6 +4,8 @@ defmodule Pesque.Application do
   @impl true
   def start(_type, _args) do
     Pesque.Storage.init!()
+    Pesque.Secret.load!()
+    Pesque.Identity.load!()
 
     children = [
       Pesque.Repo,
@@ -11,7 +13,6 @@ defmodule Pesque.Application do
       {Registry, keys: :duplicate, name: Pesque.EventRegistry},
       {Registry, keys: :unique, name: Pesque.RepoRegistry},
       Pesque.RepoSupervisor,
-      Pesque.Identity,
       PesqueWeb.Endpoint
     ]
 

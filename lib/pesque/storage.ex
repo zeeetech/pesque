@@ -1,8 +1,19 @@
 defmodule Pesque.Storage do
-  @moduledoc "Filesystem bootstrap: data directory and the persistent server secret."
+  @moduledoc "Filesystem bootstrap: data directory, key directory, and the persistent server secret."
 
   def init! do
     File.mkdir_p!(Pesque.data_dir())
+    File.mkdir_p!(keys_dir())
+    File.chmod!(keys_dir(), 0o700)
+    :ok
+  end
+
+  @doc "Directory holding the signing keys."
+  def keys_dir, do: Path.join(Pesque.data_dir(), "keys")
+
+  @doc "Path of the server's own signing key."
+  def signing_key_path do
+    Path.join(keys_dir(), "did_web_" <> host_slug(Pesque.hostname()) <> ".key")
   end
 
   @doc "Reads the server secret from disk, generating and persisting it on first boot."
@@ -21,4 +32,6 @@ defmodule Pesque.Storage do
         secret
     end
   end
+
+  defp host_slug(hostname), do: String.replace(hostname, ~r/[^A-Za-z0-9._-]/, "_")
 end

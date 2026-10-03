@@ -5,10 +5,25 @@ hostname = System.get_env("PDS_HOSTNAME", "localhost")
 handle = System.get_env("PDS_HANDLE", hostname)
 port = String.to_integer(System.get_env("PDS_PORT", "4000"))
 
+mode =
+  case System.get_env("PDS_MODE", "conformant_single") do
+    "conformant_single" -> :conformant_single
+    "path_multi" -> :path_multi
+    other -> raise "PDS_MODE must be conformant_single or path_multi, got: #{other}"
+  end
+
+# PDS_HANDLE goes away with multi-account, so until then it is what
+# conformant_single publishes, and path_multi ignores it.
+handle_domain =
+  System.get_env("PDS_HANDLE_DOMAIN", if(mode == :path_multi, do: hostname, else: handle))
+
 config :pesque,
   data_dir: data_dir,
+  mode: mode,
   hostname: hostname,
-  handle: handle
+  handle_domain: handle_domain,
+  handle: handle,
+  port: port
 
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),

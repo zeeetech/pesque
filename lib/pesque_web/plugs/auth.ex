@@ -8,7 +8,7 @@ defmodule PesqueWeb.Plugs.Auth do
   def call(conn, _opts) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
          {:ok, claims} <-
-           Pesque.Token.verify(token, Pesque.Identity.server_secret(), "com.atproto.access") do
+           Pesque.Token.verify(token, Pesque.Secret.get(), "com.atproto.access") do
       assign(conn, :did, claims["sub"])
     else
       _ ->

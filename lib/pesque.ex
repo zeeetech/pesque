@@ -9,6 +9,9 @@ defmodule Pesque do
   end
 
   def data_dir, do: Application.get_env(:pesque, :data_dir, "data")
+  def mode, do: Application.get_env(:pesque, :mode, :conformant_single)
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
+  def handle_domain, do: Application.get_env(:pesque, :handle_domain, hostname())
+  def port, do: Application.get_env(:pesque, :port, 4000)
   def handle, do: Application.get_env(:pesque, :handle, hostname())
 end

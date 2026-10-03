@@ -62,7 +62,7 @@ defmodule Pesque.Accounts do
   @doc "Issues an access/refresh pair and registers the refresh jti as live."
   def issue_session(did) do
     now = System.system_time(:second)
-    secret = Identity.server_secret()
+    secret = Pesque.Secret.get()
 
     access =
       Pesque.Token.sign(
@@ -104,7 +104,7 @@ defmodule Pesque.Accounts do
   @doc "Rotates a live refresh token into a new pair. Reuse of a dead token fails."
   def rotate_session(refresh_jwt) do
     with {:ok, claims} <-
-           Pesque.Token.verify(refresh_jwt, Identity.server_secret(), "com.atproto.refresh"),
+           Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
          {:ok, row} <- fetch_live_refresh(claims["jti"]) do
       revoke!(row)
       {:ok, issue_session(claims["sub"])}
@@ -116,7 +116,7 @@ defmodule Pesque.Accounts do
   @doc "Revokes the presented refresh token (logout)."
   def revoke_session(refresh_jwt) do
     with {:ok, claims} <-
-           Pesque.Token.verify(refresh_jwt, Identity.server_secret(), "com.atproto.refresh"),
+           Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
          {:ok, row} <- fetch_live_refresh(claims["jti"]) do
       revoke!(row)
       :ok
