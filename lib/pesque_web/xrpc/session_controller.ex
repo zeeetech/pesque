@@ -50,6 +50,14 @@ defmodule PesqueWeb.Xrpc.SessionController do
           "password must be at least 8 characters"
         )
 
+      {:error, :email_taken} ->
+        PesqueWeb.Xrpc.error(
+          conn,
+          400,
+          "InvalidRequest",
+          "email is already used as a handle on this server"
+        )
+
       {:error, _reason} ->
         PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "account could not be created")
     end

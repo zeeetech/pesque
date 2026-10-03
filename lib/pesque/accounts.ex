@@ -24,7 +24,7 @@ defmodule Pesque.Accounts do
   def create_account(handle, email, password) do
     with {:ok, identity} <- identity_for(handle),
          :ok <- check_password(password),
-         :ok <- check_available(identity),
+         :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity) do
       insert(identity, email, password, key.pub_multibase)
     end
@@ -59,17 +59,13 @@ defmodule Pesque.Accounts do
 
   @doc "Verifies a handle/email + password pair. Constant-ish time by construction."
   def verify_login(identifier, password) do
-    user =
-      Repo.one(
-        from u in User,
-          where: u.handle == ^identifier or u.email == ^identifier
-      )
+    case find_by_identifier(identifier) do
+      nil ->
+        Argon2.no_user_verify()
+        :error
 
-    if user do
-      if Argon2.verify_pass(password, user.password_hash), do: {:ok, user}, else: :error
-    else
-      Argon2.no_user_verify()
-      :error
+      user ->
+        if Argon2.verify_pass(password, user.password_hash), do: {:ok, user}, else: :error
     end
   end
 
@@ -139,6 +135,27 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # Two lookups on single-column unique indexes, never one query with an `or`
+  # across both columns: that shape raises MultipleResultsError on a string
+  # that is one account's handle and another's email, and login is reachable
+  # unauthenticated, so the crash is a denial of service rather than a stack
+  # trace nobody sees.
+  #
+  # The handle wins. It is the account's public name and the one a client
+  # resolves a DID from, and create_account/3 refuses the collision that
+  # would make the order matter for any account it creates. What is left is
+  # rows that predate that check or come in through a path that bypasses it,
+  # and those resolve to the same account on every call.
+  #
+  # The alternative is an account_identifiers table keyed by the identifier
+  # itself, which makes the collision unrepresentable and the order moot.
+  # Until there is an email-edit path it is not worth a third table.
+  defp find_by_identifier(identifier) when is_binary(identifier) do
+    Repo.get_by(User, handle: identifier) || Repo.get_by(User, email: identifier)
+  end
+
+  defp find_by_identifier(_identifier), do: nil
+
   defp identity_for(handle) when is_binary(handle) do
     case Pesque.mode() do
       :conformant_single -> single_account(handle)
@@ -182,14 +199,33 @@ defmodule Pesque.Accounts do
 
   # conformant_single has exactly one account and it is the server, so a
   # second attempt is an existing server rather than a taken handle.
-  defp check_available(%{mode: mode} = identity) do
+  #
+  # An identifier is a handle or an email, so a string in one column can
+  # collide with a string in the other and leave login unable to say which
+  # account it means. create_account/3 refuses both directions, which keeps
+  # the ambiguity out of the data; the comparison is exact because that is
+  # the comparison find_by_identifier/1 makes.
+  defp check_available(%{mode: mode} = identity, email) do
     taken =
       Repo.exists?(from u in User, where: u.did == ^identity.did or u.handle == ^identity.handle)
 
     if taken do
       {:error, if(mode == :conformant_single, do: :account_exists, else: :handle_not_available)}
     else
-      :ok
+      check_identifier(identity, email)
+    end
+  end
+
+  defp check_identifier(identity, email) do
+    cond do
+      Repo.exists?(from u in User, where: u.handle == ^email) ->
+        {:error, :email_taken}
+
+      Repo.exists?(from u in User, where: u.email == ^identity.handle) ->
+        {:error, :handle_not_available}
+
+      true ->
+        :ok
     end
   end
 
