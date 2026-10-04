@@ -6,131 +6,148 @@
 ![License: WTFPL](https://img.shields.io/badge/license-WTFPL-blue.svg)
 ![Elixir](https://img.shields.io/badge/elixir-1.20%20%7C%20OTP%2029-purple.svg)
 
-A minimal, self-hosted ATProto Personal Data Server written in Elixir. The name sounds like PDS and means "go fish" in Portuguese, which felt right for a server that feeds the firehose.
+A minimal, self-hosted ATProto Personal Data Server written in Elixir.
 
-One SQLite file holds the whole server, plus the directory of blob bytes a record references. The reference PDS (TypeScript, PostgreSQL, S3, Node) is built for scale-out hosting. Pesque targets the other end: a handful of accounts, tens of megabytes of idle memory, and a data directory you can back up with `cp`.
+It runs on one SQLite file and one directory of blobs. No Postgres, no S3, no
+cluster. The protocol parts (CIDs, the Merkle Search Tree, DAG-CBOR, CAR
+archives, JWTs, secp256k1 signing) are built here directly rather than pulled
+in, so the whole thing is small enough to read and specific enough to run.
 
-CIDs, the Merkle Search Tree, CAR archives, and JWTs are hand-built, because that is where the protocol actually lives. Dependencies stay minimal: Phoenix (API-only), Bandit, Ecto with SQLite.
+The name sounds like PDS and means "go fish" in Portuguese, which felt right for
+a server that feeds the firehose.
 
-## Two things to know before you put data on a server
+## Run it
 
-**Every local repo is world-readable.** `getRecord`, `listRecords`, `getRepo`, `getLatestCommit`, `describeRepo`, `subscribeRepos`, and `getBlob` are public by protocol design and answer without a token. There is no per-repo visibility setting, and adding one would break the protocol: the point of a PDS is that a repo is fetchable by anyone who knows its DID. Treat everything you write as published.
-
-**So are the photos.** A blob's CID sits inside the record that references it, and the record is world-readable, so every image or video a post points at is fetchable by anyone who can read the post: no token, no rate limit, forever. "Records are public" does not obviously imply this, so say it plainly before you upload a camera roll. Pesque does not strip EXIF either, so location metadata and device identifiers ride along with a JPEG. Strip them in the client, before the upload, not after.
-
-**`:path_multi` does not federate to the public Bluesky network.** Accounts get DIDs like `did:web:example.com:user:alice`. W3C's did:web method allows path-based DIDs, but ATProto restricts did:web to hostname level only, so ATProto resolvers will not follow them. This is the deliberate price of not depending on the PLC directory, which Bluesky operates: Pesque stays self-contained and never needs someone else's infrastructure to resolve an identity. Run `:conformant_single` if you want to be on the public network.
-
-One narrower caveat: whether the public Bluesky AppView renders a `did:web` identity at all is **untested**. That needs a stable public HTTPS hostname and a live account, and it is deferred. Assume nothing in either direction.
-
-## What is not implemented
-
-So you do not plan around it:
-
-- **Lexicon validation.** `Pesque.Lexicon` is a codec, converting `$link` and `$bytes` between XRPC JSON and CBOR. It does not check a record against its Lexicon, so a malformed record from a non-reference client is stored as given.
-- **OAuth.** Sessions are legacy HS256 bearer tokens: no PAR, no DPoP, no scopes, no client IDs.
-- **Multi-server federation and `did:plc`.** Two Pesque instances do not sync.
-- **AppView.** Pesque serves a PDS, not a feed.
-
-Everything else is there: repo storage (MST, commits, CAR export), blob storage and both blob endpoints, the read and write XRPC endpoints, per-account secp256k1 signing keys, `did:web` documents, handle resolution, and the firehose.
-
-## Running it
-
-Needs Elixir 1.18 or later and a C toolchain for the SQLite driver.
+Needs Elixir 1.18+ and a C toolchain for the SQLite driver.
 
 ```bash
 mix deps.get
 mix phx.server
 ```
 
-Migrations run on boot. The server answers at `http://localhost:4000`:
-
 ```bash
 curl http://localhost:4000/xrpc/_health
 ```
 
-`_health` probes the database rather than only proving a process is listening, so a server whose migrations never ran or whose SQLite file is unreachable answers `503` instead of a cheerful ok. Point your uptime monitor at it and a broken data directory gets noticed.
+Migrations run on boot. `_health` queries the database, so a server whose
+migrations never ran answers `503` rather than a cheerful ok. Point your uptime
+monitor at it.
 
-With no configuration, Pesque runs in `:conformant_single` on `localhost:4000` and writes to `./data`.
-
-## Creating an account
-
-Registration is closed by default, so `createAccount` over HTTP answers:
-
-```json
-{"error":"InvalidRequest","message":"registration is closed; accounts are provisioned by the operator"}
-```
-
-Provision from the host instead:
-
-```bash
-mix pesque.create_account --handle alice.example.com --email alice@example.com --password secret123
-```
-
-```plain
-created alice.example.com (did:web:example.com)
-```
-
-This boots the whole application, so the port must be free while it runs: stop the server first, or provision from a second shell with a different `PDS_PORT`.
-
-Set `PDS_REGISTRATION=open` and `createAccount` becomes an open endpoint. Only do that where you want strangers holding accounts.
-
-A handle is `<username>.<handle domain>`, so `alice.example.com` when `PDS_HANDLE_DOMAIN=example.com`. The domain is your own DNS, so world collisions are yours to manage. Local ones cannot happen: two concurrent `createAccount` calls for one handle produce exactly one account.
-
-## Modes
-
-| Mode | DID | DID document | Accounts |
-| --- | --- | --- | --- |
-| `:conformant_single` (default) | `did:web:example.com` | `/.well-known/did.json` | one |
-| `:path_multi` | `did:web:example.com:user:alice` | `/user/alice/did.json` | many |
-
-`:conformant_single` is the conformant shape: one DID for the server, at hostname level, which is what a public server should run. It holds exactly one account, and that account is the server itself.
-
-`:path_multi` gives each account its own DID and signing key, at the cost of the federation deviation above. Use it for a community instance, a private group, or a homelab where you control resolution yourself.
-
-did:web percent-encodes a non-default port, so port 3000 publishes `did:web:example.com%3A3000:user:alice`. A production DID carries no port.
-
-## Configuration
-
-All read from the environment at boot. An unknown `PDS_MODE` or `PDS_REGISTRATION` raises rather than falling back, because a silent fallback surfaces later as a confusing failure.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PDS_DATA_DIR` | `data` (`tmp/test` under `MIX_ENV=test`) | Directory holding the entire server state. |
-| `PDS_HOSTNAME` | `localhost` | Public hostname. Drives the `did:web`. |
-| `PDS_PORT` | `4000` | HTTP listen port. |
-| `PDS_MODE` | `conformant_single` | `conformant_single` or `path_multi`. Anything else raises at boot. |
-| `PDS_HANDLE` | equals `PDS_HOSTNAME` | The handle `:conformant_single` publishes. Ignored in `:path_multi`. |
-| `PDS_HANDLE_DOMAIN` | equals `PDS_HANDLE` | Domain accounts get: `alice.<handle domain>`. |
-| `PDS_REGISTRATION` | `closed` | `open` lets anyone call `createAccount`. Anything else raises at boot. |
-
-The database pool is fixed at 4 and not configurable. The endpoint advertises `https` on `PDS_HOSTNAME`, so put a TLS-terminating proxy (Caddy or nginx) in front of anything reachable from the internet.
-
-## Backups, and the one file that matters
-
-`data/` is the entire server state. Copy the directory and you have copied the server: the SQLite database with its `-wal` and `-shm` sidecars, `blobs/` with the bytes every image and video in a record points at, `keys/` with one signing key per account (0600, in a 0700 directory), and `server.secret`.
-
-Copy it while the server is stopped. SQLite's backup API gives a consistent snapshot of the database, but not of `blobs/`: a `cp -r` of a running server can tear, leaving a blob row whose file had not landed yet (served as a clean miss) or a file whose row had not committed yet (never served). Neither is fatal, but the two halves disagree until the server restarts and settles.
-
-**`data/server.secret` is the crown jewel, not the signing keys.** One HMAC secret signs access and refresh tokens for *every* account. Anyone holding it can mint a valid token for any DID this server hosts and act as any user, silently, leaving no trace in the repo. The per-account keys in `data/keys/` are far less sensitive: they only let you forge commits for one account, and a forged commit fails signature verification the moment anyone checks it. Lose a signing key and that one identity is visibly broken. Leak the server secret and the whole server is open with nobody able to tell.
-
-## Docker
-
-The image sets `PDS_DATA_DIR=/data` and `PDS_PORT=4000`, and declares `VOLUME /data`.
+## Deploy it
 
 ```bash
 docker build -t pesque .
-docker run -d \
-  --name pesque \
-  -p 4000:4000 \
+docker run -d --name pesque -p 4000:4000 \
   -v pesque-data:/data \
   -e PDS_HOSTNAME=pds.example.com \
   pesque
 ```
 
-For a real deployment, put the container behind a TLS-terminating proxy and set `PDS_HOSTNAME` to the public hostname, or the advertised URLs and the `did:web` will name `localhost`.
+Set `PDS_HOSTNAME` to the real address, or the advertised URLs and the
+`did:web` will say `localhost`.
 
-## The did:web tradeoff
+Put Caddy or nginx in front of it for TLS. The container speaks plain HTTP and
+advertises `https`, which is what it should be behind a proxy.
 
-Identity comes from `did:web`, not the PLC directory, so your DID document is a JSON file served from your own domain and the server stays self-contained.
+## Create an account
 
-The cost: your identity is only as stable as your control of the domain and the key files on disk. If the domain lapses or `data/keys/` is lost, the identity goes with it. For a self-hosted server on a domain you control that is usually the right trade, but know what you are accepting.
+Registration is closed by default. From the host:
+
+```bash
+mix pesque.create_account --handle alice.example.com --email alice@example.com --password secret123
+```
+
+```
+created alice.example.com (did:web:example.com)
+```
+
+It boots the whole app, so stop the server first or use a different
+`PDS_PORT`. `PDS_REGISTRATION=open` turns `createAccount` into an open
+endpoint, which is only a good idea where you want strangers holding accounts.
+
+## Before you put real data on it
+
+**Everything you write is public.** `getRecord`, `listRecords`, `getRepo`,
+`getLatestCommit`, `describeRepo`, `subscribeRepos` and `getBlob` answer
+without a token, by protocol design. There is no per-repo visibility setting
+and adding one would break the protocol. Treat every record as published.
+
+**Which includes the photos.** A blob's CID sits inside the record referencing
+it, so every image a post points at is fetchable by anyone who reads the post,
+forever, no rate limit. EXIF is not stripped either, so location and device
+data ride along in the JPEG. Strip it client-side before uploading.
+
+**`:path_multi` will not federate to the public Bluesky network.** It uses
+`did:web:example.com:user:alice`. W3C allows that, ATProto does not, so ATProto
+resolvers ignore it. That is the cost of not depending on Bluesky's PLC
+directory. Use `:conformant_single` to be on the public network.
+
+**The public AppView rendering a `did:web` identity is untested.** It needs a
+real HTTPS hostname and a live account. Assume nothing either way.
+
+**Writes get slower as a repo grows.** Each write rebuilds the whole MST
+instead of updating it, and `getRepo` builds the entire CAR in memory (~1MB per
+500 records). Blocks are never pruned. Fine for thousands of records, not for
+tens of thousands. This is the first thing I would change.
+
+## Not implemented
+
+- **Lexicon validation.** Records are stored as given. `Pesque.Lexicon`
+  converts `$link` and `$bytes` between JSON and CBOR, and stops there.
+- **OAuth.** Sessions are legacy HS256 bearer tokens. No PAR, no DPoP, no
+  scopes.
+- **`did:plc` and server-to-server sync.** Two Pesque instances do not talk to
+  each other.
+- **AppView.** This serves a PDS, not a feed.
+
+## Endpoints
+
+Repo: `createRecord`, `putRecord`, `deleteRecord`, `getRecord`, `listRecords`
+Sync: `getRepo`, `getLatestCommit`, `subscribeRepos`
+Blobs: `uploadBlob`, `getBlob`
+Server: `createAccount`, `createSession`, `refreshSession`, `getSession`, `deleteSession`
+Identity: `resolveHandle`, `describeRepo`, `did:web` documents
+
+## Modes
+
+| Mode | DID | Accounts |
+| --- | --- | --- |
+| `:conformant_single` (default) | `did:web:example.com` | one |
+| `:path_multi` | `did:web:example.com:user:alice` | many |
+
+`:conformant_single` is the conformant shape and what a public server should
+run. `:path_multi` gives each account its own DID and key, at the cost of the
+federation caveat above.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PDS_DATA_DIR` | `data` | Directory holding the whole server state. |
+| `PDS_HOSTNAME` | `localhost` | Public hostname. Drives the `did:web`. |
+| `PDS_PORT` | `4000` | HTTP port. |
+| `PDS_MODE` | `conformant_single` | Or `path_multi`. |
+| `PDS_HANDLE` | `PDS_HOSTNAME` | Handle published in conformant mode. |
+| `PDS_HANDLE_DOMAIN` | `PDS_HANDLE` | Accounts get `alice.<domain>`. |
+| `PDS_REGISTRATION` | `closed` | `open` lets anyone create an account. |
+
+An unknown `PDS_MODE` or `PDS_REGISTRATION` raises at boot rather than
+defaulting, because a silent default shows up later as something confusing.
+
+## Backup
+
+`data/` is everything. Stop the server and copy it.
+
+SQLite's own backup API gives a consistent database, but not `blobs/`. A
+`cp -r` of a running server can tear: a row whose file never landed, or a file
+whose row never committed. Neither is fatal, but they disagree until a restart.
+
+**`data/server.secret` matters more than anything else in there.** One HMAC
+secret signs tokens for every account; anyone holding it can act as any user on
+your server with no trace in the repo. The per-account keys in `keys/` are much
+less sensitive, they only let you forge commits for one account, and a forged
+commit fails signature verification immediately.
+
+## License
+
+[WTFPL](LICENSE). Do what you want with it.
