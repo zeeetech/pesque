@@ -1,9 +1,13 @@
 defmodule PesqueWeb.Xrpc.RepoController do
   use Phoenix.Controller, formats: [:json]
 
-  alias Pesque.{Accounts, CBOR, Lexicon, RepoStore}
+  alias Pesque.{Accounts, Blob, CBOR, Lexicon, RepoStore}
   alias Pesque.Accounts.User
   alias PesqueWeb.Xrpc
+
+  # Claimed by Plug.Parsers before the router runs, so the body is already
+  # gone by the time a controller could read it.
+  @parsed_media_types ["application/json", "application/x-www-form-urlencoded"]
 
   # writes (behind PesqueWeb.Plugs.Auth)
 
@@ -67,9 +71,87 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
         {:error, :invalid_rkey} ->
           Xrpc.error(conn, 400, "InvalidRecordKey", "rkey is not valid")
+
+        {:error, :invalid_link} ->
+          Xrpc.error(conn, 400, "InvalidRequest", "a $link is not a parseable CID")
+
+        {:error, :invalid_bytes} ->
+          Xrpc.error(conn, 400, "InvalidRequest", "a $bytes value is not valid base64")
       end
     else
       {:error, reason} -> write_error(conn, reason)
+    end
+  end
+
+  # uploadBlob declares no repo parameter, so the request names no target: the
+  # token decided it and the body cannot move it. authorize_write/2 is
+  # deliberately not called here, because with conn.assigns.did on both sides
+  # it compares a value with itself and would keep reading as a check long
+  # after it stopped being one.
+  def upload_blob(conn, _params) do
+    with {:ok, media_type} <- blob_media_type(conn),
+         {:ok, bytes, conn} <- read_blob_body(conn),
+         :ok <- content_length_matches(conn, bytes),
+         {:ok, blob} <- Blob.upload(conn.assigns.did, bytes, media_type) do
+      json(conn, %{
+        "blob" => %{
+          "$type" => "blob",
+          "ref" => %{"$link" => blob.cid},
+          "mimeType" => blob.mime_type,
+          "size" => blob.size
+        }
+      })
+    else
+      {:error, {status, name, message}} ->
+        Xrpc.error(conn, status, name, message)
+
+      {:error, :empty} ->
+        Xrpc.error(conn, 400, "InvalidRequest", "blob body is empty")
+
+      {:error, :too_large} ->
+        Xrpc.error(conn, 400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes")
+    end
+  end
+
+  defp blob_media_type(conn) do
+    media_type =
+      conn
+      |> get_req_header("content-type")
+      |> List.first("application/octet-stream")
+      |> String.split(";")
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    if media_type in @parsed_media_types do
+      {:error, {415, "UnsupportedMediaType", "uploadBlob takes the blob as the request body"}}
+    else
+      {:ok, media_type}
+    end
+  end
+
+  defp read_blob_body(conn) do
+    case read_body(conn, length: Blob.max_bytes() + 1) do
+      {:ok, bytes, conn} ->
+        {:ok, bytes, conn}
+
+      {:more, _partial, _conn} ->
+        {:error, {400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes"}}
+
+      {:error, reason} ->
+        {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
+    end
+  end
+
+  # A Content-Length is a claim about the body, not a fact about it, until the
+  # body has actually been read.
+  defp content_length_matches(conn, bytes) do
+    size = Integer.to_string(byte_size(bytes))
+
+    case get_req_header(conn, "content-length") do
+      [^size | _] -> :ok
+      [] -> :ok
+      _ -> {:error, {400, "InvalidRequest", "content-length does not match the body"}}
     end
   end
 

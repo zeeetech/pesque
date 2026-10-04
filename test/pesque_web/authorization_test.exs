@@ -14,7 +14,7 @@ defmodule PesqueWeb.AuthorizationTest do
   import Plug.Conn
   import Phoenix.ConnTest
 
-  alias Pesque.{Accounts, Did, Repo, RepoServer}
+  alias Pesque.{Accounts, Blob, CID, Did, Repo, RepoServer, RepoStore}
   alias Pesque.Accounts.User
   alias PesqueWeb.Endpoint
 
@@ -277,7 +277,75 @@ defmodule PesqueWeb.AuthorizationTest do
     assert Accounts.authorize_write(ctx.alice, nil) == {:error, :wrong_repo}
   end
 
+  test "uploadBlob without a token is 401 and stores nothing", ctx do
+    conn =
+      build_conn()
+      |> put_req_header("content-type", "image/jpeg")
+      |> dispatch(Endpoint, :post, "/xrpc/com.atproto.repo.uploadBlob", "hello")
+
+    assert conn.status == 401
+    assert %{"error" => "AuthenticationRequired"} = JSON.decode!(conn.resp_body)
+
+    cid = CID.to_string(CID.from_data("hello", CID.raw()))
+
+    assert RepoStore.get_blob(ctx.alice.did, cid) == nil
+    assert RepoStore.get_blob(ctx.bob.did, cid) == nil
+    refute File.exists?(Blob.path(ctx.alice.did, CID.parse(cid)))
+  end
+
+  # uploadBlob names no repo, so the only account it can touch is the one the
+  # token names. What has to hold is that alice's bytes land under alice's DID
+  # and are not reachable by naming bob, whatever cid is asked for.
+  test "an upload lands under the uploader's did and not under anyone else's", ctx do
+    conn = upload_blob(ctx.alice_token, "hello", "image/jpeg")
+
+    assert conn.status == 200
+    assert %{"blob" => %{"ref" => %{"$link" => cid}}} = JSON.decode!(conn.resp_body)
+
+    assert Blob.fetch(ctx.alice.did, CID.parse(cid)) == {:ok, "hello", "image/jpeg"}
+    assert Blob.fetch(ctx.bob.did, CID.parse(cid)) == {:error, :not_found}
+
+    stolen = xrpc_get("/xrpc/com.atproto.sync.getBlob?did=#{enc(ctx.bob.did)}&cid=#{enc(cid)}")
+    assert stolen.status == 400
+    assert %{"error" => "BlobNotFound"} = JSON.decode!(stolen.resp_body)
+
+    owner = xrpc_get("/xrpc/com.atproto.sync.getBlob?did=#{enc(ctx.alice.did)}&cid=#{enc(cid)}")
+    assert owner.status == 200
+    assert owner.resp_body == "hello"
+  end
+
+  # Nothing a request supplies becomes a path segment: the cid is parsed and
+  # matched on the decoded struct before it ever names a file, so a traversal
+  # attempt is refused at the edge and the blobs directory does not grow.
+  test "a blob path cannot escape the blob directory", ctx do
+    before = File.ls!(Pesque.Storage.blobs_dir())
+
+    for attempt <- ["../../etc/passwd", "..%2f..%2fetc%2fpasswd", "bafkrei/../../etc/passwd"] do
+      conn =
+        xrpc_get("/xrpc/com.atproto.sync.getBlob?did=#{enc(ctx.alice.did)}&cid=#{enc(attempt)}")
+
+      assert conn.status == 400, attempt
+      assert %{"error" => "InvalidRequest"} = JSON.decode!(conn.resp_body)
+    end
+
+    assert File.ls!(Pesque.Storage.blobs_dir()) == before
+
+    conn = upload_blob(ctx.alice_token, "hello", "image/jpeg")
+    assert conn.status == 200
+    assert %{"blob" => %{"ref" => %{"$link" => cid}}} = JSON.decode!(conn.resp_body)
+
+    assert Blob.path(ctx.alice.did, CID.parse(cid)) =~
+             Pesque.Storage.blobs_dir() <> "/"
+  end
+
   # helpers
+
+  defp upload_blob(token, body, media_type) do
+    build_conn()
+    |> put_req_header("authorization", "Bearer " <> token)
+    |> put_req_header("content-type", media_type)
+    |> dispatch(Endpoint, :post, "/xrpc/com.atproto.repo.uploadBlob", body)
+  end
 
   defp create(name) do
     username = unique(name)

@@ -4,7 +4,7 @@ defmodule Pesque.RepoStore do
   import Ecto.Query
 
   alias Pesque.Repo
-  alias Pesque.RepoStore.{Block, Event, Meta, Record}
+  alias Pesque.RepoStore.{Block, Blob, Event, Meta, Record}
 
   # records
 
@@ -79,6 +79,28 @@ defmodule Pesque.RepoStore do
 
     Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:did, :cid])
   end
+
+  # blobs
+
+  @doc """
+  Inserts the row that makes a blob fetchable; the bytes live on disk.
+
+  on_conflict: :nothing because the CID is the content, so a second upload of
+  the same bytes is not a new fact. It is first-writer-wins on the MIME type
+  on purpose: re-uploading identical bytes under a different declared
+  Content-Type must not change what a reader already got back.
+  """
+  def put_blob!(did, cid_string, mime_type, size) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert!(
+      %Blob{did: did, cid: cid_string, mime_type: mime_type, size: size, inserted_at: now},
+      on_conflict: :nothing,
+      conflict_target: [:did, :cid]
+    )
+  end
+
+  def get_blob(did, cid_string), do: Repo.get_by(Blob, did: did, cid: cid_string)
 
   # events
 

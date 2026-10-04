@@ -2,22 +2,15 @@ defmodule Pesque.Keys do
   @moduledoc """
   Private signing key files, one per DID.
 
-  A DID is not a filename. Its characters include colons, and on a host with
-  a port it includes a percent-encoded colon, and sanitizing either of those
-  out merges distinct DIDs onto one file: did:web:example.com:user:alice and
-  did:web:example.com:user:alice%3Afoo differ only in a character a path
-  segment cannot carry. Two accounts would then share one key file and each
-  would publish a key it does not sign with, so the name is a digest of the
-  DID instead. The digest is not reversible, which costs nothing here: the
-  DID lives in the users table, and a file is only ever looked up by DID.
+  The file name is a digest of the DID rather than the DID itself, for the
+  reasons given on Storage.digest_name/1.
   """
 
   alias Pesque.{Secp256k1, Storage}
 
   @doc "Path of the key file for a DID."
   def path(did) do
-    name = Base.url_encode64(:crypto.hash(:sha256, did), padding: false)
-    Path.join(Storage.keys_dir(), name <> ".key")
+    Path.join(Storage.keys_dir(), Storage.digest_name(did) <> ".key")
   end
 
   @doc """

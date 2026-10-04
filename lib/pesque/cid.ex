@@ -27,8 +27,22 @@ defmodule Pesque.CID do
 
   def to_string(cid), do: "b" <> Pesque.Base32.encode(to_bytes(cid))
 
-  @doc "Parses a base32-multibase CID string."
+  @doc "Parses a base32-multibase CID string. Raises on malformed input."
   def parse("b" <> rest), do: rest |> Pesque.Base32.decode!() |> from_bytes()
+
+  @doc """
+  Parses a CID string, or answers :error.
+
+  Raising is right for a CID this server computed and wrong for one a request
+  supplied: the raise happens inside whoever is handling the request, so a
+  query parameter takes the endpoint down with it. Every HTTP path that reads
+  a CID goes through here, not through parse/1.
+  """
+  def safe_parse(cid) do
+    {:ok, parse(cid)}
+  rescue
+    _ -> :error
+  end
 
   def from_bytes(bin) do
     {1, rest} = Varint.decode(bin)

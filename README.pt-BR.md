@@ -8,13 +8,15 @@
 
 Um Personal Data Server do ATProto, self-hosted, escrito em Elixir. O nome parece PDS e significa "vai pescar" em português, o que pareceu adequado para um servidor que alimenta o firehose.
 
-O servidor inteiro cabe em um arquivo SQLite. O PDS de referência (TypeScript, PostgreSQL, S3, Node) foi construído para escalar horizontalmente. O Pesque vai para o outro extremo: poucas contas, dezenas de megabytes de memória ociosa, e um diretório de dados que se copia com `cp`.
+O servidor inteiro cabe em um arquivo SQLite, mais o diretório de blobs que os registros referenciam. O PDS de referência (TypeScript, PostgreSQL, S3, Node) foi construído para escalar horizontalmente. O Pesque vai para o outro extremo: poucas contas, dezenas de megabytes de memória ociosa, e um diretório de dados que se copia com `cp`.
 
 CIDs, a Merkle Search Tree, arquivos CAR e JWTs são construídos à mão, porque é neles que o protocolo realmente está. As dependências são poucas: Phoenix (somente API), Bandit, Ecto com SQLite.
 
 ## Antes de colocar dados no servidor
 
-**Todo repositório local pode ser lido por qualquer pessoa.** `getRecord`, `listRecords`, `getRepo`, `getLatestCommit`, `describeRepo` e `subscribeRepos` respondem sem token, por decisão do protocolo. Não existe configuração de visibilidade por repositório, e criar uma quebraria o protocolo: o papel de um PDS é justamente esse. Considere tudo que você escreve como público.
+**Todo repositório local pode ser lido por qualquer pessoa.** `getRecord`, `listRecords`, `getRepo`, `getLatestCommit`, `describeRepo`, `subscribeRepos` e `getBlob` respondem sem token, por decisão do protocolo. Não existe configuração de visibilidade por repositório, e criar uma quebraria o protocolo: o papel de um PDS é justamente esse. Considere tudo que você escreve como público.
+
+**E as fotos também.** O CID de um blob fica dentro do registro que o referencia, e esse registro é público, então toda imagem ou vídeo de uma publicação pode ser buscado por qualquer pessoa que leia a publicação: sem token, sem limite de requisições, para sempre. "Registros são públicos" não implica isso de forma óbvia, então vale dizer antes de subir um rolo de câmera. O Pesque também não remove EXIF, então dados de localização e identificadores do aparelho vão junto no JPEG. Remova no cliente, antes do envio.
 
 **O modo `:path_multi` não se conecta à rede pública do Bluesky.** As contas recebem identificadores como `did:web:example.com:user:alice`. O padrão did:web da W3C permite identificadores com caminho, mas o ATProto restringe o did:web ao nível do domínio, então resolvedores do ATProto não seguem esse formato. É o preço de não depender do diretório PLC, que é mantido pelo Bluesky: o Pesque continua autossuficiente. Se quiser estar na rede pública, use o modo `:conformant_single`.
 
@@ -22,13 +24,12 @@ Uma ressalva menor: se o AppView público do Bluesky exibe uma identidade `did:w
 
 ## O que ainda não existe
 
-- **Blobs.** Sem `uploadBlob` e `getBlob`. Publicações com imagem ou vídeo não funcionam.
 - **Validação de Lexicon.** `Pesque.Lexicon` converte `$link` e `$bytes` entre JSON e CBOR. Ele não confere um registro contra o seu Lexicon, então um registro malformado é gravado como veio.
 - **OAuth.** As sessões são tokens HS256 legados, sem PAR, DPoP, escopos ou client IDs.
 - **Sincronização entre servidores e `did:plc`.** Duas instâncias do Pesque não conversam entre si.
 - **AppView.** O Pesque serve um repositório, não um feed.
 
-Tudo o mais está implementado: armazenamento com MST, commits e exportação CAR, os endpoints de leitura e escrita, uma chave de assinatura por conta, documentos `did:web`, resolução de handles e o firehose.
+Tudo o mais está implementado: armazenamento com MST, commits e exportação CAR, armazenamento de blobs e os dois endpoints de blob, os endpoints de leitura e escrita, uma chave de assinatura por conta, documentos `did:web`, resolução de handles e o firehose.
 
 ## Executando
 
@@ -102,9 +103,9 @@ O pool de conexões do banco é fixo em 4. O endpoint anuncia `https` em `PDS_HO
 
 ## Backup
 
-O diretório `data/` é todo o estado do servidor: o banco SQLite com seus arquivos auxiliares, `keys/` com uma chave por conta (0600, dentro de uma pasta 0700) e `server.secret`.
+O diretório `data/` é todo o estado do servidor: o banco SQLite com seus arquivos auxiliares, `blobs/` com os bytes de toda imagem e vídeo referenciado por um registro, `keys/` com uma chave por conta (0600, dentro de uma pasta 0700) e `server.secret`.
 
-Copie o diretório com o servidor parado, ou use a API de backup do SQLite se precisar de uma cópia consistente de um servidor em uso.
+Copie o diretório com o servidor parado. A API de backup do SQLite dá uma cópia consistente do banco, mas não de `blobs/`: um `cp -r` em um servidor em uso pode deixar as metades desencontradas, com uma linha de blob cujo arquivo ainda não chegou (servida como ausência limpa) ou um arquivo cuja linha ainda não foi confirmada (nunca servido). Nada disso é fatal, mas as duas metades discordam até o servidor reiniciar e assentar.
 
 **`data/server.secret` é o arquivo mais importante do conjunto.** Um único segredo HMAC assina os tokens de todas as contas. Quem o obtiver consegue criar um token válido para qualquer identidade hospedada e agir como qualquer usuário, sem deixar registro no repositório. As chaves em `data/keys/` são bem menos sensíveis: elas permitem forjar commits de uma conta, e um commit forjado falha na verificação de assinatura assim que alguém confere. Perder uma chave quebra aquela identidade de forma evidente. Vazar o server secret abre o servidor inteiro sem que ninguém perceba.
 

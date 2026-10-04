@@ -46,12 +46,14 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.repo.createRecord", RepoController, :create_record
     post "/com.atproto.repo.putRecord", RepoController, :put_record
     post "/com.atproto.repo.deleteRecord", RepoController, :delete_record
+    post "/com.atproto.repo.uploadBlob", RepoController, :upload_blob
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
     get "/com.atproto.sync.subscribeRepos", FirehoseController, :upgrade
     get "/com.atproto.sync.getRepo", SyncController, :get_repo
     get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
+    get "/com.atproto.sync.getBlob", SyncController, :get_blob
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

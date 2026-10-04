@@ -82,19 +82,24 @@ defmodule Pesque.RepoServer do
           {:reply, {:error, :record_exists}, state}
 
         _ ->
-          internal = Lexicon.from_json(record)
-          data = CBOR.encode(internal)
-          cid = CID.from_data(data)
+          case Lexicon.from_json(record) do
+            {:ok, internal} ->
+              data = CBOR.encode(internal)
+              cid = CID.from_data(data)
 
-          change = %{
-            action: write_action(action, state.entries, key),
-            key: key,
-            cid: cid,
-            data: data
-          }
+              change = %{
+                action: write_action(action, state.entries, key),
+                key: key,
+                cid: cid,
+                data: data
+              }
 
-          {state, result} = commit(state, [change])
-          {:reply, {:ok, result}, state}
+              {state, result} = commit(state, [change])
+              {:reply, {:ok, result}, state}
+
+            {:error, reason} ->
+              {:reply, {:error, reason}, state}
+          end
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}

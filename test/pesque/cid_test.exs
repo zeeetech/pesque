@@ -43,4 +43,43 @@ defmodule Pesque.CIDTest do
   test "to_string is base32 lower with a b prefix" do
     assert String.starts_with?(CID.to_string(CID.from_data(<<1>>)), "b")
   end
+
+  # parse/1 raises, and every one of these shapes made it raise. They come
+  # from a query string or a record body, so the endpoint reading them must
+  # not be the one to die.
+  test "safe_parse answers :error on everything that makes parse raise" do
+    for bad <- ["bafkrei", "b", "", "not a cid", "bafkre!", "bmfxxxxxxxx", "zzzz", nil, 42] do
+      assert CID.safe_parse(bad) == :error, inspect(bad)
+    end
+  end
+
+  test "safe_parse answers :error on a non-base32 string and on a truncated cid" do
+    assert CID.safe_parse("bafyrei") == :error
+
+    assert CID.safe_parse(
+             String.slice("bafyreiauu4dlrmesbnb7i24u7niyunmpxb6bg4dmpo7ul7wnslx5b77gf4", 0, 20)
+           ) == :error
+  end
+
+  test "safe_parse answers the same struct parse does on input that decodes" do
+    cid = CID.from_data(<<1, 2, 3>>, CID.raw())
+
+    assert CID.safe_parse(CID.to_string(cid)) == {:ok, cid}
+  end
+
+  # Parsing is not validating, and this is the shape that proves it: a CID
+  # that decodes to a raw codec with no hash algorithm and an empty digest,
+  # which parse/1 is perfectly happy to return. It is why callers that build a
+  # path from a CID match on the struct instead of trusting the string.
+  test "safe_parse is not validation: garbage that decodes comes back as a struct" do
+    assert {:ok, cid} = CID.safe_parse("bafkqaaa")
+    assert cid.codec == CID.raw()
+    assert cid.hash_algo == 0
+    assert cid.digest == ""
+
+    assert {:ok, dag_cbor} =
+             CID.safe_parse("bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae")
+
+    assert dag_cbor.codec == CID.dag_cbor()
+  end
 end

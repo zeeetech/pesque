@@ -8,13 +8,15 @@
 
 A minimal, self-hosted ATProto Personal Data Server written in Elixir. The name sounds like PDS and means "go fish" in Portuguese, which felt right for a server that feeds the firehose.
 
-One SQLite file holds the whole server. The reference PDS (TypeScript, PostgreSQL, S3, Node) is built for scale-out hosting. Pesque targets the other end: a handful of accounts, tens of megabytes of idle memory, and a data directory you can back up with `cp`.
+One SQLite file holds the whole server, plus the directory of blob bytes a record references. The reference PDS (TypeScript, PostgreSQL, S3, Node) is built for scale-out hosting. Pesque targets the other end: a handful of accounts, tens of megabytes of idle memory, and a data directory you can back up with `cp`.
 
 CIDs, the Merkle Search Tree, CAR archives, and JWTs are hand-built, because that is where the protocol actually lives. Dependencies stay minimal: Phoenix (API-only), Bandit, Ecto with SQLite.
 
 ## Two things to know before you put data on a server
 
-**Every local repo is world-readable.** `getRecord`, `listRecords`, `getRepo`, `getLatestCommit`, `describeRepo`, and `subscribeRepos` are public by protocol design and answer without a token. There is no per-repo visibility setting, and adding one would break the protocol: the point of a PDS is that a repo is fetchable by anyone who knows its DID. Treat everything you write as published.
+**Every local repo is world-readable.** `getRecord`, `listRecords`, `getRepo`, `getLatestCommit`, `describeRepo`, `subscribeRepos`, and `getBlob` are public by protocol design and answer without a token. There is no per-repo visibility setting, and adding one would break the protocol: the point of a PDS is that a repo is fetchable by anyone who knows its DID. Treat everything you write as published.
+
+**So are the photos.** A blob's CID sits inside the record that references it, and the record is world-readable, so every image or video a post points at is fetchable by anyone who can read the post: no token, no rate limit, forever. "Records are public" does not obviously imply this, so say it plainly before you upload a camera roll. Pesque does not strip EXIF either, so location metadata and device identifiers ride along with a JPEG. Strip them in the client, before the upload, not after.
 
 **`:path_multi` does not federate to the public Bluesky network.** Accounts get DIDs like `did:web:example.com:user:alice`. W3C's did:web method allows path-based DIDs, but ATProto restricts did:web to hostname level only, so ATProto resolvers will not follow them. This is the deliberate price of not depending on the PLC directory, which Bluesky operates: Pesque stays self-contained and never needs someone else's infrastructure to resolve an identity. Run `:conformant_single` if you want to be on the public network.
 
@@ -24,13 +26,12 @@ One narrower caveat: whether the public Bluesky AppView renders a `did:web` iden
 
 So you do not plan around it:
 
-- **Blobs.** No `uploadBlob` or `getBlob`. Records with image or video embeds will not work.
 - **Lexicon validation.** `Pesque.Lexicon` is a codec, converting `$link` and `$bytes` between XRPC JSON and CBOR. It does not check a record against its Lexicon, so a malformed record from a non-reference client is stored as given.
 - **OAuth.** Sessions are legacy HS256 bearer tokens: no PAR, no DPoP, no scopes, no client IDs.
 - **Multi-server federation and `did:plc`.** Two Pesque instances do not sync.
 - **AppView.** Pesque serves a PDS, not a feed.
 
-Everything else is there: repo storage (MST, commits, CAR export), the read and write XRPC endpoints, per-account secp256k1 signing keys, `did:web` documents, handle resolution, and the firehose.
+Everything else is there: repo storage (MST, commits, CAR export), blob storage and both blob endpoints, the read and write XRPC endpoints, per-account secp256k1 signing keys, `did:web` documents, handle resolution, and the firehose.
 
 ## Running it
 
@@ -104,9 +105,9 @@ The database pool is fixed at 4 and not configurable. The endpoint advertises `h
 
 ## Backups, and the one file that matters
 
-`data/` is the entire server state. Copy the directory and you have copied the server: the SQLite database with its `-wal` and `-shm` sidecars, `keys/` with one signing key per account (0600, in a 0700 directory), and `server.secret`.
+`data/` is the entire server state. Copy the directory and you have copied the server: the SQLite database with its `-wal` and `-shm` sidecars, `blobs/` with the bytes every image and video in a record points at, `keys/` with one signing key per account (0600, in a 0700 directory), and `server.secret`.
 
-Back it up by copying the directory while the server is stopped, or with SQLite's backup API if you need a consistent snapshot of a running one.
+Copy it while the server is stopped. SQLite's backup API gives a consistent snapshot of the database, but not of `blobs/`: a `cp -r` of a running server can tear, leaving a blob row whose file had not landed yet (served as a clean miss) or a file whose row had not committed yet (never served). Neither is fatal, but the two halves disagree until the server restarts and settles.
 
 **`data/server.secret` is the crown jewel, not the signing keys.** One HMAC secret signs access and refresh tokens for *every* account. Anyone holding it can mint a valid token for any DID this server hosts and act as any user, silently, leaving no trace in the repo. The per-account keys in `data/keys/` are far less sensitive: they only let you forge commits for one account, and a forged commit fails signature verification the moment anyone checks it. Lose a signing key and that one identity is visibly broken. Leak the server secret and the whole server is open with nobody able to tell.
 

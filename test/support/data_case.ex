@@ -17,12 +17,12 @@ defmodule Pesque.DataCase do
   The owner is a separate unlinked process because a RepoServer that outlives
   the test process would otherwise take the connection down with it.
 
-  Rollback covers the database only. Key files under the data directory and
-  the live RepoServers are cleaned up here: a RepoServer caches the entry map,
-  rev and tid counter that the rolled-back transaction wrote, so handing one to
-  the next test is exactly the leak this module exists to prevent. Key files
-  need removing for the same reason, since a rolled-back row would otherwise
-  still leave a file on disk for a DID no account owns.
+  Rollback covers the database only. Key files and blob bytes under the data
+  directory and the live RepoServers are cleaned up here: a RepoServer caches
+  the entry map, rev and tid counter that the rolled-back transaction wrote,
+  so handing one to the next test is exactly the leak this module exists to
+  prevent. Key files need removing for the same reason, since a rolled-back
+  row would otherwise still leave a file on disk for a DID no account owns.
   """
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -32,11 +32,13 @@ defmodule Pesque.DataCase do
   def setup do
     owner = Sandbox.start_owner!(Repo, shared: true)
     keys = key_files()
+    blobs = blob_dirs()
 
     ExUnit.Callbacks.on_exit(fn ->
       stop_repos()
       Sandbox.stop_owner(owner)
       remove_keys(keys)
+      remove_blobs(blobs)
     end)
 
     :ok
@@ -55,6 +57,16 @@ defmodule Pesque.DataCase do
   defp remove_keys(before) do
     for name <- File.ls!(Storage.keys_dir()), name not in before do
       File.rm(Path.join(Storage.keys_dir(), name))
+    end
+
+    :ok
+  end
+
+  defp blob_dirs, do: File.ls!(Storage.blobs_dir())
+
+  defp remove_blobs(before) do
+    for name <- File.ls!(Storage.blobs_dir()), name not in before do
+      File.rm_rf(Path.join(Storage.blobs_dir(), name))
     end
 
     :ok
