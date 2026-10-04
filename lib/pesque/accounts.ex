@@ -3,6 +3,8 @@ defmodule Pesque.Accounts do
 
   import Ecto.Query
 
+  require Logger
+
   alias Pesque.{Did, Identity, Keys, Repo}
   alias Pesque.Accounts.{RefreshToken, User}
 
@@ -295,6 +297,7 @@ defmodule Pesque.Accounts do
     |> Repo.insert()
     |> case do
       {:ok, user} ->
+        Logger.info("account created", did: user.did, handle: user.handle)
         {:ok, _pid} = Pesque.RepoSupervisor.ensure_started(user.did)
         {:ok, user}
 

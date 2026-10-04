@@ -48,6 +48,8 @@ Migrations run on boot. The server answers at `http://localhost:4000`:
 curl http://localhost:4000/xrpc/_health
 ```
 
+`_health` probes the database rather than only proving a process is listening, so a server whose migrations never ran or whose SQLite file is unreachable answers `503` instead of a cheerful ok. Point your uptime monitor at it and a broken data directory gets noticed.
+
 With no configuration, Pesque runs in `:conformant_single` on `localhost:4000` and writes to `./data`.
 
 ## Creating an account

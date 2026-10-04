@@ -46,6 +46,8 @@ As migrações rodam ao iniciar. O servidor responde em `http://localhost:4000`:
 curl http://localhost:4000/xrpc/_health
 ```
 
+O `_health` consulta o banco de verdade, em vez de apenas provar que um processo está escutando. Assim, um servidor cujas migrações não rodaram, ou cujo arquivo SQLite está inacessível, responde `503` em vez de um "ok" confiante. Aponte seu monitor para ele e um diretório de dados quebrado é percebido.
+
 Sem configuração, o Pesque sobe em `:conformant_single`, na porta 4000, e escreve em `./data`.
 
 ## Criando uma conta
