@@ -178,11 +178,17 @@ defmodule Pesque.MultiAccountTest do
     # Reachable from the open createAccount endpoint. It used to reach
     # `u.handle == ^nil`, which Ecto refuses to build, so the crash escaped
     # the {:error, _} shape the endpoint maps and came out as a 500.
+    #
+    # Counted around the call rather than against an absolute zero: the sandbox
+    # rolls back what this test wrote, but rows another test left behind in the
+    # database are still there, and a zero here made the assertion a report on
+    # the state of the file instead of on the behaviour under test.
+    before = Repo.aggregate(User, :count)
+
     assert {:error, :email_required} =
              Accounts.create_account("alice.localhost", nil, @password)
 
-    # Rejected before a key was claimed, so nothing is left on disk.
-    assert Repo.aggregate(User, :count) == 0
+    assert Repo.aggregate(User, :count) == before
   end
 
   test "one account's handle cannot be claimed as another's email" do
