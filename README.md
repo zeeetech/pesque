@@ -49,6 +49,35 @@ Set `PDS_HOSTNAME` to the real address, or the advertised URLs and the
 Put Caddy or nginx in front of it for TLS. The container speaks plain HTTP and
 advertises `https`, which is what it should be behind a proxy.
 
+### As a release
+
+Without a container, `mix release` builds the same server as a self-contained
+OTP release. It needs a writable `PDS_DATA_DIR` and nothing else.
+
+```bash
+MIX_ENV=prod mix release
+_build/prod/rel/pesque/bin/pesque start
+```
+
+`bin/pesque stop` is `SIGTERM` with a clean exit: the endpoint drains, the repo
+processes finish, and SQLite's write-ahead log survives the restart. Killing it
+with `SIGKILL` works too and loses at most the commit in flight.
+
+```ini
+# /etc/systemd/system/pesque.service
+[Service]
+Type=simple
+User=pesque
+Environment=PDS_DATA_DIR=/var/lib/pesque
+Environment=PDS_HOSTNAME=pds.example.com
+ExecStart=/opt/pesque/bin/pesque start
+ExecStop=/opt/pesque/bin/pesque stop
+Restart=on-failure
+```
+
+Copy the release out of `_build` and run `bin/pesque` from wherever you put it;
+the path in `ExecStart` is the only thing that has to change.
+
 ## Create an account
 
 Registration is closed by default. From the host:
@@ -97,14 +126,27 @@ tens of thousands. This is the first thing I would change.
 - **`did:plc` and server-to-server sync.** Two Pesque instances do not talk to
   each other.
 - **AppView.** This serves a PDS, not a feed.
+- **`deactivateAccount`, `migrateTo`, `getServiceAuth`.** The rest of
+  `com.atproto.server.*` and `com.atproto.repo.*` the spec names are answered;
+  these three are not, and answer `501` rather than pretending.
 
 ## Endpoints
 
 Repo: `createRecord`, `putRecord`, `deleteRecord`, `getRecord`, `listRecords`
 Sync: `getRepo`, `getLatestCommit`, `subscribeRepos`
 Blobs: `uploadBlob`, `getBlob`
-Server: `createAccount`, `createSession`, `refreshSession`, `getSession`, `deleteSession`
+Server: `describeServer`, `checkAccountStatus`, `createAccount`, `createSession`, `refreshSession`, `getSession`, `deleteSession`
 Identity: `resolveHandle`, `describeRepo`, `did:web` documents
+
+`describeServer` and `checkAccountStatus` answer without a token. Everything
+else that writes, or that names a repo, needs one.
+
+Session endpoints are capped at 100 requests an hour per address and per
+account, and the read endpoints at 3000 per five minutes, which is what the
+spec asks for. The address is read from `x-forwarded-for`, because behind
+Caddy every request arrives from the proxy and one caller would otherwise spend
+the whole server's budget. A server reachable directly, with no proxy, is a
+server whose per-address limit is worth nothing: anyone can forge the header.
 
 ## Modes
 
