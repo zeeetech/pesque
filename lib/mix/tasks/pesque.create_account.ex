@@ -7,12 +7,25 @@ defmodule Mix.Tasks.Pesque.CreateAccount do
   account rather than two that can drift.
 
       mix pesque.create_account --handle alice.example.com --email a@example.com --password secret123
+
+  Runs with the endpoint not serving, so it works against a data directory the
+  live server already has open instead of failing on the port.
   """
 
   use Mix.Task
 
   @impl Mix.Task
   def run(argv) do
+    Mix.Task.run("app.config")
+
+    endpoint = Application.get_env(:pesque, PesqueWeb.Endpoint, [])
+
+    Application.put_env(
+      :pesque,
+      PesqueWeb.Endpoint,
+      Keyword.put(endpoint, :server, false)
+    )
+
     Mix.Task.run("app.start")
 
     {opts, _args} =
