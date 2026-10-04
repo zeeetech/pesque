@@ -30,22 +30,54 @@ defmodule Pesque.Accounts do
     end
   end
 
-  def get_user, do: Repo.one(from u in User, limit: 1)
+  @doc "The account with a DID, or nil."
+  def get_user(did), do: Repo.get_by(User, did: did)
 
-  @doc "The DID document of the account named by a username, or :error."
+  @doc """
+  The DID document of the account named by a username, or of the account itself.
+
+  The struct clause exists because the single account under conformant_single
+  has no username, so its document is not reachable by one.
+  """
+  def did_document_for(%User{} = user), do: {:ok, document(user)}
+
   def did_document_for(username) do
     with {:ok, username} <- Did.normalize_username(username),
          %User{} = user <- Repo.get_by(User, username: username) do
-      {:ok,
-       Did.did_document(Pesque.mode(), %{
-         username: user.username,
-         hostname: Pesque.hostname(),
-         port: Pesque.port(),
-         handle_domain: Pesque.handle_domain(),
-         pub_multibase: user.pubkey_multibase
-       })}
+      {:ok, document(user)}
     else
       _ -> :error
+    end
+  end
+
+  @doc """
+  The canonical DID of the local account named by an identifier, or :error.
+
+  Did.to_local_did/2 settles the syntax and whether the host is ours, and
+  deliberately consults no database, so existence is settled here: a DID of
+  the right shape naming no account is :error, not an invitation.
+  """
+  def repo_did(identifier) do
+    with {:ok, did} <- Did.to_local_did(local_config(), identifier),
+         %User{did: did} <- Repo.get_by(User, did: did) do
+      {:ok, did}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
+  Whether the authenticated account owns the repo an identifier names.
+
+  Both sides are canonical DIDs by the time they are compared, so no spelling
+  of another account's repo can equal this one's. An unknown repo and another
+  account's repo answer identically, so the write path cannot be used to ask
+  which DIDs this server hosts.
+  """
+  def authorize_write(%User{did: did}, repo) do
+    case repo_did(repo) do
+      {:ok, ^did} -> :ok
+      _ -> {:error, :wrong_repo}
     end
   end
 
@@ -111,13 +143,20 @@ defmodule Pesque.Accounts do
     %{access_jwt: access, refresh_jwt: refresh}
   end
 
-  @doc "Rotates a live refresh token into a new pair. Reuse of a dead token fails."
+  @doc """
+  Rotates a live refresh token into a new pair. Reuse of a dead token fails.
+
+  The account comes back with the pair because the caller has to answer as
+  that account: the refresh token's subject is the only thing that says which
+  one, and a subject naming no account is a dead token.
+  """
   def rotate_session(refresh_jwt) do
     with {:ok, claims} <-
            Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
-         {:ok, row} <- fetch_live_refresh(claims["jti"]) do
+         {:ok, row} <- fetch_live_refresh(claims["jti"]),
+         %User{} = user <- get_user(claims["sub"]) do
       revoke!(row)
-      {:ok, issue_session(claims["sub"])}
+      {:ok, issue_session(user.did), user}
     else
       _ -> {:error, :invalid_token}
     end
@@ -263,6 +302,27 @@ defmodule Pesque.Accounts do
         Keys.delete(identity.did)
         {:error, :handle_not_available}
     end
+  end
+
+  defp document(user) do
+    Did.did_document(Pesque.mode(), %{
+      username: user.username,
+      hostname: Pesque.hostname(),
+      port: Pesque.port(),
+      handle_domain: Pesque.handle_domain(),
+      pub_multibase: user.pubkey_multibase
+    })
+  end
+
+  # Did.to_local_did/2 takes the server's shape as an argument so it can stay
+  # pure; this is where the live config becomes that shape.
+  defp local_config do
+    %{
+      mode: Pesque.mode(),
+      hostname: Pesque.hostname(),
+      port: Pesque.port(),
+      handle_domain: Pesque.handle_domain()
+    }
   end
 
   defp fetch_live_refresh(jti) when is_binary(jti) do

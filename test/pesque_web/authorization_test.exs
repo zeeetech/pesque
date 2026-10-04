@@ -1,0 +1,409 @@
+defmodule PesqueWeb.AuthorizationTest do
+  @moduledoc """
+  The write boundary over real requests: the token decides the target, and a
+  body naming someone else's repo gets a 400 and changes nothing.
+
+  ConnTest because that is the only layer where the plug, the guard, and the
+  repo are in play at once. The unit tests call Accounts directly and cannot
+  see a token decide anything.
+  """
+
+  use ExUnit.Case, async: false
+
+  import Ecto.Query
+  import Plug.Conn
+  import Phoenix.ConnTest
+
+  alias Pesque.{Accounts, Did, Repo, RepoServer}
+  alias Pesque.Accounts.User
+  alias PesqueWeb.Endpoint
+
+  @password "hunter2hunter2"
+
+  # Plug.RequestId echoes a request-supplied id into the response, so pinning
+  # one is what lets two error responses be compared header by header.
+  @request_id "0123456789abcdef0123456789abcdef"
+
+  setup do
+    put_mode(:path_multi)
+    alice = create("alice")
+    bob = create("bob")
+
+    %{
+      alice: alice,
+      bob: bob,
+      alice_token: access(alice),
+      bob_token: access(bob)
+    }
+  end
+
+  test "alice's token writing to bob's repo by bob's did is refused and changes nothing", ctx do
+    seed(ctx.bob, ctx.bob_token)
+    before = snapshot(ctx.bob)
+
+    conn = create_record(ctx.bob.did, ctx.alice_token)
+
+    assert conn.status == 400
+    assert snapshot(ctx.bob) == before, "bob's repo changed"
+    refute wrote(ctx.bob, "from alice")
+  end
+
+  test "alice's token writing to bob's repo by bob's handle is refused too", ctx do
+    seed(ctx.bob, ctx.bob_token)
+    before = snapshot(ctx.bob)
+
+    conn = create_record(ctx.bob.handle, ctx.alice_token)
+
+    assert conn.status == 400
+    assert snapshot(ctx.bob) == before, "bob's repo changed"
+    refute wrote(ctx.bob, "from alice")
+  end
+
+  test "put and delete are guarded the way create is", ctx do
+    seed(ctx.bob, ctx.bob_token)
+    before = snapshot(ctx.bob)
+
+    for path <- ["putRecord", "deleteRecord"] do
+      for repo <- [ctx.bob.did, ctx.bob.handle] do
+        params = %{"repo" => repo, "collection" => "app.bsky.feed.post", "rkey" => "bobs"}
+
+        conn = xrpc_post("/xrpc/com.atproto.repo.#{path}", params, ctx.alice_token)
+
+        assert conn.status == 400, "#{path} took a cross-account write"
+        assert snapshot(ctx.bob) == before, "bob's repo changed through #{path}"
+      end
+    end
+  end
+
+  test "alice writing to her own repo by her own handle succeeds", ctx do
+    conn = create_record(ctx.alice.handle, ctx.alice_token)
+
+    assert conn.status == 200
+
+    assert %{"uri" => uri, "cid" => cid, "commit" => %{"cid" => commit, "rev" => rev}} =
+             JSON.decode!(conn.resp_body)
+
+    assert String.starts_with?(uri, "at://#{ctx.alice.did}/app.bsky.feed.post/")
+    assert is_binary(cid)
+    assert is_binary(commit)
+    assert is_binary(rev)
+    assert wrote(ctx.alice, "from alice")
+  end
+
+  test "alice writing to her own repo by her own did succeeds", ctx do
+    assert create_record(ctx.alice.did, ctx.alice_token).status == 200
+  end
+
+  # refreshSession answering with the first account's handle would hand every
+  # caller on the server somebody else's identity.
+  test "refreshSession answers for the account that owns the refresh token", ctx do
+    for account <- [ctx.alice, ctx.bob] do
+      session = Accounts.issue_session(account.did)
+      conn = xrpc_post("/xrpc/com.atproto.server.refreshSession", %{}, session.refresh_jwt)
+
+      assert conn.status == 200
+      assert %{"handle" => handle, "did" => did} = JSON.decode!(conn.resp_body)
+      assert handle == account.handle
+      assert did == account.did
+    end
+  end
+
+  test "getSession answers for the account that owns the access token", ctx do
+    for {token, account} <- [{ctx.alice_token, ctx.alice}, {ctx.bob_token, ctx.bob}] do
+      conn = xrpc_get("/xrpc/com.atproto.server.getSession", token)
+
+      assert conn.status == 200
+      assert %{"handle" => handle, "did" => did} = JSON.decode!(conn.resp_body)
+      assert handle == account.handle
+      assert did == account.did
+    end
+  end
+
+  # A validly signed token for an account that does not exist has no one
+  # behind it, so it authenticates nothing.
+  test "a valid token for a nonexistent account does not authenticate" do
+    ghost = ghost_did()
+
+    conn = create_record(ghost, mint_access(ghost))
+
+    assert conn.status == 401
+    assert %{"error" => "AuthenticationRequired"} = JSON.decode!(conn.resp_body)
+    assert xrpc_get("/xrpc/com.atproto.server.getSession", mint_access(ghost)).status == 401
+
+    assert xrpc_post("/xrpc/com.atproto.server.refreshSession", %{}, mint_refresh(ghost)).status ==
+             401
+
+    assert Accounts.repo_did(ghost) == :error
+  end
+
+  # The token outlives the signature check: what stops it is that there is no
+  # account left to be.
+  test "a token for a deleted account stops authenticating", ctx do
+    token = mint_access(ctx.bob.did)
+    assert create_record(ctx.bob.did, token).status == 200
+
+    Repo.delete_all(from u in User, where: u.did == ^ctx.bob.did)
+
+    assert create_record(ctx.bob.did, token).status == 401
+    assert xrpc_get("/xrpc/com.atproto.server.getSession", token).status == 401
+  end
+
+  test "the bare server did and handle are not accounts under path_multi", ctx do
+    assert Accounts.repo_did(Pesque.Identity.did()) == :error
+    assert Accounts.repo_did(Pesque.Identity.handle()) == :error
+    assert create_record(Pesque.Identity.handle(), ctx.alice_token).status == 400
+  end
+
+  # Non-enumerability is why both answer with the same thing: a token holder
+  # must not be able to ask which DIDs this server hosts.
+  test "a repo that exists but is not yours is indistinguishable from one that does not", ctx do
+    seed(ctx.bob, ctx.bob_token)
+
+    existing = create_record(ctx.bob.did, ctx.alice_token)
+    missing = create_record(ghost_did(), ctx.alice_token)
+
+    assert existing.status == missing.status
+    assert existing.resp_headers == missing.resp_headers
+    assert existing.resp_body == missing.resp_body
+
+    taken = create_record(ctx.bob.handle, ctx.alice_token)
+    free = create_record(ghost_handle(), ctx.alice_token)
+
+    assert taken.status == free.status
+    assert taken.resp_headers == free.resp_headers
+    assert taken.resp_body == free.resp_body
+  end
+
+  test "reads are unauthenticated and serve any local repo", ctx do
+    seed(ctx.bob, ctx.bob_token)
+
+    record =
+      xrpc_get(
+        "/xrpc/com.atproto.repo.getRecord?repo=#{enc(ctx.bob.did)}&collection=app.bsky.feed.post&rkey=bobs"
+      )
+
+    assert record.status == 200
+    assert %{"uri" => "at://" <> uri} = JSON.decode!(record.resp_body)
+    assert uri == "#{ctx.bob.did}/app.bsky.feed.post/bobs"
+
+    listed =
+      xrpc_get(
+        "/xrpc/com.atproto.repo.listRecords?repo=#{enc(ctx.bob.did)}&collection=app.bsky.feed.post"
+      )
+
+    assert listed.status == 200
+    assert %{"records" => [%{"uri" => "at://" <> _}]} = JSON.decode!(listed.resp_body)
+
+    repo = xrpc_get("/xrpc/com.atproto.sync.getRepo?did=#{enc(ctx.bob.did)}")
+    assert repo.status == 200
+    assert <<_::binary>> = repo.resp_body
+    assert repo.resp_body == elem(snapshot(ctx.bob), 0)
+
+    commit = xrpc_get("/xrpc/com.atproto.sync.getLatestCommit?did=#{enc(ctx.bob.did)}")
+    assert commit.status == 200
+    assert %{"cid" => cid, "rev" => rev} = JSON.decode!(commit.resp_body)
+    assert is_binary(cid)
+    assert is_binary(rev)
+  end
+
+  # describeRepo returning the server's identity for whatever repo is asked
+  # hands every account but one somebody else's face.
+  test "describeRepo returns the target account's identity, not the server's", ctx do
+    seed(ctx.alice, ctx.alice_token)
+    seed(ctx.bob, ctx.bob_token)
+
+    for account <- [ctx.alice, ctx.bob] do
+      body = described(account)
+
+      assert body["handle"] == account.handle
+      assert body["did"] == account.did
+      assert body["didDoc"]["id"] == account.did
+      assert body["didDoc"]["alsoKnownAs"] == ["at://" <> account.handle]
+      assert published(body["didDoc"]) == account.pubkey_multibase
+      assert body["collections"] == ["app.bsky.feed.post"]
+      assert body["handleIsCorrect"] == true
+    end
+
+    alice = described(ctx.alice)
+    bob = described(ctx.bob)
+    server = Pesque.Identity.handle()
+
+    refute alice["handle"] == bob["handle"]
+    refute alice["handle"] == server
+    refute bob["handle"] == server
+    refute published(alice["didDoc"]) == published(bob["didDoc"])
+  end
+
+  test "reads for a repo that does not exist answer as before", ctx do
+    ghost = ghost_did()
+
+    for path <- [
+          "/xrpc/com.atproto.repo.getRecord?repo=#{enc(ghost)}&collection=app.bsky.feed.post&rkey=x",
+          "/xrpc/com.atproto.repo.listRecords?repo=#{enc(ghost)}&collection=app.bsky.feed.post",
+          "/xrpc/com.atproto.repo.describeRepo?repo=#{enc(ghost)}",
+          "/xrpc/com.atproto.sync.getRepo?did=#{enc(ghost)}",
+          "/xrpc/com.atproto.sync.getLatestCommit?did=#{enc(ghost)}"
+        ] do
+      assert xrpc_get(path).status == 400, path
+    end
+
+    assert xrpc_get("/xrpc/com.atproto.repo.describeRepo?repo=#{enc(ctx.alice.did)}").status ==
+             200
+  end
+
+  test "the accounts primitives agree with the http surface", ctx do
+    assert Accounts.repo_did(ctx.alice.did) == {:ok, ctx.alice.did}
+    assert Accounts.repo_did(ctx.alice.handle) == {:ok, ctx.alice.did}
+    assert Accounts.repo_did(String.upcase(ctx.alice.handle)) == {:ok, ctx.alice.did}
+    assert Accounts.repo_did(ctx.bob.handle) == {:ok, ctx.bob.did}
+
+    # Syntactically ours, belongs to no account.
+    assert Accounts.repo_did(ghost_did()) == :error
+    assert Accounts.repo_did(ghost_handle()) == :error
+
+    # Not ours at all.
+    assert Accounts.repo_did("did:web:example.com:user:mallory") == :error
+    assert Accounts.repo_did("alice.evil.example") == :error
+    assert Accounts.repo_did("did:plc:abc123") == :error
+    assert Accounts.repo_did(nil) == :error
+    assert Accounts.repo_did("") == :error
+
+    assert Accounts.authorize_write(ctx.alice, ctx.alice.did) == :ok
+    assert Accounts.authorize_write(ctx.alice, ctx.alice.handle) == :ok
+    assert Accounts.authorize_write(ctx.alice, ctx.bob.did) == {:error, :wrong_repo}
+    assert Accounts.authorize_write(ctx.alice, ctx.bob.handle) == {:error, :wrong_repo}
+    assert Accounts.authorize_write(ctx.alice, ghost_did()) == {:error, :wrong_repo}
+    assert Accounts.authorize_write(ctx.alice, nil) == {:error, :wrong_repo}
+  end
+
+  # helpers
+
+  defp create(name) do
+    username = unique(name)
+
+    {:ok, user} =
+      Accounts.create_account(username <> ".localhost", username <> "@localhost", @password)
+
+    # A call round trip, not the pid, guarantees the genesis commit in
+    # handle_continue/2 has already run.
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(user.did)
+    RepoServer.entries(pid)
+    user
+  end
+
+  defp access(user), do: Accounts.issue_session(user.did).access_jwt
+
+  defp seed(user, token) do
+    params = %{
+      "repo" => user.did,
+      "collection" => "app.bsky.feed.post",
+      "rkey" => "bobs",
+      "record" => post_record("seeded by " <> user.username)
+    }
+
+    assert xrpc_post("/xrpc/com.atproto.repo.createRecord", params, token).status == 200
+    :ok
+  end
+
+  defp snapshot(user) do
+    car = xrpc_get("/xrpc/com.atproto.sync.getRepo?did=#{enc(user.did)}")
+    commit = xrpc_get("/xrpc/com.atproto.sync.getLatestCommit?did=#{enc(user.did)}")
+
+    assert car.status == 200
+    assert commit.status == 200
+    {car.resp_body, JSON.decode!(commit.resp_body)}
+  end
+
+  defp wrote(user, text) do
+    listed =
+      xrpc_get(
+        "/xrpc/com.atproto.repo.listRecords?repo=#{enc(user.did)}&collection=app.bsky.feed.post"
+      )
+
+    listed.resp_body
+    |> JSON.decode!()
+    |> Map.fetch!("records")
+    |> Enum.any?(&(&1["value"]["text"] == text))
+  end
+
+  defp described(account) do
+    conn = xrpc_get("/xrpc/com.atproto.repo.describeRepo?repo=#{enc(account.did)}")
+    assert conn.status == 200
+    JSON.decode!(conn.resp_body)
+  end
+
+  defp create_record(repo, token) do
+    params = %{
+      "repo" => repo,
+      "collection" => "app.bsky.feed.post",
+      "record" => post_record("from alice")
+    }
+
+    xrpc_post("/xrpc/com.atproto.repo.createRecord", params, token)
+  end
+
+  defp xrpc_get(path, token \\ nil), do: request(:get, path, nil, token)
+  defp xrpc_post(path, params, token), do: request(:post, path, params, token)
+
+  defp request(method, path, params, token) do
+    build_conn()
+    |> maybe_auth(token)
+    |> put_req_header("x-request-id", @request_id)
+    |> put_req_header("content-type", "application/json")
+    |> dispatch(Endpoint, method, path, JSON.encode!(params || %{}))
+  end
+
+  defp maybe_auth(conn, nil), do: conn
+  defp maybe_auth(conn, token), do: put_req_header(conn, "authorization", "Bearer " <> token)
+
+  defp mint_access(did) do
+    now = System.system_time(:second)
+
+    Pesque.Token.sign(
+      %{"scope" => "com.atproto.access", "sub" => did, "iat" => now, "exp" => now + 3600},
+      Pesque.Secret.get()
+    )
+  end
+
+  defp mint_refresh(did) do
+    now = System.system_time(:second)
+
+    Pesque.Token.sign(
+      %{
+        "scope" => "com.atproto.refresh",
+        "sub" => did,
+        "jti" => "ghost-jti",
+        "iat" => now,
+        "exp" => now + 3600
+      },
+      Pesque.Secret.get()
+    )
+  end
+
+  defp ghost_did, do: Did.did_for_username(:path_multi, host(), unique("ghost"))
+  defp ghost_handle, do: unique("ghost") <> ".localhost"
+
+  defp published(doc) do
+    [verification] = doc["verificationMethod"]
+    verification["publicKeyMultibase"]
+  end
+
+  defp post_record(text) do
+    %{"$type" => "app.bsky.feed.post", "text" => text, "createdAt" => "2026-01-01T00:00:00.000Z"}
+  end
+
+  defp put_mode(mode) do
+    previous = Application.get_all_env(:pesque)
+
+    on_exit(fn ->
+      Enum.each(previous, fn {key, value} -> Application.put_env(:pesque, key, value) end)
+    end)
+
+    Application.put_env(:pesque, :mode, mode)
+    :ok
+  end
+
+  defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
+  defp enc(value), do: URI.encode_www_form(value)
+  defp unique(prefix), do: prefix <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
+end

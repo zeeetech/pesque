@@ -1,7 +1,8 @@
 defmodule PesqueWeb.Xrpc.RepoController do
   use Phoenix.Controller, formats: [:json]
 
-  alias Pesque.{CBOR, Identity, Lexicon, RepoStore}
+  alias Pesque.{Accounts, CBOR, Lexicon, RepoStore}
+  alias Pesque.Accounts.User
   alias PesqueWeb.Xrpc
 
   # writes (behind PesqueWeb.Plugs.Auth)
@@ -15,7 +16,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
   end
 
   def delete_record(conn, params) do
-    with :ok <- require_self(conn, params["repo"]),
+    with {:ok, _did} <- with_owned_repo(conn, params),
          :ok <- require_params(params, ["collection", "rkey"]) do
       {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
 
@@ -38,7 +39,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
   end
 
   defp write(conn, params, action) do
-    with :ok <- require_self(conn, params["repo"]),
+    with {:ok, _did} <- with_owned_repo(conn, params),
          :ok <- require_params(params, ["collection"]),
          :ok <- require_record(params["record"]) do
       {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
@@ -132,16 +133,18 @@ defmodule PesqueWeb.Xrpc.RepoController do
   end
 
   def describe_repo(conn, %{"repo" => repo}) do
-    with {:ok, did} <- resolve_repo(repo) do
+    with {:ok, did} <- resolve_repo(repo),
+         %User{} = user <- Accounts.get_user(did),
+         {:ok, did_doc} <- Accounts.did_document_for(user) do
       json(conn, %{
-        "handle" => Identity.handle(),
-        "did" => did,
-        "didDoc" => Identity.did_document(),
+        "handle" => user.handle,
+        "did" => user.did,
+        "didDoc" => did_doc,
         "collections" => RepoStore.collections_for(did),
-        "handleIsCorrect" => true
+        "handleIsCorrect" => handle_is_correct(user, did_doc)
       })
     else
-      :error -> Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
+      _ -> Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
 
@@ -151,17 +154,29 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   # helpers
 
-  defp require_self(conn, repo) do
-    if repo in [conn.assigns.did, Identity.handle()] do
-      :ok
-    else
-      {:error, :wrong_repo}
+  # Local-only, and deliberately not the real thing. Confirming a handle means
+  # resolving it from the network and checking who controls the domain, which
+  # is out of scope here; what is checkable is that the document this server
+  # publishes for the account claims the account's handle, and that the local
+  # resolver maps that handle back to the same DID. Both halves are computed,
+  # so a mismatch is reported as false rather than papered over with true.
+  defp handle_is_correct(user, did_doc) do
+    did_doc["alsoKnownAs"] == ["at://" <> user.handle] and
+      Accounts.repo_did(user.handle) == {:ok, user.did}
+  end
+
+  # The token decides the target, this decides whether, and the request body
+  # never supplies the target. The success value is conn.assigns.did and not
+  # the resolved param on purpose: passing params["repo"] down instead would
+  # read as the same check and write to whoever the body named.
+  defp with_owned_repo(conn, params) do
+    case Accounts.authorize_write(conn.assigns.current_user, params["repo"]) do
+      :ok -> {:ok, conn.assigns.did}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp resolve_repo(repo) do
-    if repo in [Identity.did(), Identity.handle()], do: {:ok, Identity.did()}, else: :error
-  end
+  defp resolve_repo(repo), do: Accounts.repo_did(repo)
 
   defp require_params(params, keys) do
     if Enum.all?(keys, &is_binary(params[&1])), do: :ok, else: {:error, :missing_params}

@@ -91,11 +91,12 @@ defmodule PesqueWeb.Xrpc.SessionController do
     PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "identifier and password are required")
   end
 
+  # The refresh token's subject names the account, so the answer is that
+  # account's and nobody else's. rotate_session/1 refuses a token whose
+  # subject is not an account, so a live token cannot outlive its account.
   def refresh_session(conn, _params) do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
-         {:ok, session} <- Accounts.rotate_session(token) do
-      user = Accounts.get_user()
-
+         {:ok, session, user} <- Accounts.rotate_session(token) do
       json(conn, %{
         "accessJwt" => session.access_jwt,
         "refreshJwt" => session.refresh_jwt,
@@ -118,17 +119,13 @@ defmodule PesqueWeb.Xrpc.SessionController do
   end
 
   def get_session(conn, _params) do
-    user = Accounts.get_user()
+    user = conn.assigns.current_user
 
-    if user && user.did == conn.assigns.did do
-      json(conn, %{
-        "handle" => user.handle,
-        "did" => user.did,
-        "email" => user.email,
-        "active" => true
-      })
-    else
-      PesqueWeb.Xrpc.error(conn, 401, "InvalidToken", "session subject is unknown")
-    end
+    json(conn, %{
+      "handle" => user.handle,
+      "did" => user.did,
+      "email" => user.email,
+      "active" => true
+    })
   end
 end
