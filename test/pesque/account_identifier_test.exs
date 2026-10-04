@@ -9,6 +9,7 @@ defmodule Pesque.AccountIdentifierTest do
   @password "hunter2hunter2"
 
   setup do
+    Pesque.DataCase.setup()
     put_mode(:path_multi)
   end
 

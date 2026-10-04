@@ -48,4 +48,6 @@ config :pesque, PesqueWeb.Endpoint,
 
 if config_env() == :test do
   config :pesque, PesqueWeb.Endpoint, server: false
+
+  config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox
 end

@@ -7,6 +7,7 @@ defmodule Pesque.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       deps: deps()
     ]
@@ -38,7 +39,12 @@ defmodule Pesque.MixProject do
 
   defp aliases do
     [
-      precommit: ["compile --warnings-as-errors", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "format --check-formatted", "test"]
     ]
   end
+
+  # test/support holds the test-only helper modules. Not shipped, not compiled
+  # outside test.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 end

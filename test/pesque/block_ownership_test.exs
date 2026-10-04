@@ -5,6 +5,8 @@ defmodule Pesque.BlockOwnershipTest do
   alias Pesque.Accounts.User
 
   setup do
+    Pesque.DataCase.setup()
+
     alice = account("alice")
     bob = account("bob")
 

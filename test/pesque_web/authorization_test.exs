@@ -25,6 +25,7 @@ defmodule PesqueWeb.AuthorizationTest do
   @request_id "0123456789abcdef0123456789abcdef"
 
   setup do
+    Pesque.DataCase.setup()
     put_mode(:path_multi)
     alice = create("alice")
     bob = create("bob")
