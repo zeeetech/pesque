@@ -189,11 +189,15 @@ defmodule PesqueWeb.Xrpc.RepoController do
     Xrpc.error(conn, 400, "InvalidRequest", "repo, collection, and rkey are required")
   end
 
+  # A limit or cursor that is not a whole number reads as 0, and the clamps
+  # below turn that into the smallest page and the first page respectively.
+  # That is a deliberate choice over a 400: a paging parameter a client got
+  # wrong should not fail a read that would otherwise succeed.
   def list_records(conn, %{"repo" => repo, "collection" => collection} = params) do
     case resolve_repo(repo) do
       {:ok, did} ->
-        limit = params |> Map.get("limit", "50") |> parse_int(50) |> max(1) |> min(100)
-        offset = params |> Map.get("cursor", "0") |> parse_int(0) |> max(0)
+        limit = params |> Map.get("limit", "50") |> parse_int() |> max(1) |> min(100)
+        offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
         reverse = params["reverse"] == "true"
 
         rows = RepoStore.list_records(did, collection, limit + 1, offset, reverse)
@@ -285,12 +289,10 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp write_error(conn, :missing_params),
     do: Xrpc.error(conn, 400, "InvalidRequest", "missing required params")
 
-  defp parse_int(value, _default) when is_binary(value) do
+  defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
       {n, ""} -> n
       _ -> 0
     end
   end
-
-  defp parse_int(_value, default), do: default
 end
