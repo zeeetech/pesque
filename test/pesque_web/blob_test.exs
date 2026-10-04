@@ -5,27 +5,19 @@ defmodule PesqueWeb.BlobTest do
   an attacker chose.
   """
 
-  use ExUnit.Case, async: false
+  use PesqueWeb.ConnCase, async: false
 
-  import Phoenix.ConnTest
-  import Plug.Conn
-
-  alias Pesque.Accounts
   alias Pesque.Blob
   alias Pesque.CID
   alias Pesque.Did
-  alias PesqueWeb.Endpoint
 
-  @password "hunter2hunter2"
   @upload "/xrpc/com.atproto.repo.uploadBlob"
   @download "/xrpc/com.atproto.sync.getBlob"
 
   setup do
-    Pesque.DataCase.setup()
-    put_mode(:path_multi)
-    alice = create("alice")
+    alice = create_account("alice")
 
-    %{alice: alice, token: access(alice)}
+    %{alice: alice, token: token(alice)}
   end
 
   test "uploadBlob answers the blob reference for the raw bytes", ctx do
@@ -167,7 +159,7 @@ defmodule PesqueWeb.BlobTest do
   end
 
   test "uploadBlob stores under the authenticated did and nothing else", ctx do
-    bob = create("bob")
+    bob = create_account("bob")
 
     cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
@@ -247,35 +239,7 @@ defmodule PesqueWeb.BlobTest do
     request("#{@download}?did=#{enc(did)}&cid=#{enc(cid)}")
   end
 
-  defp request(path) do
-    dispatch(build_conn(), Endpoint, :get, path, nil)
-  end
-
-  defp create(name) do
-    username = name <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
-
-    {:ok, user} =
-      Accounts.create_account(username <> ".localhost", username <> "@localhost", @password)
-
-    {:ok, _pid} = Pesque.RepoSupervisor.ensure_started(user.did)
-    user
-  end
-
-  defp access(user), do: Accounts.issue_session(user.did).access_jwt
+  defp request(path), do: xrpc_get(path)
 
   defp ghost_did, do: Did.did_for_username(:path_multi, Pesque.hostname(), unique("ghost"))
-
-  defp put_mode(mode) do
-    previous = Application.get_all_env(:pesque)
-
-    on_exit(fn ->
-      Enum.each(previous, fn {key, value} -> Application.put_env(:pesque, key, value) end)
-    end)
-
-    Application.put_env(:pesque, :mode, mode)
-    :ok
-  end
-
-  defp enc(value), do: URI.encode_www_form(value)
-  defp unique(prefix), do: prefix <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 end

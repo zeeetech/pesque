@@ -92,8 +92,6 @@ tens of thousands. This is the first thing I would change.
 
 ## Not implemented
 
-- **Lexicon validation.** Records are stored as given. `Pesque.Lexicon`
-  converts `$link` and `$bytes` between JSON and CBOR, and stops there.
 - **OAuth.** Sessions are legacy HS256 bearer tokens. No PAR, no DPoP, no
   scopes.
 - **`did:plc` and server-to-server sync.** Two Pesque instances do not talk to

@@ -7,11 +7,11 @@ defmodule Pesque.Lexicon.Validate do
   and a reason, so a caller can tell a client which field it got wrong rather
   than only that something did.
 
-      iex> def = %{"type" => "object", "required" => ["text"],
+      iex> post = %{"type" => "object", "required" => ["text"],
       ...>           "properties" => %{"text" => %{"type" => "string"}}}
-      iex> Pesque.Lexicon.Validate.validate(schema, %{"text" => "hi"})
+      iex> Pesque.Lexicon.Validate.validate(post, %{"text" => "hi"})
       :ok
-      iex> Pesque.Lexicon.Validate.validate(schema, %{})
+      iex> Pesque.Lexicon.Validate.validate(post, %{})
       {:error, [{["text"], :required}]}
 
   The rules implemented are the ones the vendored lexicons actually use:
@@ -35,7 +35,7 @@ defmodule Pesque.Lexicon.Validate do
   alias Pesque.Grapheme
 
   @doc "Validates a value against a lexicon definition."
-  @spec validate(map() | nil, term()) :: :ok | {:error, [{[term()], atom()}]}
+  @spec validate(map() | nil, term()) :: :ok | {:error, [{[term()], atom() | tuple()}]}
   def validate(nil, _value), do: :ok
   def validate(schema, value), do: errors(schema, value, []) |> Enum.reverse() |> result()
 
@@ -283,7 +283,7 @@ defmodule Pesque.Lexicon.Validate do
             # Both reasons are kept: which of the two parsers stopped first is
             # the difference between a missing offset and a malformed date, and
             # a caller logging this wants the specific one.
-            [{path, :bad_datetime, reason, date_reason}]
+            [{path, {:bad_datetime, reason, date_reason}}]
         end
     end
   end
@@ -355,5 +355,5 @@ defmodule Pesque.Lexicon.Validate do
     end
   end
 
-  defp format_errors(format, _value, path), do: [{path, :unsupported_format, format}]
+  defp format_errors(format, _value, path), do: [{path, {:unsupported_format, format}}]
 end

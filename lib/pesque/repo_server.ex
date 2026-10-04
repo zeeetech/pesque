@@ -16,6 +16,7 @@ defmodule Pesque.RepoServer do
   alias Pesque.Keys
   alias Pesque.Lexicon
   alias Pesque.Mst
+  alias Pesque.Record
   alias Pesque.Repo
   alias Pesque.RepoStore
   alias Pesque.Secp256k1
@@ -31,11 +32,11 @@ defmodule Pesque.RepoServer do
     GenServer.start_link(__MODULE__, did, name: {:via, Registry, {Pesque.RepoRegistry, did}})
   end
 
-  def create_record(pid, collection, rkey, record),
-    do: GenServer.call(pid, {:write, :create, collection, rkey, record}, 15_000)
+  def create_record(pid, collection, rkey, record, opts \\ []),
+    do: GenServer.call(pid, {:write, :create, collection, rkey, record, opts}, 15_000)
 
-  def put_record(pid, collection, rkey, record),
-    do: GenServer.call(pid, {:write, :put, collection, rkey, record}, 15_000)
+  def put_record(pid, collection, rkey, record, opts \\ []),
+    do: GenServer.call(pid, {:write, :put, collection, rkey, record, opts}, 15_000)
 
   def delete_record(pid, collection, rkey),
     do: GenServer.call(pid, {:delete, collection, rkey}, 15_000)
@@ -78,7 +79,7 @@ defmodule Pesque.RepoServer do
   @impl true
   def handle_call(:entries, _from, state), do: {:reply, state.entries, state}
 
-  def handle_call({:write, action, collection, rkey, record}, _from, state) do
+  def handle_call({:write, action, collection, rkey, record, opts}, _from, state) do
     with :ok <- validate_collection(collection),
          {:ok, rkey, state} <- ensure_rkey(rkey, state) do
       key = collection <> "/" <> rkey
@@ -88,24 +89,9 @@ defmodule Pesque.RepoServer do
           {:reply, {:error, :record_exists}, state}
 
         _ ->
-          case Lexicon.from_json(record) do
-            {:ok, internal} ->
-              data = CBOR.encode(internal)
-              cid = CID.from_data(data)
-
-              change = %{
-                action: write_action(action, state.entries, key),
-                key: key,
-                cid: cid,
-                data: data
-              }
-
-              {state, result} = commit(state, [change])
-              # commit machinery
-              {:reply, {:ok, result}, state}
-
-            {:error, reason} ->
-              {:reply, {:error, reason}, state}
+          case Record.check(collection, record, opts) do
+            {:ok, record} -> encode_write(state, action, key, record)
+            {:error, _reason} = error -> {:reply, error, state}
           end
       end
     else
@@ -127,6 +113,32 @@ defmodule Pesque.RepoServer do
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # Split out of the write clause so the record check is the last thing that
+  # clause reads as before the encoding starts. from_json/1 is what turns a
+  # client's $link and $bytes into the structures CBOR understands, and it is
+  # the last point at which a bad value can be turned away: past it the
+  # encoder raises rather than answering a tuple.
+  defp encode_write(state, action, key, record) do
+    case Lexicon.from_json(record) do
+      {:ok, internal} ->
+        data = CBOR.encode(internal)
+        cid = CID.from_data(data)
+
+        change = %{
+          action: write_action(action, state.entries, key),
+          key: key,
+          cid: cid,
+          data: data
+        }
+
+        {state, result} = commit(state, [change])
+        {:reply, {:ok, result}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 

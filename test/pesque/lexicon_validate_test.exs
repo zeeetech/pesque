@@ -120,7 +120,7 @@ defmodule Pesque.Lexicon.ValidateTest do
       assert :ok = Validate.validate(format("datetime"), "1985-04-12T23:20:50.123Z")
       assert :ok = Validate.validate(format("datetime"), "1985-04-12")
 
-      assert {:error, [{[], :bad_datetime, _, _}]} =
+      assert {:error, [{[], {:bad_datetime, _, _}}]} =
                Validate.validate(format("datetime"), "yesterday")
     end
 
@@ -187,7 +187,7 @@ defmodule Pesque.Lexicon.ValidateTest do
     # ignoring one would mean a lexicon using a rule this server never heard of
     # validates clean, which is the one outcome a validator must not produce.
     test "a format this server does not implement is refused" do
-      assert {:error, [{[], :unsupported_format, "emoji"}]} =
+      assert {:error, [{[], {:unsupported_format, "emoji"}}]} =
                Validate.validate(format("emoji"), "x")
     end
   end
@@ -391,7 +391,7 @@ defmodule Pesque.Lexicon.ValidateTest do
 
       # text is required by the real lexicon, so it is supplied: what is under
       # test here is the field that is wrong, not the one that is absent.
-      assert {:error, [{["createdAt"], :bad_datetime, _, _}]} =
+      assert {:error, [{["createdAt"], {:bad_datetime, _, _}}]} =
                Validate.validate(schema, %{"text" => "hi", "createdAt" => "not a date"})
 
       # The reply block is a com.atproto.repo.strongRef, which the registry

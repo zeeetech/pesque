@@ -53,17 +53,20 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
       fun =
         if action == :create,
-          do: &Pesque.RepoServer.create_record/4,
-          else: &Pesque.RepoServer.put_record/4
+          do: &Pesque.RepoServer.create_record/5,
+          else: &Pesque.RepoServer.put_record/5
 
-      case fun.(pid, params["collection"], params["rkey"], params["record"]) do
+      validate = validate?(params)
+
+      case fun.(pid, params["collection"], params["rkey"], params["record"], validate: validate) do
         {:ok, result} ->
           [change] = result["changes"]
 
           json(conn, %{
             "uri" => change["uri"],
             "cid" => change["cid"],
-            "commit" => result["commit"]
+            "commit" => result["commit"],
+            "validationStatus" => if(validate, do: "valid", else: "unknown")
           })
 
         {:error, :record_exists} ->
@@ -74,6 +77,25 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
         {:error, :invalid_rkey} ->
           Xrpc.error(conn, 400, "InvalidRecordKey", "rkey is not valid")
+
+        {:error, {:type_mismatch, found, collection}} ->
+          Xrpc.error(conn, 400, "InvalidRequest", "record $type #{found} is not #{collection}")
+
+        {:error, :unknown_collection} ->
+          Xrpc.error(
+            conn,
+            400,
+            "InvalidRequest",
+            "this server has no lexicon for that collection"
+          )
+
+        {:error, {:invalid_record, errors}} ->
+          Xrpc.error(
+            conn,
+            400,
+            "InvalidRequest",
+            "record does not match #{params["collection"]}: #{describe(errors)}"
+          )
 
         {:error, :invalid_link} ->
           Xrpc.error(conn, 400, "InvalidRequest", "a $link is not a parseable CID")
@@ -88,6 +110,30 @@ defmodule PesqueWeb.Xrpc.RepoController do
       {:error, reason} -> write_error(conn, reason)
     end
   end
+
+  # validate is absent on almost every request and means true, so the default
+  # is the one that reads as an omission. It arrives as a string from a form
+  # body and as a boolean from JSON, and only "false" turns it off.
+  defp validate?(params) do
+    params["validate"] not in [false, "false"]
+  end
+
+  # The validator answers with a path per mistake, and a client that sent one
+  # cannot act on "invalid record". Naming the fields is the difference between
+  # a 400 the caller can fix and one it has to guess at.
+  defp describe(errors) do
+    errors
+    |> Enum.map(fn {path, reason} ->
+      "#{Enum.join(path, ".")} (#{reason_name(reason)})"
+    end)
+    |> Enum.join(", ")
+  end
+
+  # Reasons are atoms except for the format failures, which carry the parser
+  # that stopped first so a server log can keep the specific one. A caller gets
+  # the name, not the internals.
+  defp reason_name(reason) when is_atom(reason), do: reason
+  defp reason_name(reason) when is_tuple(reason), do: elem(reason, 0)
 
   # uploadBlob declares no repo parameter, so the request names no target: the
   # token decided it and the body cannot move it. authorize_write/2 is

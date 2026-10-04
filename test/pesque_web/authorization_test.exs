@@ -8,11 +8,9 @@ defmodule PesqueWeb.AuthorizationTest do
   see a token decide anything.
   """
 
-  use ExUnit.Case, async: false
+  use PesqueWeb.ConnCase, async: false
 
   import Ecto.Query
-  import Phoenix.ConnTest
-  import Plug.Conn
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
@@ -22,25 +20,18 @@ defmodule PesqueWeb.AuthorizationTest do
   alias Pesque.Repo
   alias Pesque.RepoServer
   alias Pesque.RepoStore
-  alias PesqueWeb.Endpoint
 
   @password "hunter2hunter2"
 
-  # Plug.RequestId echoes a request-supplied id into the response, so pinning
-  # one is what lets two error responses be compared header by header.
-  @request_id "0123456789abcdef0123456789abcdef"
-
   setup do
-    Pesque.DataCase.setup()
-    put_mode(:path_multi)
-    alice = create("alice")
-    bob = create("bob")
+    alice = create_account("alice")
+    bob = create_account("bob")
 
     %{
       alice: alice,
       bob: bob,
-      alice_token: access(alice),
-      bob_token: access(bob)
+      alice_token: token(alice),
+      bob_token: token(bob)
     }
   end
 
@@ -352,21 +343,6 @@ defmodule PesqueWeb.AuthorizationTest do
     |> dispatch(Endpoint, :post, "/xrpc/com.atproto.repo.uploadBlob", body)
   end
 
-  defp create(name) do
-    username = unique(name)
-
-    {:ok, user} =
-      Accounts.create_account(username <> ".localhost", username <> "@localhost", @password)
-
-    # A call round trip, not the pid, guarantees the genesis commit in
-    # handle_continue/2 has already run.
-    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(user.did)
-    RepoServer.entries(pid)
-    user
-  end
-
-  defp access(user), do: Accounts.issue_session(user.did).access_jwt
-
   defp seed(user, token) do
     params = %{
       "repo" => user.did,
@@ -416,20 +392,6 @@ defmodule PesqueWeb.AuthorizationTest do
     xrpc_post("/xrpc/com.atproto.repo.createRecord", params, token)
   end
 
-  defp xrpc_get(path, token \\ nil), do: request(:get, path, nil, token)
-  defp xrpc_post(path, params, token), do: request(:post, path, params, token)
-
-  defp request(method, path, params, token) do
-    build_conn()
-    |> maybe_auth(token)
-    |> put_req_header("x-request-id", @request_id)
-    |> put_req_header("content-type", "application/json")
-    |> dispatch(Endpoint, method, path, JSON.encode!(params || %{}))
-  end
-
-  defp maybe_auth(conn, nil), do: conn
-  defp maybe_auth(conn, token), do: put_req_header(conn, "authorization", "Bearer " <> token)
-
   defp mint_access(did) do
     now = System.system_time(:second)
 
@@ -462,22 +424,5 @@ defmodule PesqueWeb.AuthorizationTest do
     verification["publicKeyMultibase"]
   end
 
-  defp post_record(text) do
-    %{"$type" => "app.bsky.feed.post", "text" => text, "createdAt" => "2026-01-01T00:00:00.000Z"}
-  end
-
-  defp put_mode(mode) do
-    previous = Application.get_all_env(:pesque)
-
-    on_exit(fn ->
-      Enum.each(previous, fn {key, value} -> Application.put_env(:pesque, key, value) end)
-    end)
-
-    Application.put_env(:pesque, :mode, mode)
-    :ok
-  end
-
   defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
-  defp enc(value), do: URI.encode_www_form(value)
-  defp unique(prefix), do: prefix <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 end
