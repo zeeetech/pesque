@@ -22,21 +22,19 @@ defmodule Pesque.Identity do
     :persistent_term.put(@pub_multibase, key.pub_multibase)
   end
 
-  def mode, do: Pesque.mode()
-  def hostname, do: Pesque.hostname()
-  def handle_domain, do: Pesque.handle_domain()
-  def did, do: Did.did_for_username(mode(), Did.did_host(hostname(), Pesque.port()), nil)
-  def handle, do: Did.handle_for_username(mode(), handle_domain(), nil)
-  def service_endpoint, do: Did.service_endpoint(hostname())
-  def did_document, do: Did.did_document(mode(), identity())
+  def did,
+    do: Did.did_for_username(Pesque.mode(), Did.did_host(Pesque.hostname(), Pesque.port()), nil)
+
+  def handle, do: Did.handle_for_username(Pesque.mode(), Pesque.handle_domain(), nil)
+  def did_document, do: Did.did_document(Pesque.mode(), identity())
   def public_key_multibase, do: :persistent_term.get(@pub_multibase)
 
   defp identity do
     %{
       username: nil,
-      hostname: hostname(),
+      hostname: Pesque.hostname(),
       port: Pesque.port(),
-      handle_domain: handle_domain(),
+      handle_domain: Pesque.handle_domain(),
       pub_multibase: public_key_multibase()
     }
   end

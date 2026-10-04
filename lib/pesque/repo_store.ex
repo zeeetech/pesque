@@ -3,7 +3,6 @@ defmodule Pesque.RepoStore do
 
   import Ecto.Query
 
-  # records
   alias Pesque.Repo
   alias Pesque.RepoStore.Blob
   alias Pesque.RepoStore.Block
@@ -11,8 +10,14 @@ defmodule Pesque.RepoStore do
   alias Pesque.RepoStore.Meta
   alias Pesque.RepoStore.Record
 
+  # records
+
   def records_for(did) do
-    Repo.all(from r in Record, where: r.did == ^did)
+    Repo.all(
+      from r in Record,
+        where: r.did == ^did,
+        select: %{collection: r.collection, rkey: r.rkey, cid: r.cid}
+    )
   end
 
   def get_record(did, collection, rkey) do
@@ -41,7 +46,6 @@ defmodule Pesque.RepoStore do
     Repo.insert!(
       %Record{
         did: did,
-        # blocks
         collection: collection,
         rkey: rkey,
         cid: cid,
@@ -57,19 +61,19 @@ defmodule Pesque.RepoStore do
     Repo.delete!(%Record{did: did, collection: collection, rkey: rkey})
   end
 
+  # blocks
+
   def blocks_for(did) do
     Repo.all(from b in Block, where: b.did == ^did)
   end
 
   def existing_cids(did, cid_strings) do
     cid_strings
+    # The chunk size is SQLite's bound-variable ceiling, not a tuning knob.
     |> Enum.chunk_every(500)
     |> Enum.flat_map(fn chunk ->
       Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: b.cid)
     end)
-
-    # blobs
-
     |> MapSet.new()
   end
 
@@ -85,6 +89,8 @@ defmodule Pesque.RepoStore do
     Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:did, :cid])
   end
 
+  # blobs
+
   @doc """
   Inserts the row that makes a blob fetchable; the bytes live on disk.
 
@@ -93,9 +99,6 @@ defmodule Pesque.RepoStore do
   on purpose: re-uploading identical bytes under a different declared
   Content-Type must not change what a reader already got back.
   """
-
-  # events
-
   def put_blob!(did, cid_string, mime_type, size) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
@@ -107,6 +110,8 @@ defmodule Pesque.RepoStore do
   end
 
   def get_blob(did, cid_string), do: Repo.get_by(Blob, did: did, cid: cid_string)
+
+  # events
 
   def max_seq do
     Repo.one(from e in Event, select: max(e.seq)) || 0
@@ -126,7 +131,6 @@ defmodule Pesque.RepoStore do
     event.seq
   end
 
-  # meta
   def put_event_payload!(seq, payload) do
     query = from e in Event, where: e.seq == ^seq, update: [set: [payload: ^payload]]
     {1, _} = Repo.update_all(query, [])
@@ -147,6 +151,8 @@ defmodule Pesque.RepoStore do
   def oldest_seq do
     Repo.one(from e in Event, select: min(e.seq))
   end
+
+  # meta
 
   def get_meta(key) do
     case Repo.get(Meta, key) do
