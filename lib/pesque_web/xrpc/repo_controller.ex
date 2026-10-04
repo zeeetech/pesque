@@ -80,6 +80,9 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
         {:error, :invalid_bytes} ->
           Xrpc.error(conn, 400, "InvalidRequest", "a $bytes value is not valid base64")
+
+        {:error, :unencodable} ->
+          Xrpc.error(conn, 400, "InvalidRequest", "record holds a value DAG-CBOR cannot encode")
       end
     else
       {:error, reason} -> write_error(conn, reason)

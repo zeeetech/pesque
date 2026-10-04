@@ -201,6 +201,19 @@ defmodule PesqueWeb.BlobTest do
     assert %{"error" => "InvalidRequest"} = JSON.decode!(conn.resp_body)
   end
 
+  test "a record DAG-CBOR cannot encode is a 400, not a crash", ctx do
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
+
+    # JSON admits integers past uint64; the encoder raises on one, from inside
+    # the commit. Invalid UTF-8 needs no guard here because the JSON encoder
+    # refuses to emit it, so it never arrives over HTTP.
+    conn = write_record(ctx.token, ctx.alice.handle, %{"text" => 18_446_744_073_709_551_616})
+
+    assert conn.status == 400
+    assert %{"error" => "InvalidRequest"} = JSON.decode!(conn.resp_body)
+    assert Process.alive?(pid), "the record write must not take the RepoServer down"
+  end
+
   defp write_record(token, repo, record) do
     build_conn()
     |> put_req_header("authorization", "Bearer " <> token)

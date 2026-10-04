@@ -52,6 +52,22 @@ defmodule Pesque.Lexicon do
     end
   end
 
+  # DAG-CBOR holds uint64 and text strings have to be valid UTF-8. JSON admits
+  # neither limit, so a client can carry both, and the encoder raises on them
+  # in the middle of a commit. Turning them away here is what keeps this
+  # function's promise that a bad value aborts the conversion instead of the
+  # process holding it. Nothing else JSON produces can raise: object keys are
+  # always strings, and nil, true, false and floats all encode.
+  def from_json(int) when is_integer(int) do
+    if int >= -0x1_0000_0000_0000_0000 and int <= 0xFFFF_FFFF_FFFF_FFFF,
+      do: {:ok, int},
+      else: {:error, :unencodable}
+  end
+
+  def from_json(bin) when is_binary(bin) do
+    if String.valid?(bin), do: {:ok, bin}, else: {:error, :unencodable}
+  end
+
   def from_json(other), do: {:ok, other}
 
   def to_json(%CID{} = cid), do: %{"$link" => CID.to_string(cid)}
