@@ -32,14 +32,20 @@ defmodule Pesque.Blob do
   would otherwise leave a partial file at the final path, the next upload of
   those same bytes would see it present and skip the write, and the truncated
   file would then be served forever. Rename is atomic on POSIX.
+
+  A filesystem failure is :unwritable rather than the posix reason: the causes
+  differ per platform, and a caller enumerating them will miss one and crash.
   """
   def put(did, %CID{} = cid, bytes) do
     final = path(did, cid)
     tmp = final <> ".tmp"
 
     with :ok <- File.mkdir_p(Path.dirname(final)),
-         :ok <- File.write(tmp, bytes) do
-      File.rename(tmp, final)
+         :ok <- File.write(tmp, bytes),
+         :ok <- File.rename(tmp, final) do
+      :ok
+    else
+      {:error, _reason} -> {:error, :unwritable}
     end
   end
 

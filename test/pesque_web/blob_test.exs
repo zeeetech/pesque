@@ -128,6 +128,22 @@ defmodule PesqueWeb.BlobTest do
     assert %{"error" => "InvalidRequest"} = JSON.decode!(oversize.resp_body)
   end
 
+  # A filesystem failure is the server's problem, not the client's. What matters
+  # is that Blob.put/3 answers a reason the endpoint can map rather than passing
+  # the raw posix reason through a with/else that never heard of it.
+  test "a blob that cannot be written answers :unwritable", ctx do
+    cid = CID.from_data("hello", CID.raw())
+    dir = Path.dirname(Blob.path(ctx.alice.did, cid))
+
+    # A file where the per-account directory belongs: mkdir_p cannot make it.
+    File.mkdir_p!(Path.dirname(dir))
+    File.write!(dir, "not a directory")
+
+    on_exit(fn -> File.rm(dir) end)
+
+    assert {:error, :unwritable} = Blob.put(ctx.alice.did, cid, "hello")
+  end
+
   # Plug.Parsers claims these two before the router runs and leaves nothing to
   # read, so the controller refuses them by name instead of moving the parsers
   # out of the endpoint for one route.

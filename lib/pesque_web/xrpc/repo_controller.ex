@@ -113,6 +113,9 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
       {:error, :too_large} ->
         Xrpc.error(conn, 400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes")
+
+      {:error, :unwritable} ->
+        Xrpc.error(conn, 500, "InternalServerError", "blob could not be written to disk")
     end
   end
 
