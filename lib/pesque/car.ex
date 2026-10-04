@@ -1,7 +1,9 @@
 defmodule Pesque.Car do
   @moduledoc "CAR v1 writer: a dag-cbor header followed by varint-framed blocks."
 
-  alias Pesque.{CBOR, CID, Varint}
+  alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Varint
 
   @doc "roots: list of %CID{}. blocks: %{(%CID{}) => binary}. Returns iodata-ready binary."
   def encode(roots, blocks) when is_list(roots) and is_map(blocks) do

@@ -16,7 +16,8 @@ defmodule Pesque.Mst do
       down; empty filler nodes bridge any gap
   """
 
-  alias Pesque.{CBOR, CID}
+  alias Pesque.CBOR
+  alias Pesque.CID
 
   @doc "Key depth: count of leading zero bits of sha256(key), divided by 2."
   def depth(key) when is_binary(key) do

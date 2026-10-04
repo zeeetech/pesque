@@ -1,7 +1,9 @@
 defmodule Pesque.LexiconTest do
   use ExUnit.Case, async: true
 
-  alias Pesque.{CBOR, CID, Lexicon}
+  alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Lexicon
 
   @link "bafyreiauu4dlrmesbnb7i24u7niyunmpxb6bg4dmpo7ul7wnslx5b77gf4"
 

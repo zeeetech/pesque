@@ -3,10 +3,10 @@ defmodule PesqueWeb.Plugs.Auth do
 
   import Plug.Conn
 
-  require Logger
-
   alias Pesque.Accounts
   alias Pesque.Accounts.User
+
+  require Logger
 
   def init(opts), do: opts
 

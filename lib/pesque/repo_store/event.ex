@@ -1,4 +1,5 @@
 defmodule Pesque.RepoStore.Event do
+  @moduledoc false
   use Ecto.Schema
 
   @primary_key {:seq, :integer, []}

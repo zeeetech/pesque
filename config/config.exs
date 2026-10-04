@@ -1,15 +1,5 @@
 import Config
 
-config :pesque, ecto_repos: [Pesque.Repo]
-
-config :pesque, PesqueWeb.Endpoint,
-  adapter: Bandit.PhoenixAdapter,
-  render_errors: [formats: [json: PesqueWeb.ErrorJSON], layout: false]
-
-config :phoenix, :json_library, JSON
-
-config :logger, :default_handler, level: :info
-
 # $metadata renders nothing unless the formatter selects keys, and the default
 # selects none. The list is ours rather than :all because :all also drags in
 # mfa, file, line and domain on every line, which buries the fields a log
@@ -17,3 +7,13 @@ config :logger, :default_handler, level: :info
 config :logger, :default_formatter,
   format: "$time [$level] $message $metadata\n",
   metadata: [:did, :handle, :route, :reason, :hostname, :mode, :registration, :data_dir]
+
+config :logger, :default_handler, level: :info
+
+config :pesque, PesqueWeb.Endpoint,
+  adapter: Bandit.PhoenixAdapter,
+  render_errors: [formats: [json: PesqueWeb.ErrorJSON], layout: false]
+
+config :pesque, ecto_repos: [Pesque.Repo]
+
+config :phoenix, :json_library, JSON

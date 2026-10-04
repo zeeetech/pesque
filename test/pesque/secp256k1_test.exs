@@ -1,7 +1,8 @@
 defmodule Pesque.Secp256k1Test do
   use ExUnit.Case, async: true
 
-  alias Pesque.{Base58, Secp256k1}
+  alias Pesque.Base58
+  alias Pesque.Secp256k1
 
   @group_order 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 

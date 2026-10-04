@@ -29,7 +29,7 @@ defmodule Pesque.Base32 do
 
     <<bin::binary-size(^byte_len), pad::size(^pad_bits)>> = bitstr
 
-    unless pad == 0 do
+    if pad != 0 do
       raise ArgumentError, "non-zero base32 padding bits"
     end
 

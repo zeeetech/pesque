@@ -80,7 +80,7 @@ defmodule Pesque.CBORTest do
           %{"bb" => 1, "a" => 2},
           %{"m" => [1, "two", nil], "b" => %Bytes{data: <<1, 2, 3>>}}
         ] do
-      assert CBOR.encode(term) |> CBOR.decode!() == term
+      assert term |> CBOR.encode() |> CBOR.decode!() == term
     end
   end
 

@@ -6,7 +6,8 @@ defmodule Pesque.Keys do
   reasons given on Storage.digest_name/1.
   """
 
-  alias Pesque.{Secp256k1, Storage}
+  alias Pesque.Secp256k1
+  alias Pesque.Storage
 
   @doc "Path of the key file for a DID."
   def path(did) do

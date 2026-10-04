@@ -18,7 +18,7 @@ defmodule PesqueWeb.HealthTest do
   end
 
   test "reports the database as reachable" do
-    conn = build_conn() |> get("/xrpc/_health")
+    conn = get(build_conn(), "/xrpc/_health")
 
     assert conn.status == 200
 

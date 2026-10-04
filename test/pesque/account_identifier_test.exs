@@ -3,8 +3,10 @@ defmodule Pesque.AccountIdentifierTest do
 
   import Ecto.Query
 
-  alias Pesque.{Accounts, Did, Repo}
+  alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Did
+  alias Pesque.Repo
 
   @password "hunter2hunter2"
 

@@ -6,7 +6,8 @@ defmodule PesqueWeb.Firehose do
 
   @behaviour WebSock
 
-  alias Pesque.{CBOR, RepoStore}
+  alias Pesque.CBOR
+  alias Pesque.RepoStore
 
   @impl true
   def init(%{cursor: cursor}) do

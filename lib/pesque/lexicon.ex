@@ -12,7 +12,8 @@ defmodule Pesque.Lexicon do
   process was holding it.
   """
 
-  alias Pesque.{CBOR, CID}
+  alias Pesque.CBOR
+  alias Pesque.CID
 
   def from_json(%{"$link" => link} = map) when map_size(map) == 1 and is_binary(link) do
     case CID.safe_parse(link) do
@@ -56,11 +57,9 @@ defmodule Pesque.Lexicon do
   def to_json(%CID{} = cid), do: %{"$link" => CID.to_string(cid)}
   def to_json(%CBOR.Bytes{data: data}), do: %{"$bytes" => Base.encode64(data)}
 
-  def to_json(map) when is_map(map),
-    do: Map.new(map, fn {k, v} -> {k, to_json(v)} end)
+  def to_json(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, to_json(v)} end)
 
-  def to_json(list) when is_list(list),
-    do: Enum.map(list, &to_json/1)
+  def to_json(list) when is_list(list), do: Enum.map(list, &to_json/1)
 
   def to_json(other), do: other
 end

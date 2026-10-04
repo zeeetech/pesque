@@ -1,4 +1,5 @@
 defmodule Pesque.RepoStore.Block do
+  @moduledoc false
   use Ecto.Schema
 
   @primary_key false

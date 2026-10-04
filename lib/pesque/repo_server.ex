@@ -10,14 +10,22 @@ defmodule Pesque.RepoServer do
 
   use GenServer
 
-  alias Pesque.{CBOR, CID, Keys, Lexicon, Mst, Repo, RepoStore, Secp256k1, Tid}
+  alias Pesque.CBOR
+  alias Pesque.CID
+  # API
+  alias Pesque.Keys
+  alias Pesque.Lexicon
+  alias Pesque.Mst
+  alias Pesque.Repo
+  alias Pesque.RepoStore
+  alias Pesque.Secp256k1
+  alias Pesque.Tid
 
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
+  # callbacks
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
   defstruct [:did, :clock_id, :priv, entries: %{}, tid_int: 0, rev: nil]
-
-  # API
 
   def start_link(did) do
     GenServer.start_link(__MODULE__, did, name: {:via, Registry, {Pesque.RepoRegistry, did}})
@@ -33,8 +41,6 @@ defmodule Pesque.RepoServer do
     do: GenServer.call(pid, {:delete, collection, rkey}, 15_000)
 
   def entries(pid), do: GenServer.call(pid, :entries)
-
-  # callbacks
 
   @impl true
   def init(did) do
@@ -95,6 +101,7 @@ defmodule Pesque.RepoServer do
               }
 
               {state, result} = commit(state, [change])
+              # commit machinery
               {:reply, {:ok, result}, state}
 
             {:error, reason} ->
@@ -122,8 +129,6 @@ defmodule Pesque.RepoServer do
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
-
-  # commit machinery
 
   defp write_action(:create, _entries, _key), do: "create"
 
@@ -209,7 +214,7 @@ defmodule Pesque.RepoServer do
         Enum.map(changes, fn c ->
           %{
             "uri" => "at://" <> state.did <> "/" <> c.key,
-            "cid" => if(c.cid, do: CID.to_string(c.cid), else: nil),
+            "cid" => if(c.cid, do: CID.to_string(c.cid)),
             "action" => c.action
           }
         end)

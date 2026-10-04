@@ -6,7 +6,9 @@ defmodule Pesque.BlobTest do
 
   use ExUnit.Case, async: false
 
-  alias Pesque.{Blob, CID, Storage}
+  alias Pesque.Blob
+  alias Pesque.CID
+  alias Pesque.Storage
 
   @did "did:web:example.com:user:alice"
 
@@ -83,7 +85,7 @@ defmodule Pesque.BlobTest do
 
     assert cid == CID.from_data(bytes, CID.raw())
 
-    assert Blob.path(@did, cid) |> String.starts_with?(Storage.blobs_dir() <> "/")
+    assert @did |> Blob.path(cid) |> String.starts_with?(Storage.blobs_dir() <> "/")
     assert Blob.path(@did, cid) == String.replace(Blob.path(@did, cid), "..", "")
   end
 

@@ -1,8 +1,13 @@
 defmodule Pesque.BlockOwnershipTest do
   use ExUnit.Case, async: false
 
-  alias Pesque.{CID, Car, Repo, RepoServer, RepoStore, Varint}
   alias Pesque.Accounts.User
+  alias Pesque.Car
+  alias Pesque.CID
+  alias Pesque.Repo
+  alias Pesque.RepoServer
+  alias Pesque.RepoStore
+  alias Pesque.Varint
 
   setup do
     Pesque.DataCase.setup()

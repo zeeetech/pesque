@@ -3,8 +3,16 @@ defmodule Pesque.MultiAccountTest do
 
   import Ecto.Query
 
-  alias Pesque.{Accounts, Base58, CBOR, Did, Keys, Repo, RepoServer, RepoStore, Secp256k1}
+  alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Base58
+  alias Pesque.CBOR
+  alias Pesque.Did
+  alias Pesque.Keys
+  alias Pesque.Repo
+  alias Pesque.RepoServer
+  alias Pesque.RepoStore
+  alias Pesque.Secp256k1
 
   @password "hunter2hunter2"
 

@@ -11,7 +11,8 @@ defmodule Pesque.Identity do
   here at boot rather than by create_account/3.
   """
 
-  alias Pesque.{Did, Keys}
+  alias Pesque.Did
+  alias Pesque.Keys
 
   @pub_multibase {__MODULE__, :pub_multibase}
 

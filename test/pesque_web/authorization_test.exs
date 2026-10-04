@@ -11,11 +11,17 @@ defmodule PesqueWeb.AuthorizationTest do
   use ExUnit.Case, async: false
 
   import Ecto.Query
-  import Plug.Conn
   import Phoenix.ConnTest
+  import Plug.Conn
 
-  alias Pesque.{Accounts, Blob, CID, Did, Repo, RepoServer, RepoStore}
+  alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Blob
+  alias Pesque.CID
+  alias Pesque.Did
+  alias Pesque.Repo
+  alias Pesque.RepoServer
+  alias Pesque.RepoStore
   alias PesqueWeb.Endpoint
 
   @password "hunter2hunter2"
@@ -311,6 +317,7 @@ defmodule PesqueWeb.AuthorizationTest do
 
     owner = xrpc_get("/xrpc/com.atproto.sync.getBlob?did=#{enc(ctx.alice.did)}&cid=#{enc(cid)}")
     assert owner.status == 200
+    # helpers
     assert owner.resp_body == "hello"
   end
 
@@ -337,8 +344,6 @@ defmodule PesqueWeb.AuthorizationTest do
     assert Blob.path(ctx.alice.did, CID.parse(cid)) =~
              Pesque.Storage.blobs_dir() <> "/"
   end
-
-  # helpers
 
   defp upload_blob(token, body, media_type) do
     build_conn()

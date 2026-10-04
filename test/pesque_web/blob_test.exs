@@ -7,10 +7,13 @@ defmodule PesqueWeb.BlobTest do
 
   use ExUnit.Case, async: false
 
-  import Plug.Conn
   import Phoenix.ConnTest
+  import Plug.Conn
 
-  alias Pesque.{Accounts, Blob, CID, Did}
+  alias Pesque.Accounts
+  alias Pesque.Blob
+  alias Pesque.CID
+  alias Pesque.Did
   alias PesqueWeb.Endpoint
 
   @password "hunter2hunter2"
@@ -34,7 +37,7 @@ defmodule PesqueWeb.BlobTest do
   end
 
   test "getBlob serves the bytes back under the stored mime type", ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
     conn = get_blob(ctx.alice.did, cid)
 
@@ -57,7 +60,7 @@ defmodule PesqueWeb.BlobTest do
   # The CSP the controller sets has to be the one that ships, not the global
   # one, or the sandbox on an attacker-supplied html blob is worth nothing.
   test "getBlob replaces the global content security policy", ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
     conn = get_blob(ctx.alice.did, cid)
 
@@ -67,14 +70,14 @@ defmodule PesqueWeb.BlobTest do
   end
 
   test "getBlob resolves the did through a handle as well", ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
     assert get_blob(ctx.alice.handle, cid).resp_body == "hello"
   end
 
   test "getBlob answers RepoNotFound, BlobNotFound and InvalidRequest as the lexicon names them",
        ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
     unknown = get_blob(ghost_did(), cid)
     assert unknown.status == 400
@@ -105,7 +108,7 @@ defmodule PesqueWeb.BlobTest do
   # A blob CID is sha2-256 over raw bytes, so a record's own CID is never a
   # valid blob CID and must not be served out of the blocks table.
   test "getBlob will not serve a record cid", ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
     record_cid = CID.to_string(CID.from_data("hello"))
 
     assert record_cid != cid
@@ -142,6 +145,7 @@ defmodule PesqueWeb.BlobTest do
 
     assert conn.status == 400
     assert %{"error" => "InvalidRequest"} = JSON.decode!(conn.resp_body)
+    # helpers
     assert %{"message" => message} = JSON.decode!(conn.resp_body)
     assert message =~ "content-length"
   end
@@ -149,22 +153,20 @@ defmodule PesqueWeb.BlobTest do
   test "uploadBlob stores under the authenticated did and nothing else", ctx do
     bob = create("bob")
 
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
     assert Blob.fetch(ctx.alice.did, CID.parse(cid)) == {:ok, "hello", "image/jpeg"}
     assert Blob.fetch(bob.did, CID.parse(cid)) == {:error, :not_found}
   end
 
   test "a row whose file is gone is served as a clean miss, not a crash", ctx do
-    cid = upload(ctx.token, "hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
+    cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
     File.rm!(Blob.path(ctx.alice.did, CID.parse(cid)))
 
     conn = get_blob(ctx.alice.did, cid)
     assert conn.status == 400
     assert %{"error" => "BlobNotFound"} = JSON.decode!(conn.resp_body)
   end
-
-  # helpers
 
   test "a record carrying an unparseable $link is a 400, not a crash", ctx do
     {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
@@ -217,7 +219,7 @@ defmodule PesqueWeb.BlobTest do
   end
 
   defp request(path) do
-    build_conn() |> dispatch(Endpoint, :get, path, nil)
+    dispatch(build_conn(), Endpoint, :get, path, nil)
   end
 
   defp create(name) do

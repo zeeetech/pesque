@@ -16,9 +16,9 @@ defmodule PesqueWeb.Xrpc.HealthController do
 
   use Phoenix.Controller, formats: [:json]
 
-  require Logger
-
   alias Pesque.Repo
+
+  require Logger
 
   def show(conn, _params) do
     case probe() do

@@ -26,7 +26,9 @@ defmodule Pesque.DataCase do
   """
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Pesque.{Repo, RepoSupervisor, Storage}
+  alias Pesque.Repo
+  alias Pesque.RepoSupervisor
+  alias Pesque.Storage
 
   @doc "Checks a connection out for the calling test. Call from a test's setup block."
   def setup do

@@ -24,15 +24,6 @@ registration =
     other -> raise "PDS_REGISTRATION must be open or closed, got: #{other}"
   end
 
-config :pesque,
-  data_dir: data_dir,
-  mode: mode,
-  hostname: hostname,
-  handle_domain: handle_domain,
-  handle: handle,
-  port: port,
-  registration: registration
-
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),
   journal_mode: :wal,
@@ -46,8 +37,16 @@ config :pesque, PesqueWeb.Endpoint,
   secret_key_base: Pesque.Storage.server_secret!(data_dir),
   server: true
 
-if config_env() == :test do
-  config :pesque, PesqueWeb.Endpoint, server: false
+config :pesque,
+  data_dir: data_dir,
+  mode: mode,
+  hostname: hostname,
+  handle_domain: handle_domain,
+  handle: handle,
+  port: port,
+  registration: registration
 
+if config_env() == :test do
   config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox
+  config :pesque, PesqueWeb.Endpoint, server: false
 end

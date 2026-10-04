@@ -41,7 +41,7 @@ defmodule Pesque.CBOR do
   defp enc(float) when is_float(float), do: <<0xFB, float::float-64>>
 
   defp enc(bin) when is_binary(bin) do
-    unless String.valid?(bin), do: raise(ArgumentError, "text strings must be valid UTF-8")
+    if !String.valid?(bin), do: raise(ArgumentError, "text strings must be valid UTF-8")
     [head(3, byte_size(bin)), bin]
   end
 
@@ -108,7 +108,7 @@ defmodule Pesque.CBOR do
       3 ->
         <<data::binary-size(^n), tail::binary>> = rest
 
-        unless String.valid?(data) do
+        if !String.valid?(data) do
           raise ArgumentError, "invalid UTF-8 in text string"
         end
 
@@ -140,7 +140,7 @@ defmodule Pesque.CBOR do
   defp dec_map(n, bin, acc) do
     {key, rest} = dec(bin)
 
-    unless is_binary(key) do
+    if !is_binary(key) do
       raise ArgumentError, "map keys must be strings"
     end
 

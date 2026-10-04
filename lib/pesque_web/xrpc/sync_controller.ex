@@ -1,7 +1,11 @@
 defmodule PesqueWeb.Xrpc.SyncController do
   use Phoenix.Controller, formats: [:json]
 
-  alias Pesque.{Accounts, Blob, CID, Car, RepoStore}
+  alias Pesque.Accounts
+  alias Pesque.Blob
+  alias Pesque.Car
+  alias Pesque.CID
+  alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
 
   def get_repo(conn, %{"did" => did}) do

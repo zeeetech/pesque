@@ -3,10 +3,14 @@ defmodule Pesque.Accounts do
 
   import Ecto.Query
 
-  require Logger
+  alias Pesque.Accounts.RefreshToken
+  alias Pesque.Accounts.User
+  alias Pesque.Did
+  alias Pesque.Identity
+  alias Pesque.Keys
+  alias Pesque.Repo
 
-  alias Pesque.{Did, Identity, Keys, Repo}
-  alias Pesque.Accounts.{RefreshToken, User}
+  require Logger
 
   @doc """
   Creates a local account from a handle, an email, and a password.
@@ -120,7 +124,7 @@ defmodule Pesque.Accounts do
       )
 
     jti = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
-    expires_at = DateTime.add(DateTime.utc_now(), Pesque.Token.refresh_ttl_seconds(), :second)
+    expires_at = DateTime.shift(DateTime.utc_now(), second: Pesque.Token.refresh_ttl_seconds())
 
     refresh =
       Pesque.Token.sign(
@@ -334,7 +338,7 @@ defmodule Pesque.Accounts do
         :error
 
       row ->
-        if row.revoked or DateTime.compare(row.expires_at, DateTime.utc_now()) == :lt do
+        if row.revoked or DateTime.before?(row.expires_at, DateTime.utc_now()) do
           :error
         else
           {:ok, row}

@@ -1,7 +1,9 @@
 defmodule Pesque.MstTest do
   use ExUnit.Case, async: true
 
-  alias Pesque.{CBOR, CID, Mst}
+  alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Mst
 
   test "matches the root CID produced by the reference implementation" do
     entries =

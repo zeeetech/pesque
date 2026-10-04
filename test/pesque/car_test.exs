@@ -1,7 +1,10 @@
 defmodule Pesque.CarTest do
   use ExUnit.Case, async: true
 
-  alias Pesque.{CBOR, CID, Car, Varint}
+  alias Pesque.Car
+  alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Varint
 
   setup do
     root = CID.from_data(CBOR.encode(%{"did" => "did:web:localhost"}))

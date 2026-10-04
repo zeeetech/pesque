@@ -1,15 +1,18 @@
 defmodule PesqueWeb.Xrpc.RepoController do
   use Phoenix.Controller, formats: [:json]
 
-  alias Pesque.{Accounts, Blob, CBOR, Lexicon, RepoStore}
+  alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Blob
+  # writes (behind PesqueWeb.Plugs.Auth)
+  alias Pesque.CBOR
+  alias Pesque.Lexicon
+  alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
 
   # Claimed by Plug.Parsers before the router runs, so the body is already
   # gone by the time a controller could read it.
   @parsed_media_types ["application/json", "application/x-www-form-urlencoded"]
-
-  # writes (behind PesqueWeb.Plugs.Auth)
 
   def create_record(conn, params) do
     write(conn, params, :create)
@@ -138,6 +141,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
       {:more, _partial, _conn} ->
         {:error, {400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes"}}
 
+      # reads (public)
       {:error, reason} ->
         {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
     end
@@ -155,23 +159,23 @@ defmodule PesqueWeb.Xrpc.RepoController do
     end
   end
 
-  # reads (public)
-
   def get_record(conn, %{"repo" => repo, "collection" => collection, "rkey" => rkey}) do
-    with {:ok, did} <- resolve_repo(repo) do
-      case RepoStore.get_record(did, collection, rkey) do
-        nil ->
-          Xrpc.error(conn, 404, "RecordNotFound", "no record at that key")
+    case resolve_repo(repo) do
+      {:ok, did} ->
+        case RepoStore.get_record(did, collection, rkey) do
+          nil ->
+            Xrpc.error(conn, 404, "RecordNotFound", "no record at that key")
 
-        row ->
-          json(conn, %{
-            "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
-            "cid" => row.cid,
-            "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
-          })
-      end
-    else
-      :error -> Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
+          row ->
+            json(conn, %{
+              "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
+              "cid" => row.cid,
+              "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
+            })
+        end
+
+      :error ->
+        Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
 
@@ -180,33 +184,35 @@ defmodule PesqueWeb.Xrpc.RepoController do
   end
 
   def list_records(conn, %{"repo" => repo, "collection" => collection} = params) do
-    with {:ok, did} <- resolve_repo(repo) do
-      limit = params |> Map.get("limit", "50") |> parse_int(50) |> max(1) |> min(100)
-      offset = params |> Map.get("cursor", "0") |> parse_int(0) |> max(0)
-      reverse = params["reverse"] == "true"
+    case resolve_repo(repo) do
+      {:ok, did} ->
+        limit = params |> Map.get("limit", "50") |> parse_int(50) |> max(1) |> min(100)
+        offset = params |> Map.get("cursor", "0") |> parse_int(0) |> max(0)
+        reverse = params["reverse"] == "true"
 
-      rows = RepoStore.list_records(did, collection, limit + 1, offset, reverse)
-      more = length(rows) > limit
+        rows = RepoStore.list_records(did, collection, limit + 1, offset, reverse)
+        more = length(rows) > limit
 
-      records =
-        rows
-        |> Enum.take(limit)
-        |> Enum.map(fn row ->
-          %{
-            "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
-            "cid" => row.cid,
-            "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
-          }
-        end)
+        records =
+          rows
+          |> Enum.take(limit)
+          |> Enum.map(fn row ->
+            %{
+              "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
+              "cid" => row.cid,
+              "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
+            }
+          end)
 
-      reply = %{"records" => records}
+        reply = %{"records" => records}
 
-      reply =
-        if more, do: Map.put(reply, "cursor", Integer.to_string(offset + limit)), else: reply
+        reply =
+          if more, do: Map.put(reply, "cursor", Integer.to_string(offset + limit)), else: reply
 
-      json(conn, reply)
-    else
-      :error -> Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
+        json(conn, reply)
+
+      :error ->
+        Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
 

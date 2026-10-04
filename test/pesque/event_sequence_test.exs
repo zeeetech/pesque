@@ -3,8 +3,12 @@ defmodule Pesque.EventSequenceTest do
 
   import Ecto.Query
 
-  alias Pesque.{CBOR, Repo, RepoStore, RepoServer, Tid}
+  alias Pesque.CBOR
+  alias Pesque.Repo
+  alias Pesque.RepoServer
+  alias Pesque.RepoStore
   alias Pesque.RepoStore.Event
+  alias Pesque.Tid
 
   setup do
     Pesque.DataCase.setup()

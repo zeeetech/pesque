@@ -1,4 +1,4 @@
-ExUnit.start()
+ExUnit.start(capture_log: true)
 
 # Manual mode for the whole suite. In :auto the pool checks a connection out
 # implicitly and outside any transaction, which is what let test rows survive

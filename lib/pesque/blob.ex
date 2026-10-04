@@ -9,7 +9,9 @@ defmodule Pesque.Blob do
   than a crash.
   """
 
-  alias Pesque.{CID, RepoStore, Storage}
+  alias Pesque.CID
+  alias Pesque.RepoStore
+  alias Pesque.Storage
 
   @max_blob_bytes 5 * 1024 * 1024
   @raw_codec 0x55
@@ -36,9 +38,8 @@ defmodule Pesque.Blob do
     tmp = final <> ".tmp"
 
     with :ok <- File.mkdir_p(Path.dirname(final)),
-         :ok <- File.write(tmp, bytes),
-         :ok <- File.rename(tmp, final) do
-      :ok
+         :ok <- File.write(tmp, bytes) do
+      File.rename(tmp, final)
     end
   end
 
