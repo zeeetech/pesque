@@ -1,5 +1,11 @@
 # pesque
 
+[English](README.md) | [Português (BR)](README.pt-BR.md)
+
+![CI](https://github.com/zeetech/pesque/actions/workflows/ci.yml/badge.svg)
+![License: WTFPL](https://img.shields.io/badge/license-WTFPL-blue.svg)
+![Elixir](https://img.shields.io/badge/elixir-1.20%20%7C%20OTP%2029-purple.svg)
+
 A minimal, self-hosted ATProto Personal Data Server written in Elixir. The name sounds like PDS and means "go fish" in Portuguese, which felt right for a server that feeds the firehose.
 
 One SQLite file holds the whole server. The reference PDS (TypeScript, PostgreSQL, S3, Node) is built for scale-out hosting. Pesque targets the other end: a handful of accounts, tens of megabytes of idle memory, and a data directory you can back up with `cp`.
