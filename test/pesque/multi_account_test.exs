@@ -174,6 +174,25 @@ defmodule Pesque.MultiAccountTest do
     |> CBOR.decode!()
   end
 
+  test "create_account without an email is a tuple, not a raise" do
+    # Reachable from the open createAccount endpoint. It used to reach
+    # `u.handle == ^nil`, which Ecto refuses to build, so the crash escaped
+    # the {:error, _} shape the endpoint maps and came out as a 500.
+    assert {:error, :email_required} =
+             Accounts.create_account("alice.localhost", nil, @password)
+
+    # Rejected before a key was claimed, so nothing is left on disk.
+    assert Repo.aggregate(User, :count) == 0
+  end
+
+  test "one account's handle cannot be claimed as another's email" do
+    create("alice")
+    alice = Repo.one!(from u in User, where: like(u.username, "alice%"))
+
+    assert {:error, :email_taken} =
+             Accounts.create_account("bob.localhost", alice.handle, @password)
+  end
+
   defp create(name) do
     username = unique(name)
 

@@ -30,11 +30,17 @@ defmodule Pesque.Accounts do
   def create_account(handle, email, password) do
     with {:ok, identity} <- identity_for(handle),
          :ok <- check_password(password),
+         :ok <- check_email(email),
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity) do
       insert(identity, email, password, key.pub_multibase)
     end
   end
+
+  # Checked before anything else is touched, because the changeset would
+  # otherwise reject it after a key file had already been claimed.
+  defp check_email(email) when is_binary(email), do: :ok
+  defp check_email(_email), do: {:error, :email_required}
 
   @doc "The account with a DID, or nil."
   def get_user(did), do: Repo.get_by(User, did: did)
@@ -261,12 +267,17 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # A cross-column collision check: one account's handle must not become
+  # another's email. Both sides can be nil (an open registration may carry no
+  # email, and the conformant_single account has no handle), and Ecto refuses
+  # to build `== nil` from a pin, so each side is only compared when present.
   defp check_identifier(identity, email) do
     cond do
-      Repo.exists?(from u in User, where: u.handle == ^email) ->
+      email != nil and Repo.exists?(from u in User, where: u.handle == ^email) ->
         {:error, :email_taken}
 
-      Repo.exists?(from u in User, where: u.email == ^identity.handle) ->
+      identity.handle != nil and
+          Repo.exists?(from u in User, where: u.email == ^identity.handle) ->
         {:error, :handle_not_available}
 
       true ->

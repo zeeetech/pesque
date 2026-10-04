@@ -50,6 +50,9 @@ defmodule PesqueWeb.Xrpc.SessionController do
           "password must be at least 8 characters"
         )
 
+      {:error, :email_required} ->
+        PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "an email is required")
+
       {:error, :email_taken} ->
         PesqueWeb.Xrpc.error(
           conn,
