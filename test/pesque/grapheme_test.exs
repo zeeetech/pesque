@@ -13,7 +13,6 @@ defmodule Pesque.GraphemeTest do
     # they ask, and maxGraphemes enforcement inherits whichever one ships.
     test "split, count and next all agree with GraphemeBreakTest.txt" do
       cases = parse_conformance(@conformance)
-      IO.puts("GraphemeBreakTest.txt: #{length(cases)} cases")
 
       failures =
         for entry <- cases, mismatch = mismatch(entry), mismatch != nil, do: {entry, mismatch}
