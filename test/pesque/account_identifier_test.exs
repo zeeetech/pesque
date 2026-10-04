@@ -15,6 +15,33 @@ defmodule Pesque.AccountIdentifierTest do
     put_mode(:path_multi)
   end
 
+  # An account's DID is minted once, at creation. did:web percent-encodes a
+  # non-default port, so re-deriving the DID from the config the server runs
+  # on today means moving from port 4000 to 443 makes every stored account
+  # unreachable: intact rows, and every read answering RepoNotFound.
+  test "an account stays reachable after the server moves to another port" do
+    user =
+      insert_account("alice")
+
+    put_port(443)
+
+    assert Accounts.repo_did(user.did) == {:ok, user.did}
+    assert Accounts.repo_did(user.handle) == {:ok, user.did}
+    assert Accounts.get_user(user.did)
+  end
+
+  # Matching the stored row instead of re-deriving is what makes the port
+  # irrelevant, and matching a stored row is what keeps a remote identifier
+  # from resolving to anything.
+  test "a did or handle belonging to another network still resolves to nothing" do
+    insert_account("alice")
+
+    assert Accounts.repo_did("did:web:evil.example:user:alice") == :error
+    assert Accounts.repo_did("alice.bsky.social") == :error
+    assert Accounts.repo_did("nobody.localhost") == :error
+    assert Accounts.repo_did(nil) == :error
+  end
+
   # The collision is reachable unauthenticated: the string names one account
   # by handle and another by email, and login has to answer for it instead of
   # raising. The rows are inserted directly because create_account/3 refuses
@@ -104,6 +131,15 @@ defmodule Pesque.AccountIdentifierTest do
 
     on_exit(fn -> Repo.delete_all(from u in User, where: u.id == ^user.id) end)
     user
+  end
+
+  defp put_port(port) do
+    previous = Application.get_env(:pesque, :port)
+
+    on_exit(fn -> Application.put_env(:pesque, :port, previous) end)
+
+    Application.put_env(:pesque, :port, port)
+    :ok
   end
 
   defp put_mode(mode) do

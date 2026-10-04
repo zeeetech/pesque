@@ -68,15 +68,39 @@ defmodule Pesque.Accounts do
   Did.to_local_did/2 settles the syntax and whether the host is ours, and
   deliberately consults no database, so existence is settled here: a DID of
   the right shape naming no account is :error, not an invitation.
+
+  A DID is looked up by the string it is stored under, not by re-deriving it
+  from the host and port the server currently runs on. An account's DID was
+  minted once, when it was created, and did:web percent-encodes a non-default
+  port, so re-deriving it turns moving from port 4000 to 443 into a total
+  lockout: the stored rows still match nothing and every read answers
+  RepoNotFound. Handles still go through the derivation, since a handle has to
+  become a DID before it can be looked up.
   """
-  def repo_did(identifier) do
-    with {:ok, did} <- Did.to_local_did(local_config(), identifier),
-         %User{did: did} <- Repo.get_by(User, did: did) do
-      {:ok, did}
-    else
-      _ -> :error
+  def repo_did(identifier) when is_binary(identifier) do
+    case String.trim(identifier) do
+      "did:web:" <> _rest ->
+        # Matched exactly, not case-folded: did:web percent-encodes as
+        # uppercase, so folding turns %3A into %3a and matches nothing.
+        case Repo.get_by(User, did: String.trim(identifier)) do
+          %User{did: did} -> {:ok, did}
+          nil -> :error
+        end
+
+      _handle ->
+        # Matched the same way, for the same reason. Deriving the DID from
+        # the live config and then looking that up means the port the server
+        # runs on today decides whether an account created yesterday is
+        # reachable at all. Only stored rows match, so a handle from another
+        # network still answers :error.
+        case Repo.get_by(User, handle: String.downcase(String.trim(identifier))) do
+          %User{did: did} -> {:ok, did}
+          nil -> :error
+        end
     end
   end
+
+  def repo_did(_identifier), do: :error
 
   @doc """
   Whether the authenticated account owns the repo an identifier names.
@@ -330,17 +354,6 @@ defmodule Pesque.Accounts do
       handle_domain: Pesque.handle_domain(),
       pub_multibase: user.pubkey_multibase
     })
-  end
-
-  # Did.to_local_did/2 takes the server's shape as an argument so it can stay
-  # pure; this is where the live config becomes that shape.
-  defp local_config do
-    %{
-      mode: Pesque.mode(),
-      hostname: Pesque.hostname(),
-      port: Pesque.port(),
-      handle_domain: Pesque.handle_domain()
-    }
   end
 
   defp fetch_live_refresh(jti) when is_binary(jti) do
