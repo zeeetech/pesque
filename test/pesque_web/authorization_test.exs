@@ -18,10 +18,7 @@ defmodule PesqueWeb.AuthorizationTest do
   alias Pesque.CID
   alias Pesque.Did
   alias Pesque.Repo
-  alias Pesque.RepoServer
   alias Pesque.RepoStore
-
-  @password "hunter2hunter2"
 
   setup do
     alice = create_account("alice")

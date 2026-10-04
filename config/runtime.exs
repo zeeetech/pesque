@@ -49,4 +49,11 @@ config :pesque,
 if config_env() == :test do
   config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox
   config :pesque, PesqueWeb.Endpoint, server: false
+
+  # Logger.info from the boot sequence and from on_exit callbacks escapes
+  # ExUnit's capture_log: the first runs before ExUnit.start, the second after
+  # the capture scope closes. The level cuts both at the source.
+  config :logger, level: :warning
+
+  config :pesque, argon2_opts: [t_cost: 1, m_cost: 8]
 end

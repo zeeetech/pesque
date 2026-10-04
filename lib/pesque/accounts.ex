@@ -330,7 +330,8 @@ defmodule Pesque.Accounts do
       username: identity.username,
       pubkey_multibase: pub_multibase,
       email: email,
-      password_hash: Argon2.hash_pwd_salt(password)
+      password_hash:
+        Argon2.hash_pwd_salt(password, Application.get_env(:pesque, :argon2_opts, []))
     }
     |> User.changeset()
     |> Repo.insert()
