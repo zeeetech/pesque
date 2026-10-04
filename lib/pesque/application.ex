@@ -14,6 +14,7 @@ defmodule Pesque.Application do
     children = [
       Pesque.Repo,
       Pesque.BootMigrator,
+      Pesque.RateLimit,
       {Registry, keys: :duplicate, name: Pesque.EventRegistry},
       {Registry, keys: :unique, name: Pesque.RepoRegistry},
       Pesque.RepoSupervisor,
