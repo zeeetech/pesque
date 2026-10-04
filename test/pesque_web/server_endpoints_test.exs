@@ -13,8 +13,8 @@ defmodule PesqueWeb.ServerEndpointsTest do
     %{alice: alice, token: token(alice)}
   end
 
-  test "describeServer answers with this server's own did", ctx do
-    body = read(ctx, "/xrpc/com.atproto.server.describeServer")
+  test "describeServer answers with this server's own did" do
+    body = read("/xrpc/com.atproto.server.describeServer")
 
     assert body["did"] == Pesque.Identity.did()
     assert body["availableUserDomains"] == [Pesque.handle_domain()]
@@ -23,15 +23,15 @@ defmodule PesqueWeb.ServerEndpointsTest do
   # Invite code required means an operator has to be involved in making an
   # account, which is exactly what a closed registration means here. Reporting
   # it the other way invites a client to send people who then get turned away.
-  test "describeServer says an invite is needed when registration is closed", ctx do
-    assert read(ctx, "/xrpc/com.atproto.server.describeServer")["inviteCodeRequired"]
+  test "describeServer says an invite is needed when registration is closed" do
+    assert read("/xrpc/com.atproto.server.describeServer")["inviteCodeRequired"]
 
     Application.put_env(:pesque, :registration, :open)
 
-    refute read(ctx, "/xrpc/com.atproto.server.describeServer")["inviteCodeRequired"]
+    refute read("/xrpc/com.atproto.server.describeServer")["inviteCodeRequired"]
   end
 
-  test "describeServer needs no token", ctx do
+  test "describeServer needs no token" do
     assert xrpc_get("/xrpc/com.atproto.server.describeServer").status == 200
   end
 
@@ -44,7 +44,7 @@ defmodule PesqueWeb.ServerEndpointsTest do
 
     assert xrpc_post("/xrpc/com.atproto.repo.createRecord", params, ctx.token).status == 200
 
-    body = status(ctx, ctx.alice.did)
+    body = status(ctx.alice.did)
 
     assert body["activated"]
     assert body["validDid"]
@@ -56,7 +56,7 @@ defmodule PesqueWeb.ServerEndpointsTest do
   # An account nobody has written to is still an account. Answering 404 or
   # activated false would tell an AppView to drop a repo that exists.
   test "checkAccountStatus reports an account with no records as activated", ctx do
-    body = status(ctx, ctx.alice.did)
+    body = status(ctx.alice.did)
 
     assert body["activated"]
     assert body["indexable"]
@@ -71,28 +71,28 @@ defmodule PesqueWeb.ServerEndpointsTest do
   end
 
   test "checkAccountStatus answers for a handle as well as a did", ctx do
-    assert status(ctx, ctx.alice.handle)["activated"]
+    assert status(ctx.alice.handle)["activated"]
   end
 
-  test "checkAccountStatus says a repo this server does not host is not activated", ctx do
-    body = status(ctx, "did:web:localhost%3A4000:user:nobody")
+  test "checkAccountStatus says a repo this server does not host is not activated" do
+    body = status("did:web:localhost%3A4000:user:nobody")
 
     refute body["activated"]
     refute body["indexable"]
     assert body["repoCommit"] == nil
   end
 
-  test "checkAccountStatus needs a did", ctx do
+  test "checkAccountStatus needs a did" do
     conn = xrpc_get("/xrpc/com.atproto.server.checkAccountStatus")
 
     assert conn.status == 400
     assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
   end
 
-  defp read(_ctx, path), do: xrpc_get(path) |> body()
+  defp read(path), do: xrpc_get(path) |> body()
 
-  defp status(ctx, did) do
-    read(ctx, "/xrpc/com.atproto.server.checkAccountStatus?did=#{enc(did)}")
+  defp status(did) do
+    read("/xrpc/com.atproto.server.checkAccountStatus?did=#{enc(did)}")
   end
 
   defp body(conn) do
