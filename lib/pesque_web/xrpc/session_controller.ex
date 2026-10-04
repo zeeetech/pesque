@@ -1,9 +1,72 @@
 defmodule PesqueWeb.Xrpc.SessionController do
-  @moduledoc "com.atproto.server.* session endpoints: account creation, login, rotation, logout."
+  @moduledoc """
+  com.atproto.server.*: what this server is, and the session endpoints.
+
+  describeServer and checkAccountStatus are here rather than in a controller
+  of their own because the spec puts them in the same namespace and neither
+  needs anything the session endpoints do not already have.
+  """
 
   use Phoenix.Controller, formats: [:json]
 
   alias Pesque.Accounts
+  alias Pesque.Identity
+  alias Pesque.RepoStore
+
+  # The first thing every client asks. A server that does not answer it cannot
+  # be used by an app that follows the spec, whatever else it implements, so it
+  # is deliberately the smallest answer in this controller.
+  def describe_server(conn, _params) do
+    json(conn, %{
+      "did" => Identity.did(),
+      "availableUserDomains" => [Pesque.handle_domain()],
+      "inviteCodeRequired" => Pesque.registration() == :closed,
+      "phoneVerificationRequired" => false,
+      "links" => %{}
+    })
+  end
+
+  # What an AppView asks before it mirrors a repo. `activated` is answered from
+  # the row and not from the token, so a deleted account reads as deactivated
+  # to a caller holding a session it has not noticed is dead yet.
+  def check_account_status(conn, %{"did" => did}) do
+    case Accounts.repo_did(did) do
+      {:ok, resolved} ->
+        json(conn, account_status(resolved))
+
+      :error ->
+        json(conn, %{
+          "activated" => false,
+          "validDid" => true,
+          "repoCommit" => nil,
+          "repoRev" => nil,
+          "repoBlocks" => 0,
+          "indexable" => false,
+          "cdns" => [],
+          "blobDiverged" => false
+        })
+    end
+  end
+
+  def check_account_status(conn, _params) do
+    PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "did is required")
+  end
+
+  # A repo with no commit is a repo nobody has written to, which is not the
+  # same as a repo that is not there. `repoCommit` is null in that case and the
+  # rest follows from it.
+  defp account_status(did) do
+    %{
+      "activated" => true,
+      "validDid" => true,
+      "repoCommit" => RepoStore.get_meta("commit:" <> did),
+      "repoRev" => RepoStore.get_meta("rev:" <> did),
+      "repoBlocks" => RepoStore.block_count(did),
+      "indexable" => true,
+      "cdns" => [],
+      "blobDiverged" => false
+    }
+  end
 
   def create_account(conn, params) do
     if Pesque.registration() == :open do

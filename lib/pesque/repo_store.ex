@@ -67,6 +67,13 @@ defmodule Pesque.RepoStore do
     Repo.all(from b in Block, where: b.did == ^did)
   end
 
+  # A count, not a length. blocks_for/1 selects the block bytes, and a status
+  # endpoint that answered from it would pull a whole repo into memory to
+  # report how big it is.
+  def block_count(did) do
+    Repo.one(from b in Block, where: b.did == ^did, select: count(b.cid)) || 0
+  end
+
   def existing_cids(did, cid_strings) do
     cid_strings
     # The chunk size is SQLite's bound-variable ceiling, not a tuning knob.

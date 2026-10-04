@@ -15,13 +15,37 @@ defmodule PesqueWeb.Router do
 
   scope "/xrpc", PesqueWeb.Xrpc do
     get "/com.atproto.identity.resolveHandle", IdentityController, :resolve_handle
+    get "/com.atproto.server.checkAccountStatus", SessionController, :check_account_status
+  end
+
+  # What the spec puts a limit on, and what it chose. Sessions are the ones a
+  # stranger can reach without an account, so they get the tight number; reads
+  # are what a feed polls, so they get the loose one.
+  pipeline :session_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :session, limit: 100, window: 3_600_000
+  end
+
+  pipeline :read_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :read, limit: 3_000, window: 300_000
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :session_limits
+
     post "/com.atproto.server.createAccount", SessionController, :create_account
     post "/com.atproto.server.createSession", SessionController, :create_session
     post "/com.atproto.server.refreshSession", SessionController, :refresh_session
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
     post "/com.atproto.server.deleteSession", SessionController, :delete_session
+  end
+
+  # Every client asks this one first, so it answers without a rate limit of its
+  # own and without a token: a client that cannot learn the server's DID cannot
+  # get far enough to be worth limiting.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    get "/com.atproto.server.describeServer", SessionController, :describe_server
   end
 
   pipeline :auth do
@@ -35,6 +59,8 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :read_limits
+
     get "/com.atproto.repo.getRecord", RepoController, :get_record
     get "/com.atproto.repo.listRecords", RepoController, :list_records
     get "/com.atproto.repo.describeRepo", RepoController, :describe_repo
