@@ -57,4 +57,15 @@ defmodule Pesque do
   cap from the enforced one.
   """
   def blob_max_bytes, do: Application.get_env(:pesque, :blob_max_bytes, 5 * 1024 * 1024)
+
+  @doc """
+  The largest repo importRepo accepts, in bytes.
+
+  100 MiB by default, which is a whole repo rather than one record and still a
+  number an operator can size against. A CAR is read into memory to be decoded,
+  so this is the bound on what one authenticated import can make this server
+  allocate, and it is configurable for the same reason the blob cap is.
+  """
+  def repo_import_max_bytes,
+    do: Application.get_env(:pesque, :repo_import_max_bytes, 100 * 1024 * 1024)
 end

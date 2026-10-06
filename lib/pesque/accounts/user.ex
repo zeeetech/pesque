@@ -36,6 +36,13 @@ defmodule Pesque.Accounts.User do
     |> unique_constraint(:email)
   end
 
+  # An imported account starts deactivated: the DID is being moved here and the
+  # repo is empty until importRepo fills it, so nothing should be served or
+  # written until activateAccount says the move is done.
+  def import_changeset(attrs) do
+    attrs |> changeset() |> put_change(:active, false)
+  end
+
   def handle_changeset(%__MODULE__{} = row, overrides) do
     row
     |> change(overrides)

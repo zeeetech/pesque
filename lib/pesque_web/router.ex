@@ -92,6 +92,15 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
   end
 
+  # listMissingBlobs walks every record of the account to find the blob refs,
+  # so it is a read that costs like a repo listing rather than like a session
+  # lookup, and it gets the read budget on top of the token.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:read_limits, :auth_read]
+
+    get "/com.atproto.repo.listMissingBlobs", RepoController, :list_missing_blobs
+  end
+
   # Account management is a write path like any other, and deleteAccount is the
   # expensive one: it verifies a password with argon2. The permit in Accounts
   # bounds how many of those run at once, which caps the memory but not the
@@ -133,6 +142,7 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.sync.getRecord", SyncController, :get_record
     get "/com.atproto.sync.getRepoStatus", SyncController, :get_repo_status
     get "/com.atproto.sync.listRepos", SyncController, :list_repos
+    get "/com.atproto.sync.listBlobs", SyncController, :list_blobs
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
@@ -143,6 +153,7 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.repo.putRecord", RepoController, :put_record
     post "/com.atproto.repo.deleteRecord", RepoController, :delete_record
     post "/com.atproto.repo.uploadBlob", RepoController, :upload_blob
+    post "/com.atproto.repo.importRepo", RepoController, :import_repo
   end
 
   # OAuth. The metadata documents come first and are answered without a rate

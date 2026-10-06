@@ -93,6 +93,27 @@ defmodule Pesque.RepoStore do
     Repo.delete!(%Record{did: did, collection: collection, rkey: rkey})
   end
 
+  @doc """
+  Every record of `did` with its bytes, for a caller that has to read the
+  record values rather than only their keys.
+  """
+  def records_with_data(did) do
+    Repo.all(
+      from r in Record,
+        where: r.did == ^did,
+        select: %{collection: r.collection, rkey: r.rkey, data: r.data}
+    )
+  end
+
+  @doc """
+  Deletes every record of `did`. The import path replaces a repo wholesale, so
+  it clears the rows first rather than leaving behind keys the import did not
+  carry.
+  """
+  def delete_records!(did) do
+    Repo.delete_all(from r in Record, where: r.did == ^did)
+  end
+
   # blocks
 
   def blocks_for(did) do
@@ -330,6 +351,15 @@ defmodule Pesque.RepoStore do
   defp cid_link(acc, %CID{} = cid), do: [CID.to_string(cid) | acc]
   defp cid_link(acc, _other), do: acc
 
+  @doc """
+  Deletes every block of `did`. The import path writes the blocks a CAR carries
+  plus the nodes of the commit it signs, so it clears the table first rather
+  than leaving the previous repo's blocks behind.
+  """
+  def delete_blocks!(did) do
+    Repo.delete_all(from b in Block, where: b.did == ^did)
+  end
+
   @doc "Inserts blocks; content-addressed, so conflicts are no-ops by definition."
   def insert_blocks!(did, blocks) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -363,6 +393,22 @@ defmodule Pesque.RepoStore do
   end
 
   def get_blob(did, cid_string), do: Repo.get_by(Blob, did: did, cid: cid_string)
+
+  @doc """
+  The blob CIDs `did` holds, ordered, one page at a time. sync.listBlobs reads
+  this: the CID is all the endpoint answers, so selecting the row's bytes or
+  MIME type would pull data nobody asked for.
+  """
+  def blob_cids(did, limit, offset) do
+    Repo.all(
+      from b in Blob,
+        where: b.did == ^did,
+        order_by: b.cid,
+        limit: ^limit,
+        offset: ^offset,
+        select: b.cid
+    )
+  end
 
   # events
 

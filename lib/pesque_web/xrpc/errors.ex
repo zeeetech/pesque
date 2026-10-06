@@ -74,6 +74,12 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:account_exists),
     do: {400, "AccountExists", "this server already hosts its account"}
 
+  def to_xrpc(:unsupported_did),
+    do: {400, "UnsupportedDomain", "did must be a did:web this server serves for the handle"}
+
+  def to_xrpc(:invalid_car),
+    do: {400, "InvalidRequest", "the CAR could not be read as a repo"}
+
   def to_xrpc(:handle_not_available),
     do: {400, "HandleNotAvailable", "handle is not available on this server"}
 

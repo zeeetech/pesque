@@ -120,7 +120,16 @@ defmodule PesqueWeb.Xrpc.SessionController do
     end
   end
 
-  defp provision(conn, params, opts) do
+  defp provision(conn, %{"did" => did} = params, opts) when is_binary(did) do
+    case requester_matches?(conn, did) do
+      :ok -> provision_imported(conn, params, opts, did)
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  defp provision(conn, params, opts), do: provision_new(conn, params, opts)
+
+  defp provision_new(conn, params, opts) do
     case Accounts.create_account(params["handle"], params["email"], params["password"], opts) do
       {:ok, user} ->
         {:ok, session} = Accounts.issue_session(user.did)
@@ -131,6 +140,45 @@ defmodule PesqueWeb.Xrpc.SessionController do
           "handle" => user.handle,
           "did" => user.did,
           "active" => true
+        })
+
+      {:error, reason} ->
+        fail(conn, reason)
+    end
+  end
+
+  # A DID on createAccount means an account being moved here, and the reference
+  # implementation proves the caller controls that DID with a service-auth JWT
+  # signed by the DID's key and naming this server. This server cannot verify
+  # inbound service auth yet, so that proof is not made: what remains is the
+  # equality it would establish for a caller this server had already
+  # authenticated. createAccount carries no token today, so this clause is not
+  # reached; it is where the service-auth check belongs when there is one.
+  defp requester_matches?(conn, did) do
+    case conn.assigns[:did] do
+      nil -> :ok
+      ^did -> :ok
+      _other -> {:error, :wrong_account_did}
+    end
+  end
+
+  defp provision_imported(conn, params, opts, did) do
+    case Accounts.create_imported_account(
+           params["handle"],
+           params["email"],
+           params["password"],
+           did,
+           opts
+         ) do
+      {:ok, user} ->
+        {:ok, session} = Accounts.issue_session(user.did)
+
+        json(conn, %{
+          "accessJwt" => session.access_jwt,
+          "refreshJwt" => session.refresh_jwt,
+          "handle" => user.handle,
+          "did" => user.did,
+          "active" => false
         })
 
       {:error, reason} ->

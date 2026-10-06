@@ -200,6 +200,42 @@ defmodule PesqueWeb.Xrpc.SyncController do
     end
   end
 
+  # The blob CIDs this server holds for a repo. Public by lexicon: the CIDs are
+  # already public through the records that reference them, and a mirror asks
+  # this to learn what it still has to fetch. `since` names a revision to list
+  # from, which this server does not track blob insertion against, so it is
+  # accepted and ignored rather than refused.
+  #
+  # A deactivated repo still resolves, because a caller has to be told it is
+  # deactivated rather than not found: served_repo/1 answers both, and each is
+  # the lexicon error the caller expects.
+  def list_blobs(conn, %{"did" => did} = params) do
+    case served_repo(did) do
+      {:ok, did} ->
+        limit = params |> Map.get("limit", "500") |> parse_int() |> max(1) |> min(1000)
+        offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+
+        cids = RepoStore.blob_cids(did, limit + 1, offset)
+        more = length(cids) > limit
+
+        reply = %{"cids" => Enum.take(cids, limit)}
+
+        reply =
+          if more,
+            do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
+            else: reply
+
+        json(conn, reply)
+
+      {:error, reason} ->
+        sync_error(conn, reason)
+    end
+  end
+
+  def list_blobs(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "did is required")
+  end
+
   defp send_blob(conn, did, cid) do
     case Blob.fetch(did, cid) do
       {:ok, bytes, mime_type} ->

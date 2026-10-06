@@ -6,8 +6,14 @@ defmodule PesqueWeb.Xrpc.RepoController do
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.Blob
+  alias Pesque.Car
   alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Commit
+  alias Pesque.Keys
   alias Pesque.Lexicon
+  alias Pesque.Repo
+  alias Pesque.RepoServer
   alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
 
@@ -231,6 +237,204 @@ defmodule PesqueWeb.Xrpc.RepoController do
       _ -> {:error, {400, "InvalidRequest", "content-length does not match the body"}}
     end
   end
+
+  # import (behind PesqueWeb.Plugs.Auth)
+
+  # A whole repo arrives in one request and lands in one transaction. The CAR
+  # is decoded and walked before anything is written, so a malformed one is a
+  # 400 and not a half-imported repo, and the body is capped like a blob's
+  # before a byte of it is held. The lexicon names the Content-Length header as
+  # required, so its absence is refused rather than treated as an unknown
+  # length.
+  #
+  # The commit the CAR carried cannot keep its signature: this is a did:web
+  # server and the key for the DID is the one this server holds, not the one
+  # the exporting PDS signed with. So the import signs a new commit over the
+  # imported tree with this server's key for the account, and that commit's
+  # `prev` is the imported commit's CID, which continues the chain instead of
+  # starting a second one.
+  def import_repo(conn, _params) do
+    with {:ok, declared} <- import_content_length(conn),
+         {:ok, bytes} <- read_import_body(conn, declared),
+         {:ok, imported} <- Car.decode_repo(bytes),
+         :ok <- check_import_did(imported.commit, conn.assigns.did),
+         {:ok, _did} <- persist_import(conn.assigns.did, imported) do
+      json(conn, %{})
+    else
+      {:error, {status, name, message}} -> Xrpc.error(conn, status, name, message)
+      {:error, reason} -> write_error(conn, reason)
+    end
+  end
+
+  defp import_content_length(conn) do
+    case get_req_header(conn, "content-length") do
+      [value | _] ->
+        case Integer.parse(value) do
+          {n, ""} when n >= 0 ->
+            {:ok, n}
+
+          _other ->
+            {:error, {400, "InvalidRequest", "content-length must be a non-negative integer"}}
+        end
+
+      [] ->
+        {:error, {400, "InvalidRequest", "importRepo requires a content-length header"}}
+    end
+  end
+
+  # The declared length is checked before the read so an over-large import is
+  # refused on the header alone, and the read is capped so a length that lies
+  # low is still bounded. Both turn into the same 413 the blob path answers,
+  # which is the one status a client can tell from a malformed request.
+  defp read_import_body(conn, declared) do
+    if declared > Pesque.repo_import_max_bytes() do
+      {:error, import_too_large()}
+    else
+      case read_body(conn, length: Pesque.repo_import_max_bytes()) do
+        {:ok, bytes, _conn} ->
+          {:ok, bytes}
+
+        {:more, _partial, _conn} ->
+          {:error, import_too_large()}
+
+        {:error, reason} ->
+          {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
+      end
+    end
+  end
+
+  defp import_too_large do
+    {413, "PayloadTooLarge", "repo is larger than #{Pesque.repo_import_max_bytes()} bytes"}
+  end
+
+  # The commit in a CAR names the repo it was exported from, so importing one
+  # into a different account is refused rather than stored under the wrong DID.
+  defp check_import_did(%{"did" => did}, did), do: :ok
+  defp check_import_did(_commit, _did), do: {:error, :invalid_car}
+
+  # The new commit is built and signed before the store is touched, so a key
+  # this server cannot load leaves the existing repo exactly as it was. The
+  # process is stopped before the rows are replaced, because it caches the
+  # entries and head those rows hold; it starts again, from the rows this
+  # wrote, on the next request.
+  defp persist_import(did, imported) do
+    case Keys.ensure(did) do
+      {:ok, key} ->
+        state = %{
+          did: did,
+          clock_id: :rand.uniform(1024) - 1,
+          priv: key.priv,
+          entries: imported.entries,
+          rev: nil,
+          tid_int: 0,
+          commit_cid: imported.commit_cid,
+          root_cid: nil
+        }
+
+        {:ok, prepared} = Commit.commit(state, [])
+        RepoServer.stop(did)
+        write_import(did, imported, prepared)
+
+      {:error, _reason} ->
+        {:error, :key_unavailable}
+    end
+  end
+
+  defp write_import(did, imported, prepared) do
+    new_blocks =
+      Map.new(prepared.all_blocks, fn {cid, bytes} -> {CID.to_string(cid), bytes} end)
+
+    result =
+      Repo.transaction(
+        fn ->
+          RepoStore.delete_records!(did)
+          RepoStore.delete_blocks!(did)
+          RepoStore.insert_blocks!(did, Map.merge(imported.blocks, new_blocks))
+
+          Enum.each(imported.records, fn {key, {cid, data}} ->
+            [collection, rkey] = String.split(key, "/", parts: 2)
+            RepoStore.put_record!(did, collection, rkey, CID.to_string(cid), data)
+          end)
+
+          RepoStore.put_meta!("root:" <> did, CID.to_string(prepared.root_cid))
+          RepoStore.put_meta!("rev:" <> did, prepared.rev)
+          RepoStore.put_meta!("tid_int:" <> did, Integer.to_string(prepared.tid_int))
+          RepoStore.put_meta!("commit:" <> did, CID.to_string(prepared.commit_cid))
+          :ok
+        end,
+        mode: :immediate
+      )
+
+    case result do
+      {:ok, :ok} -> {:ok, did}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # authenticated reads
+
+  # The blobs the account's records name but this server does not hold, which is
+  # what a migration asks before it uploads the missing bytes. The record values
+  # are walked for blob refs; a ref with no row behind it is the answer, and one
+  # with a row is not. The cursor is an offset over the flattened list, matching
+  # listRecords and listRepos so one paging shape is one thing to learn.
+  def list_missing_blobs(conn, params) do
+    did = conn.assigns.did
+    limit = params |> Map.get("limit", "500") |> parse_int() |> max(1) |> min(1000)
+    offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+
+    missing = missing_blobs(did)
+    more = offset + limit < length(missing)
+
+    reply = %{"blobs" => Enum.slice(missing, offset, limit)}
+
+    reply =
+      if more,
+        do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
+        else: reply
+
+    json(conn, reply)
+  end
+
+  defp missing_blobs(did) do
+    did
+    |> RepoStore.records_with_data()
+    |> Enum.flat_map(&missing_in_record(did, &1))
+    |> Enum.sort_by(&{&1["recordUri"], &1["cid"]})
+  end
+
+  defp missing_in_record(did, record) do
+    uri = "at://#{did}/#{record.collection}/#{record.rkey}"
+
+    record.data
+    |> record_blob_cids()
+    |> Enum.reject(&RepoStore.get_blob(did, &1))
+    |> Enum.map(&%{"cid" => &1, "recordUri" => uri})
+  end
+
+  # A record's bytes decode to the shape the encoder wrote, so a blob ref is a
+  # map carrying $type "blob" and a ref that is already a %CID{}. The walk
+  # descends maps and lists and stops at anything else, because a blob ref can
+  # sit under an array or a union like any other value.
+  defp record_blob_cids(data) do
+    data |> CBOR.decode!() |> blob_cids([])
+  rescue
+    _ -> []
+  end
+
+  defp blob_cids(%{"$type" => "blob", "ref" => %CID{} = cid}, acc),
+    do: [CID.to_string(cid) | acc]
+
+  defp blob_cids(%CBOR.Bytes{}, acc), do: acc
+  defp blob_cids(%CID{}, acc), do: acc
+
+  defp blob_cids(map, acc) when is_map(map),
+    do: Enum.reduce(map, acc, fn {_key, value}, acc -> blob_cids(value, acc) end)
+
+  defp blob_cids(list, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &blob_cids/2)
+
+  defp blob_cids(_other, acc), do: acc
 
   # reads (public)
 

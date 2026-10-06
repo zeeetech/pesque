@@ -69,9 +69,51 @@ defmodule Pesque.Accounts do
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity),
          {:ok, password_hash} <- hash_password(password) do
-      insert(identity, email, password_hash, key.pub_multibase, Keyword.get(opts, :invite_code))
+      insert(
+        identity,
+        email,
+        password_hash,
+        key.pub_multibase,
+        Keyword.get(opts, :invite_code),
+        true
+      )
     end
   end
+
+  @doc """
+  Creates the local account an imported DID lands on, deactivated and empty.
+
+  The reference implementation proves control of the DID with a service-auth
+  JWT signed by the DID's key; this server cannot verify inbound service auth
+  yet, so that proof is not made here. What is checked is local and decidable:
+  the DID has to be the one this server would derive for the handle, or its
+  DID document would point at a host this server cannot answer for.
+
+  The account starts deactivated, so nothing is served or written until
+  activateAccount; the repo is empty until importRepo fills it. The same key
+  claim and password hash as create_account/4, and the same invite-code rules.
+  """
+  def create_imported_account(handle, email, password, did, opts \\ []) do
+    with {:ok, identity} <- identity_for(handle),
+         :ok <- check_import_did(identity, did),
+         :ok <- check_password(password),
+         :ok <- check_email(email),
+         :ok <- check_available(identity, email),
+         {:ok, key} <- claim_key(identity),
+         {:ok, password_hash} <- hash_password(password) do
+      insert(
+        identity,
+        email,
+        password_hash,
+        key.pub_multibase,
+        Keyword.get(opts, :invite_code),
+        false
+      )
+    end
+  end
+
+  defp check_import_did(%{did: did}, did), do: :ok
+  defp check_import_did(_identity, _did), do: {:error, :unsupported_did}
 
   @doc """
   Creates `code_count` invite codes, each good for `use_count` accounts, and
@@ -881,11 +923,11 @@ defmodule Pesque.Accounts do
   # account, so a code spent on an insert that then failed goes back to being
   # spendable. The frame is announced after that transaction commits: a frame
   # for an account nobody can log into is worse than a late one.
-  defp insert(identity, email, password, pub_multibase, invite_code) do
+  defp insert(identity, email, password, pub_multibase, invite_code, active) do
     result =
       Repo.transaction(fn ->
         with :ok <- consume_invite(invite_code, identity.did),
-             {:ok, user} <- insert_user(identity, email, password, pub_multibase) do
+             {:ok, user} <- insert_user(identity, email, password, pub_multibase, active) do
           user
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -895,7 +937,7 @@ defmodule Pesque.Accounts do
     case result do
       {:ok, user} ->
         Logger.info("account created", did: user.did, handle: user.handle)
-        Events.emit_account(user.did, :activated)
+        Events.emit_account(user.did, if(active, do: :activated, else: :deactivated))
         {:ok, user}
 
       {:error, :invalid_invite_code} ->
@@ -913,8 +955,8 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp insert_user(identity, email, password_hash, pub_multibase) do
-    %{
+  defp insert_user(identity, email, password_hash, pub_multibase, active) do
+    attrs = %{
       did: identity.did,
       handle: identity.handle,
       username: identity.username,
@@ -922,8 +964,9 @@ defmodule Pesque.Accounts do
       email: email,
       password_hash: password_hash
     }
-    |> User.changeset()
-    |> Repo.insert()
+
+    changeset = if active, do: User.changeset(attrs), else: User.import_changeset(attrs)
+    Repo.insert(changeset)
   end
 
   defp consume_invite(nil, _did), do: :ok

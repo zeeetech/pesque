@@ -73,6 +73,17 @@ blob_max_bytes =
       end
   end
 
+# Same rule as the blob limit: a cap that silently reads as something other
+# than what was configured is a limit nobody chose.
+repo_import_max_bytes =
+  case System.get_env("PDS_REPO_IMPORT_LIMIT", "104857600") do
+    raw ->
+      case Integer.parse(raw) do
+        {n, ""} when n > 0 -> n
+        _ -> raise "PDS_REPO_IMPORT_LIMIT must be a positive integer, got: #{raw}"
+      end
+  end
+
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),
   journal_mode: :wal,
@@ -103,6 +114,7 @@ config :pesque,
   port: port,
   registration: registration,
   blob_max_bytes: blob_max_bytes,
+  repo_import_max_bytes: repo_import_max_bytes,
   # argon2's m_cost is an exponent of KiB, so the library default of 16 is 64
   # MiB of memory per hash. That is a defensible number on a box with room and
   # a fast way to OOM a small one: Accounts caps how many hashes run at once,
