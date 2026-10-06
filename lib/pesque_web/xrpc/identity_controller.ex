@@ -41,6 +41,26 @@ defmodule PesqueWeb.Xrpc.IdentityController do
     Xrpc.error(conn, 400, "InvalidRequest", "missing required param: handle")
   end
 
+  # The frame is the point of this endpoint: a handle change is only useful to
+  # anyone whose identity cache is stale, and that cache is what the firehose
+  # feeds. Accounts.update_handle/2 emits it once the row is written, so an
+  # #identity frame never announces a handle this server does not resolve.
+  def update_handle(conn, %{"handle" => handle}) do
+    case Accounts.update_handle(conn.assigns.current_user, handle) do
+      {:ok, _user} -> json(conn, %{})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  def update_handle(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "missing required param: handle")
+  end
+
+  defp fail(conn, reason) do
+    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
+    Xrpc.error(conn, status, name, message)
+  end
+
   # The DID a client is told depends on the name it reached us under, so the
   # answer is only for the names this server actually serves.
   defp served_names do

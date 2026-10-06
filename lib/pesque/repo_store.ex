@@ -268,6 +268,34 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  Deletes every row a DID owns in the repository layer: its records, blocks,
+  blob rows and meta rows.
+
+  Event rows are not touched. The firehose log is how a mirror learns the
+  account was deleted, so a repo whose account is gone still has a `#account`
+  frame with its DID on it, and the seq sequence stays gap-free.
+  """
+  def delete_repo_data!(did) do
+    Repo.delete_all(from r in Record, where: r.did == ^did)
+    Repo.delete_all(from b in Block, where: b.did == ^did)
+    Repo.delete_all(from b in Blob, where: b.did == ^did)
+    delete_meta!(did)
+    :ok
+  end
+
+  # Meta is keyed by "<kind>:<did>", and a DID is not LIKE-safe: did:web
+  # percent-encodes a non-default port, so one can carry a literal % that the
+  # pattern would read as a wildcard and match another repo's rows. Selecting
+  # the keys and deleting exactly those cannot.
+  defp delete_meta!(did) do
+    keys =
+      Repo.all(from m in Meta, select: m.key) |> Enum.filter(&String.ends_with?(&1, did))
+
+    Repo.delete_all(from m in Meta, where: m.key in ^keys)
+    :ok
+  end
+
+  @doc """
   Deletes events older than `datetime`, answering how many rows went.
 
   The seq is not renumbered: a consumer whose cursor falls inside the deleted

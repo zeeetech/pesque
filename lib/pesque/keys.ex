@@ -34,15 +34,24 @@ defmodule Pesque.Keys do
   @doc """
   Reads the key for a DID, generating one when the file is absent.
 
-  A repo whose DID was never provisioned through create_account/3 would
+  A repo whose DID was never provisioned through create_account/4 would
   otherwise have no key to sign with, and refusing to start is worse than
   minting one: an unpublished key still yields a repo nobody can verify.
+
+  A key that exists but cannot be read answers {:error, {:key_unreadable, path, reason}}
+  rather than raising, so a caller decides whether that is a boot failure or
+  something to log and keep going.
   """
   def ensure(did) do
     case load(did) do
-      {:ok, priv} -> {:ok, keypair(priv)}
-      {:error, :enoent} -> create_exclusive(did)
-      {:error, reason} -> raise File.Error, reason: reason, action: "read", path: path(did)
+      {:ok, priv} ->
+        {:ok, keypair(priv)}
+
+      {:error, :enoent} ->
+        create_exclusive(did)
+
+      {:error, reason} ->
+        {:error, {:key_unreadable, path(did), reason}}
     end
   end
 

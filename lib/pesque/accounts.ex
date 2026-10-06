@@ -3,6 +3,7 @@ defmodule Pesque.Accounts do
 
   import Ecto.Query
 
+  alias Pesque.Accounts.DeletionToken
   alias Pesque.Accounts.InviteCode
   alias Pesque.Accounts.RefreshToken
   alias Pesque.Accounts.User
@@ -12,8 +13,13 @@ defmodule Pesque.Accounts do
   alias Pesque.Identity
   alias Pesque.Keys
   alias Pesque.Repo
+  alias Pesque.RepoServer
+  alias Pesque.RepoStore
+  alias Pesque.Storage
 
   require Logger
+
+  @deletion_token_ttl_seconds 24 * 60 * 60
 
   @doc """
   Creates a local account from a handle, an email, and a password.
@@ -237,6 +243,48 @@ defmodule Pesque.Accounts do
 
   def resolve_handle(_handle), do: {:error, :invalid_handle}
 
+  @doc """
+  Moves an account to a new handle and announces it.
+
+  The new handle goes through the same two gates create_account/4 applies: the
+  mode's own syntax and domain rules, and the users table for availability. The
+  account's own row is excluded from the availability check, so setting the
+  handle an account already has is a no-op rather than a collision with itself.
+
+  Only the handle moves. The DID was minted once, when the account was created,
+  and every record, block and meta row is keyed by it, so a handle change that
+  re-derived the DID would strand all of them. Under path_multi that means the
+  username stays the one the DID path carries and the handle is the alias that
+  moves, which is what did:web allows: the path names the account, the handle
+  is the name it is known by.
+  """
+  def update_handle(%User{} = user, handle) do
+    with {:ok, identity} <- identity_for(handle),
+         :ok <- check_reclaimable(identity, user) do
+      case User.handle_changeset(user, %{handle: identity.handle}) |> Repo.update() do
+        {:ok, updated} ->
+          Events.emit_identity(updated.did, updated.handle)
+          {:ok, updated}
+
+        {:error, _changeset} ->
+          {:error, :handle_not_available}
+      end
+    end
+  end
+
+  # The account's own rows do not count as taken, and the cross-column check
+  # create_account/4 makes is kept: a handle that is another account's email
+  # would make login unable to say which account a string means.
+  defp check_reclaimable(identity, %User{did: did}) do
+    taken =
+      Repo.exists?(from u in User, where: u.did != ^did, where: u.handle == ^identity.handle)
+
+    shadowed =
+      Repo.exists?(from u in User, where: u.did != ^did, where: u.email == ^identity.handle)
+
+    if taken or shadowed, do: {:error, :handle_not_available}, else: :ok
+  end
+
   @doc "Verifies a handle/email + password pair. Constant-ish time by construction."
   def verify_login(identifier, password) do
     case find_by_identifier(identifier) do
@@ -317,6 +365,151 @@ defmodule Pesque.Accounts do
     else
       _ -> {:error, :invalid_token}
     end
+  end
+
+  @doc """
+  Issues a short-lived, single-use token authorizing this account's deletion.
+
+  The lexicon says the token reaches the account holder by email. There is no
+  mail here and no outbound HTTP, so the token is answered in the response body
+  instead: a server that recorded a token it never delivered would leave the
+  account undeletable, and the caller is already the authenticated owner.
+
+  Only the hash is stored, so this table is not a set of live delete buttons.
+  """
+  def request_account_delete(%User{did: did}) do
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    expires_at =
+      DateTime.shift(DateTime.utc_now(), second: @deletion_token_ttl_seconds)
+      |> DateTime.truncate(:second)
+
+    attrs = %{
+      token_hash: DeletionToken.hash_token(token),
+      did: did,
+      expires_at: expires_at
+    }
+
+    case DeletionToken.changeset(attrs) |> Repo.insert() do
+      {:ok, _row} -> {:ok, %{token: token, expires_at: expires_at}}
+      {:error, _changeset} -> {:error, :deletion_token_failed}
+    end
+  end
+
+  @doc """
+  Deletes an account and everything it owns.
+
+  Three things have to agree before anything is destroyed: the `did` names the
+  authenticated account, the password is the account's, and the deletion token
+  is this account's, unexpired and unused. The token is spent by a conditional
+  update inside the deletion transaction, so two callers racing with one token
+  produce one deletion and one :invalid_token.
+
+  The order below is load-bearing. The repo process is stopped first, because a
+  RepoServer holds the entry map and tid counter the rows are about to lose, and
+  a write landing after the deletes would resurrect them. The `#account` frame
+  goes out before the row disappears, so a mirror learns the account went away
+  rather than only noticing it stopped. The rows go in one transaction, so a
+  failure partway through leaves the account whole rather than a repo with no
+  owner. The files go last, after the rows, so a crash between them leaves an
+  orphan file no reader can reach rather than a row pointing at bytes that are
+  gone.
+
+  Event rows for the DID are deliberately kept. The firehose log is the record
+  that the account was deleted; pruning the deleted repo's rows out of it would
+  punch a hole in the sequence, and a consumer replaying from a cursor before
+  that hole would never hear about the deletion at all. Retention is by age and
+  already bounds the table.
+  """
+  def delete_account(%User{} = user, did, password, token) do
+    with :ok <- check_did(user, did),
+         :ok <- check_account_password(user, password),
+         {:ok, row} <- fetch_deletion_token(user.did, token) do
+      RepoServer.stop(user.did)
+      Events.emit_account(user.did, :deleted)
+      purge(user, row)
+    end
+  end
+
+  defp check_did(%User{did: did}, did), do: :ok
+  defp check_did(_user, _did), do: {:error, :wrong_account_did}
+
+  defp check_account_password(%User{password_hash: hash}, password) when is_binary(password) do
+    if Argon2.verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
+  end
+
+  defp check_account_password(_user, _password), do: {:error, :invalid_password}
+
+  # Expiry is answered separately from validity: the lexicon names both, and a
+  # client told ExpiredToken can ask for a new one instead of guessing whether
+  # the token it holds is merely wrong.
+  defp fetch_deletion_token(did, token) when is_binary(token) do
+    case Repo.get_by(DeletionToken, token_hash: DeletionToken.hash_token(token)) do
+      nil -> {:error, :invalid_token}
+      %DeletionToken{did: ^did, used_at: nil} = row -> check_not_expired(row)
+      %DeletionToken{} -> {:error, :invalid_token}
+    end
+  end
+
+  defp fetch_deletion_token(_did, _token), do: {:error, :invalid_token}
+
+  defp check_not_expired(%DeletionToken{expires_at: expires_at} = row) do
+    if DateTime.before?(expires_at, DateTime.utc_now()) do
+      {:error, :expired_token}
+    else
+      {:ok, row}
+    end
+  end
+
+  defp purge(user, token_row) do
+    result =
+      Repo.transaction(fn ->
+        with true <- spend_token(token_row) do
+          RepoStore.delete_repo_data!(user.did)
+          Repo.delete_all(from t in RefreshToken, where: t.did == ^user.did)
+          Repo.delete_all(from t in DeletionToken, where: t.did == ^user.did)
+          Repo.delete!(user)
+          :ok
+        else
+          false -> Repo.rollback(:invalid_token)
+        end
+      end)
+
+    case result do
+      {:ok, :ok} ->
+        remove_files(user.did)
+        Logger.info("account deleted", did: user.did)
+        {:ok, user.did}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Single use is a conditional update, not a read followed by a write: two
+  # callers holding the same token both read it unused, and only the one whose
+  # update matches a row proceeds.
+  defp spend_token(%DeletionToken{id: id}) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    {count, _} =
+      from(t in DeletionToken, where: t.id == ^id and is_nil(t.used_at))
+      |> Repo.update_all(set: [used_at: now])
+
+    count == 1
+  end
+
+  # The blobs row is gone with the rest, so the bytes are unreachable already;
+  # removing the directory is what stops them outliving the account on disk.
+  defp remove_files(did) do
+    _ = Keys.delete(did)
+
+    _ =
+      did
+      |> then(&Path.join(Storage.blobs_dir(), Storage.digest_name(&1)))
+      |> File.rm_rf()
+
+    :ok
   end
 
   @doc "Revokes the presented refresh token (logout)."
@@ -434,7 +627,18 @@ defmodule Pesque.Accounts do
   # so claiming a second one here would sign with a key the DID document
   # does not carry.
   defp claim_key(%{mode: :conformant_single} = identity) do
-    Keys.ensure(identity.did)
+    case Keys.ensure(identity.did) do
+      {:ok, key} ->
+        {:ok, key}
+
+      {:error, reason} ->
+        Logger.error("the server signing key could not be loaded",
+          did: identity.did,
+          reason: inspect(reason)
+        )
+
+        {:error, :key_unavailable}
+    end
   end
 
   defp claim_key(identity) do
@@ -506,6 +710,10 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # alsoKnownAs is taken from the row rather than left to Did.did_document/2's
+  # derivation from the username: updateHandle/2 moves the handle and the DID
+  # path it is served at does not move with it, so the derivation would publish
+  # a handle the account no longer answers to.
   defp document(user) do
     Did.did_document(Pesque.mode(), %{
       username: user.username,
@@ -514,6 +722,7 @@ defmodule Pesque.Accounts do
       handle_domain: Pesque.handle_domain(),
       pub_multibase: user.pubkey_multibase
     })
+    |> Map.put("alsoKnownAs", ["at://" <> user.handle])
   end
 
   defp fetch_live_refresh(jti) when is_binary(jti) do

@@ -10,9 +10,10 @@ defmodule Pesque.RepoServer do
 
   use GenServer
 
+  require Logger
+
   alias Pesque.CID
   alias Pesque.Commit
-  # API
   alias Pesque.Keys
   alias Pesque.Record
   alias Pesque.Repo
@@ -20,7 +21,6 @@ defmodule Pesque.RepoServer do
   alias Pesque.Tid
 
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
-  # callbacks
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
   defstruct [:did, :clock_id, :priv, entries: %{}, tid_int: 0, rev: nil]
@@ -40,6 +40,25 @@ defmodule Pesque.RepoServer do
 
   def entries(pid), do: GenServer.call(pid, :entries)
 
+  @doc """
+  Stops the process for `did`, if one is running. Answers whether one was.
+
+  Deleting an account calls this before its rows go: a RepoServer caches the
+  entry map, rev and tid counter those rows hold, so a write landing after the
+  deletes would put the repo back and leave the account deleted but still
+  writable from a process nothing holds a token for.
+  """
+  def stop(did) do
+    case Registry.lookup(Pesque.RepoRegistry, did) do
+      [{pid, _value}] ->
+        DynamicSupervisor.terminate_child(Pesque.RepoSupervisor, pid)
+        {:ok, :stopped}
+
+      [] ->
+        :ok
+    end
+  end
+
   @impl true
   def init(did) do
     entries =
@@ -47,18 +66,22 @@ defmodule Pesque.RepoServer do
       |> RepoStore.records_for()
       |> Map.new(fn r -> {r.collection <> "/" <> r.rkey, CID.parse(r.cid)} end)
 
-    {:ok, key} = Keys.ensure(did)
+    case Keys.ensure(did) do
+      {:ok, key} ->
+        {:ok,
+         %__MODULE__{
+           did: did,
+           clock_id: :rand.uniform(1024) - 1,
+           priv: key.priv,
+           entries: entries,
+           tid_int: int_meta("tid_int:" <> did, 0),
+           rev: RepoStore.get_meta("rev:" <> did)
+         }, {:continue, :genesis_if_needed}}
 
-    state = %__MODULE__{
-      did: did,
-      clock_id: :rand.uniform(1024) - 1,
-      priv: key.priv,
-      entries: entries,
-      tid_int: int_meta("tid_int:" <> did, 0),
-      rev: RepoStore.get_meta("rev:" <> did)
-    }
-
-    {:ok, state, {:continue, :genesis_if_needed}}
+      {:error, reason} ->
+        Logger.error("repo for #{did} cannot sign: #{inspect(reason)}")
+        {:stop, {:key_unavailable, reason}}
+    end
   end
 
   @impl true

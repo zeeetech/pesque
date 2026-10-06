@@ -200,6 +200,30 @@ defmodule PesqueWeb.Xrpc.SessionController do
   defp for_accounts(%{"forAccounts" => [did | _] = dids}) when is_binary(did), do: dids
   defp for_accounts(_params), do: []
 
+  # The lexicon has this token delivered by email and answers an empty object.
+  # There is no mail here, so it is answered in the body: a token that was
+  # recorded and never delivered would make the account undeletable.
+  def request_account_delete(conn, _params) do
+    case Accounts.request_account_delete(conn.assigns.current_user) do
+      {:ok, %{token: token, expires_at: expires_at}} ->
+        json(conn, %{"token" => token, "expiresAt" => DateTime.to_iso8601(expires_at)})
+
+      {:error, reason} ->
+        fail(conn, reason)
+    end
+  end
+
+  def delete_account(conn, %{"did" => did, "password" => password, "token" => token}) do
+    case Accounts.delete_account(conn.assigns.current_user, did, password, token) do
+      {:ok, _did} -> json(conn, %{})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  def delete_account(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "did, password and token are required")
+  end
+
   def get_session(conn, _params) do
     user = conn.assigns.current_user
 

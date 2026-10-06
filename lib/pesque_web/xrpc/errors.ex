@@ -39,6 +39,23 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:handle_not_available),
     do: {400, "HandleNotAvailable", "handle is not available on this server"}
 
+  def to_xrpc(:key_unavailable),
+    do: {500, "InternalServerError", "the server signing key could not be loaded"}
+
+  def to_xrpc(:wrong_account_did),
+    do: {400, "InvalidRequest", "did must be the authenticated account"}
+
+  def to_xrpc(:invalid_password),
+    do: {401, "AuthenticationRequired", "the account password is wrong"}
+
+  def to_xrpc(:invalid_token),
+    do: {401, "InvalidToken", "the token is unknown, already used, or for another account"}
+
+  def to_xrpc(:expired_token), do: {401, "ExpiredToken", "the token has expired"}
+
+  def to_xrpc(:deletion_token_failed),
+    do: {500, "InternalServerError", "a deletion token could not be issued"}
+
   def to_xrpc(:password_too_short),
     do: {400, "InvalidRequest", "password must be at least 8 characters"}
 

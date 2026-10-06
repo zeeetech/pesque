@@ -54,6 +54,9 @@ defmodule PesqueWeb.Router do
 
     get "/com.atproto.server.getSession", SessionController, :get_session
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
+    post "/com.atproto.server.requestAccountDelete", SessionController, :request_account_delete
+    post "/com.atproto.server.deleteAccount", SessionController, :delete_account
+    post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

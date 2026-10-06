@@ -30,4 +30,11 @@ defmodule Pesque.Accounts.User do
     |> unique_constraint(:username)
     |> unique_constraint(:email)
   end
+
+  def handle_changeset(%__MODULE__{} = row, overrides) do
+    row
+    |> change(overrides)
+    |> validate_required([:handle])
+    |> unique_constraint(:handle)
+  end
 end
