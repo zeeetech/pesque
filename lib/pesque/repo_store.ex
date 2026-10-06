@@ -39,6 +39,23 @@ defmodule Pesque.RepoStore do
     Repo.get_by(Block, did: did, cid: cid_string)
   end
 
+  @doc """
+  Reads one block's bytes by CID, in the shape the MST walk fetches nodes with.
+
+  A block this repo does not hold is `{:error, {:missing_block, cid}}` rather
+  than nil, because the walk cannot tell the difference between "no such node"
+  and "not stored here" and must not guess.
+  """
+  def fetch_block(did, %CID{} = cid) do
+    case get_block(did, CID.to_string(cid)) do
+      %Block{data: data} -> {:ok, data}
+      nil -> {:error, {:missing_block, CID.to_string(cid)}}
+    end
+  end
+
+  @doc "A `fetch_block/2` closure for one repo, the shape `Pesque.Mst.update_tree/3` takes."
+  def block_fetcher(did), do: fn cid -> fetch_block(did, cid) end
+
   def list_records(did, collection, limit, offset, reverse) do
     dir = if reverse, do: :desc, else: :asc
 

@@ -41,6 +41,8 @@ defmodule Pesque.RepoServer do
     :clock_id,
     :priv,
     :commit_cid,
+    :root_cid,
+    :fetch,
     entries: %{},
     tid_int: 0,
     rev: nil,
@@ -107,6 +109,8 @@ defmodule Pesque.RepoServer do
              # a commit written before a restart still has to chain from it, and
              # the commit object it writes names it in prev.
              commit_cid: cid_meta("commit:" <> did),
+             root_cid: cid_meta("root:" <> did),
+             fetch: RepoStore.block_fetcher(did),
              tid_int: int_meta("tid_int:" <> did, 0),
              rev: RepoStore.get_meta("rev:" <> did)
            }, {:continue, :genesis_if_needed}}
@@ -459,13 +463,27 @@ defmodule Pesque.RepoServer do
   end
 
   defp next_state(state, prepared) do
+    log_mst(state.did, prepared.mst)
+
     %{
       state
       | entries: prepared.entries,
         tid_int: prepared.tid_int,
         rev: prepared.rev,
-        commit_cid: prepared.commit_cid
+        commit_cid: prepared.commit_cid,
+        root_cid: prepared.root_cid
     }
+  end
+
+  defp log_mst(_did, :incremental), do: :ok
+  defp log_mst(_did, :genesis), do: :ok
+
+  defp log_mst(did, :rebuild) do
+    Logger.warning("rebuilt the MST from records", did: did, reason: :no_root)
+  end
+
+  defp log_mst(did, {:rebuild, reason}) do
+    Logger.warning("rebuilt the MST from records", did: did, reason: inspect(reason))
   end
 
   # validation

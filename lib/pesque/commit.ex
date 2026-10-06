@@ -1,10 +1,15 @@
 defmodule Pesque.Commit do
   @moduledoc """
   The pure commit protocol: everything between a validated write and the
-  bytes that get stored and streamed. MST rebuild, DAG-CBOR encoding,
+  bytes that get stored and streamed. MST update, DAG-CBOR encoding,
   secp256k1 signing, CAR encoding, and the result map a write answers
   with. No database, no processes: the RepoServer owns the state, the
   transaction, and the registry fan-out.
+
+  The tree is updated incrementally against the root CID in state, reading only
+  the nodes a change rewrites. A tree that cannot be walked falls back to a
+  rebuild from the entry map, and `mst` in the result says which happened so the
+  caller can log the fallback.
 
   The seq number and the block set a frame carries can only be known
   inside that transaction, so the protocol runs in two steps: commit/2
@@ -73,7 +78,7 @@ defmodule Pesque.Commit do
           rev: prev_rev,
           tid_int: tid_int,
           commit_cid: prev_commit
-        },
+        } = state,
         changes
       ) do
     entries2 =
@@ -82,7 +87,7 @@ defmodule Pesque.Commit do
         %{key: key, cid: cid}, acc -> Map.put(acc, key, cid)
       end)
 
-    {root_cid, node_blocks} = Mst.build(entries2)
+    {root_cid, node_blocks, mst} = apply_mst(state, entries2, changes)
     {rev, tid_int} = Tid.next(tid_int, clock_id)
 
     unsigned = %{
@@ -125,8 +130,39 @@ defmodule Pesque.Commit do
        root_cid: root_cid,
        commit_cid: commit_cid,
        all_blocks: all_blocks,
+       mst: mst,
        result: result
      }}
+  end
+
+  # The tree as stored, not as rebuilt. Only the nodes a change rewrites are
+  # read, so a write costs the depth of the tree. A tree that cannot be walked
+  # (a missing or corrupt node) is rebuilt from the entry map, and the caller
+  # logs that: a silent rebuild would hide a storage problem behind correct
+  # output, which is the one way this fallback can go wrong.
+  defp apply_mst(%{root_cid: nil}, entries, _changes), do: build(entries, :genesis)
+
+  defp apply_mst(%{root_cid: root, fetch: fetch}, entries, changes) when is_function(fetch, 1) do
+    ops =
+      Enum.map(changes, fn
+        %{action: "delete", key: key} -> {:delete, key}
+        %{key: key, cid: cid} -> {:put, key, cid}
+      end)
+
+    case Mst.update_tree(root, ops, fetch) do
+      {:ok, {new_root, blocks}} ->
+        {new_root, blocks, :incremental}
+
+      {:error, reason} ->
+        build(entries, {:rebuild, reason})
+    end
+  end
+
+  defp apply_mst(_state, entries, _changes), do: build(entries, :rebuild)
+
+  defp build(entries, path) do
+    {root, blocks} = Mst.build(entries)
+    {root, blocks, path}
   end
 
   @doc """
