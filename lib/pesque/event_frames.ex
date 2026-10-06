@@ -3,7 +3,7 @@ defmodule Pesque.EventFrames do
   The firehose frames that are not commits: the `#identity` and `#account`
   events the spec puts next to `#commit` on the same stream.
 
-  Pure, like `Pesque.Commit.frame/4`: they turn the seq the log hands them
+  Pure, like `Pesque.Commit.frames/4`: they turn the seq the log hands them
   plus what the event is about into bytes. `Pesque.Events` is what decides
   the seq, writes the row and pushes it to connected sockets.
   """

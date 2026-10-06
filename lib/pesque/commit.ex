@@ -10,8 +10,8 @@ defmodule Pesque.Commit do
   inside that transaction, so the protocol runs in two steps: commit/2
   turns the current entries/rev/tid plus writes into the new
   entries/rev/tid, the commit's CIDs and blocks, and the result map, and
-  frame/4 turns that plus the claimed seq and the blocks the transaction
-  will actually insert into the frame binary.
+  frames/4 turns that plus the claimed seq and the blocks the transaction
+  will actually insert into the frames the stream puts out.
   """
 
   alias Pesque.CBOR
@@ -21,6 +21,12 @@ defmodule Pesque.Commit do
   alias Pesque.Mst
   alias Pesque.Secp256k1
   alias Pesque.Tid
+
+  # The lexicon's own limits on a #commit diff. Over either one the diff does
+  # not fit in a frame, so the frame says so and the #sync behind it is what
+  # tells a consumer to re-fetch the repo instead of applying the diff.
+  @max_blocks_bytes 2_000_000
+  @max_ops 200
 
   @doc """
   Encodes one checked record into the change a commit consumes.
@@ -53,6 +59,10 @@ defmodule Pesque.Commit do
   Runs the protocol over `changes` and returns the new entries/rev/tid
   plus everything the transaction and the frame need: root and commit
   CIDs, every block the commit creates, and the result map.
+
+  `commit_cid` is the head this commit follows, which becomes its `prev`. It
+  is nil for the genesis commit, and the commit object carries `prev: null`
+  then, since the schema requires the field to be present.
   """
   def commit(
         %{
@@ -61,7 +71,8 @@ defmodule Pesque.Commit do
           priv: priv,
           entries: entries,
           rev: prev_rev,
-          tid_int: tid_int
+          tid_int: tid_int,
+          commit_cid: prev_commit
         },
         changes
       ) do
@@ -79,7 +90,7 @@ defmodule Pesque.Commit do
       "version" => 3,
       "data" => root_cid,
       "rev" => rev,
-      "prev" => nil
+      "prev" => prev_commit
     }
 
     sig = Secp256k1.sign(priv, CBOR.encode(unsigned))
@@ -119,12 +130,27 @@ defmodule Pesque.Commit do
   end
 
   @doc """
-  The firehose frame: the CAR of the blocks the transaction actually
-  inserted, in a #commit envelope. `new_blocks` carries the CID strings
-  the transaction deduplicated against, parsed back into CIDs here.
+  The firehose frames one commit puts on the stream, as `{seq, frame}` pairs
+  in the order they go out.
+
+  The first is always the `#commit` envelope over the CAR of the blocks the
+  transaction actually inserted; `new_blocks` carries the CID strings the
+  transaction deduplicated against, parsed back into CIDs here.
+
+  A commit whose CAR is over the lexicon's 2,000,000-byte `blocks` limit, or
+  whose op count is over its limit of 200, is over what a consumer is meant to
+  apply in one frame. Those go out as `#commit` with `tooBig: true`, followed by
+  a `#sync` carrying the same commit and nothing else: the consumer cannot apply
+  the diff, so the sync tells it the repo moved and to re-fetch it wholesale.
+  The seq of the sync follows the seq of the commit it recovers, and both are
+  claimed inside the same transaction.
+
+  This is the only place the server emits `#sync`. A cursor gap is a `#info`
+  `OutdatedCursor`, which already says the consumer is behind, and every write
+  here is a commit with a diff, so there is no repo update without one.
   """
-  def frame(
-        %{did: did, prev_rev: prev_rev, rev: rev, commit_cid: commit_cid},
+  def frames(
+        %{did: did, prev_rev: prev_rev, rev: rev, commit_cid: commit_cid} = prepared,
         seq,
         new_blocks,
         changes
@@ -140,25 +166,52 @@ defmodule Pesque.Commit do
         %{"action" => c.action, "path" => c.key, "cid" => c.cid}
       end)
 
-    header = CBOR.encode(%{"op" => 1, "t" => "#commit"})
+    too_big = byte_size(car) > @max_blocks_bytes or length(ops) > @max_ops
+    time = now()
 
-    body =
-      CBOR.encode(%{
-        "seq" => seq,
-        "rebase" => false,
-        "tooBig" => false,
-        "repo" => did,
-        "commit" => commit_cid,
-        "rev" => rev,
-        "since" => prev_rev,
-        "blocks" => %CBOR.Bytes{data: car},
-        "ops" => ops,
-        "blobs" => [],
-        "time" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-      })
+    commit =
+      {seq,
+       CBOR.encode(%{"op" => 1, "t" => "#commit"}) <>
+         CBOR.encode(%{
+           "seq" => seq,
+           "rebase" => false,
+           "tooBig" => too_big,
+           "repo" => did,
+           "commit" => commit_cid,
+           "rev" => rev,
+           "since" => prev_rev,
+           "blocks" => %CBOR.Bytes{data: car},
+           "ops" => ops,
+           "blobs" => [],
+           "time" => time
+         })}
 
-    header <> body
+    if too_big do
+      [commit, sync_frame(prepared, seq + 1, time)]
+    else
+      [commit]
+    end
   end
+
+  defp sync_frame(
+         %{did: did, rev: rev, commit_cid: commit_cid, all_blocks: all_blocks},
+         seq,
+         time
+       ) do
+    commit_bytes = Map.fetch!(all_blocks, commit_cid)
+
+    {seq,
+     CBOR.encode(%{"op" => 1, "t" => "#sync"}) <>
+       CBOR.encode(%{
+         "seq" => seq,
+         "did" => did,
+         "blocks" => %CBOR.Bytes{data: Car.encode([commit_cid], %{commit_cid => commit_bytes})},
+         "rev" => rev,
+         "time" => time
+       })}
+  end
+
+  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
   defp write_action(:create, _entries, _key), do: "create"
 

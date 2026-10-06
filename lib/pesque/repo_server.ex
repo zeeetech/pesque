@@ -23,7 +23,7 @@ defmodule Pesque.RepoServer do
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
-  defstruct [:did, :clock_id, :priv, entries: %{}, tid_int: 0, rev: nil]
+  defstruct [:did, :clock_id, :priv, :commit_cid, entries: %{}, tid_int: 0, rev: nil]
 
   def start_link(did) do
     GenServer.start_link(__MODULE__, did, name: {:via, Registry, {Pesque.RepoRegistry, did}})
@@ -81,6 +81,10 @@ defmodule Pesque.RepoServer do
              clock_id: :rand.uniform(1024) - 1,
              priv: key.priv,
              entries: entries,
+             # The head comes from meta, not from a process that may have died:
+             # a commit written before a restart still has to chain from it, and
+             # the commit object it writes names it in prev.
+             commit_cid: cid_meta("commit:" <> did),
              tid_int: int_meta("tid_int:" <> did, 0),
              rev: RepoStore.get_meta("rev:" <> did)
            }, {:continue, :genesis_if_needed}}
@@ -182,6 +186,9 @@ defmodule Pesque.RepoServer do
     end
   end
 
+  # swapCommit is compared against the stored head rather than the one this
+  # process cached, so a head another writer moved while this repo was down is
+  # still seen as a mismatch.
   defp check_swap(_state, nil), do: :ok
 
   defp check_swap(state, swap_commit) do
@@ -305,7 +312,7 @@ defmodule Pesque.RepoServer do
   defp commit(state, changes) do
     {:ok, prepared} = Commit.commit(state, changes)
 
-    {:ok, frame} =
+    {:ok, frames} =
       Repo.transaction(fn ->
         # The seq comes first because the frame carries it; the event row
         # is inserted with its payload already encoded, so a crash can
@@ -339,17 +346,31 @@ defmodule Pesque.RepoServer do
         RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(prepared.tid_int))
         RepoStore.put_meta!("commit:" <> state.did, CID.to_string(prepared.commit_cid))
 
-        frame = Commit.frame(prepared, seq, new_blocks, changes)
-        RepoStore.insert_event!(state.did, seq, frame)
-        frame
+        # A commit over the lexicon's limits goes out as a #commit followed by
+        # the #sync that tells a consumer to re-fetch. Both rows are written
+        # here so a cursor replay hands them back in seq order.
+        frames = Commit.frames(prepared, seq, new_blocks, changes)
+
+        Enum.each(frames, fn {frame_seq, frame} ->
+          RepoStore.insert_event!(state.did, frame_seq, frame)
+        end)
+
+        frames
       end)
 
-    Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
-      for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
+    Enum.each(frames, fn {_frame_seq, frame} ->
+      Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
+        for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
+      end)
     end)
 
-    {%{state | entries: prepared.entries, tid_int: prepared.tid_int, rev: prepared.rev},
-     prepared.result}
+    {%{
+       state
+       | entries: prepared.entries,
+         tid_int: prepared.tid_int,
+         rev: prepared.rev,
+         commit_cid: prepared.commit_cid
+     }, prepared.result}
   end
 
   # validation
@@ -395,6 +416,13 @@ defmodule Pesque.RepoServer do
     case RepoStore.get_meta(key) do
       nil -> default
       value -> String.to_integer(value)
+    end
+  end
+
+  defp cid_meta(key) do
+    case RepoStore.get_meta(key) do
+      nil -> nil
+      value -> CID.parse(value)
     end
   end
 end
