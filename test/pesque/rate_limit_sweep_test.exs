@@ -16,6 +16,16 @@ defmodule Pesque.RateLimitSweepTest do
 
   setup do
     on_exit(fn -> Application.delete_env(:pesque, :rate_limit_max_rows) end)
+
+    # The table is one shared, live, application-owned table, and every request
+    # the rest of the suite makes leaves a row in it. Two of the tests below
+    # are about what the sweep and the cap do to the *whole* table, so they
+    # cannot be answered while someone else's rows are in it: a cap of 100
+    # looks like "under the cap" until the suite has made a few hundred
+    # requests, and then the sweep clears the table and the row this test just
+    # inserted goes with it. Emptying it first is what makes the assertions
+    # mean what they say.
+    :ets.delete_all_objects(@table)
     :ok
   end
 

@@ -12,18 +12,21 @@ defmodule PesqueWeb.Plugs.Admin do
   The check is that the authenticated DID is the server's own DID, which is
   the honest answer under :conformant_single: there the single account *is*
   did:web:<host>, so the server identity is an account and can hold a
-  session.
+  session. That is the default topology.
 
   Under :path_multi there is no server identity to be. Identity.did() is
   did:web:<host> with no user segment, and no account is ever created with
   that DID (path_multi_account/1 always appends :user:<username>), so nothing
-  can hold a session for it and this plug refuses every caller, operator
-  included. That topology needs a configured operator list instead:
-  `config :pesque, :admin_dids, ["did:web:example.com:user:alice"]`, checked
-  against conn.assigns.did. That check is not implemented here rather than
-  implemented and shipped without the config that makes it work, since an
-  empty list that means "nobody" and one that means "the server" are the same
-  code with different answers.
+  can hold a session for it. That topology names its operator instead:
+
+      config :pesque, admin_dids: ["did:web:example.com:user:alice"]
+
+  An unset or empty list is not "everyone" and not a fallback to the server
+  DID: it means the server identity only, so a :path_multi server with no list
+  configured refuses every caller including the operator. That is the
+  uncomfortable answer and it is the right one, because a closed-registration
+  server that admits nobody is recoverable by adding one line of config,
+  whereas one that admits the first account to ask is not recoverable at all.
   """
 
   alias Pesque.Identity
@@ -41,7 +44,7 @@ defmodule PesqueWeb.Plugs.Admin do
   def call(conn, _opts) do
     did = conn.assigns[:did]
 
-    if did == Identity.did() do
+    if operator?(did) do
       conn
     else
       Logger.warning("refused an operator request: the caller is not the server",
@@ -57,4 +60,11 @@ defmodule PesqueWeb.Plugs.Admin do
       )
     end
   end
+
+  # The server identity always qualifies, under any topology, because under
+  # :conformant_single it is the operator and under :path_multi it is simply
+  # unreachable rather than wrong.
+  defp operator?(did), do: did == Identity.did() or did in operators()
+
+  defp operators, do: Application.get_env(:pesque, :admin_dids, [])
 end

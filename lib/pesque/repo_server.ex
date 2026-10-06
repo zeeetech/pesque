@@ -329,6 +329,12 @@ defmodule Pesque.RepoServer do
              blocks =
                Map.new(prepared.all_blocks, fn {cid, bytes} -> {CID.to_string(cid), bytes} end)
 
+             # Read only to size the frame. It is sound here only because the
+             # transaction took the write lock at BEGIN: nothing can commit
+             # between this read and the insert below. If that ever goes back
+             # to deferred, this read stops being a consistent snapshot.
+             already = RepoStore.existing_cids(state.did, Map.keys(blocks))
+
              # Every block goes in, including the ones this repo already holds:
              # the insert is a no-op on the ones it does, and a sweep landing
              # between the two commits of an identical block would otherwise
@@ -353,7 +359,11 @@ defmodule Pesque.RepoServer do
              # A commit over the lexicon's limits goes out as a #commit followed
              # by the #sync that tells a consumer to re-fetch. Both rows are
              # written here so a cursor replay hands them back in seq order.
-             frames = Commit.frames(prepared, seq, blocks, changes)
+             # The frame carries only what this commit added. A frame over the
+             # whole closure would report tooBig on every commit for a repo
+             # past the 2MB blocks limit, and emit a #sync after each one.
+             incremental = Map.drop(blocks, MapSet.to_list(already))
+             frames = Commit.frames(prepared, seq, incremental, changes)
 
              Enum.each(frames, fn {frame_seq, frame} ->
                RepoStore.insert_event!(state.did, frame_seq, frame)

@@ -93,6 +93,25 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  Which of `cid_strings` this repo already holds.
+
+  Used to pick the incremental block set a `#commit` frame carries, so a frame
+  stays proportional to what the commit added rather than to the size of the
+  commit's closure. It is deliberately not used to decide what to insert: the
+  insert is unconditional, so nothing about a block's storage correctness
+  depends on having read this first.
+  """
+  def existing_cids(did, cid_strings) do
+    cid_strings
+    # The chunk size is SQLite's bound-variable ceiling, not a tuning knob.
+    |> Enum.chunk_every(500)
+    |> Enum.flat_map(fn chunk ->
+      Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: b.cid)
+    end)
+    |> MapSet.new()
+  end
+
+  @doc """
   The stored blocks `cid_strings` names, keyed by CID string.
 
   A CID this repo does not hold is absent from the map rather than nil: a
