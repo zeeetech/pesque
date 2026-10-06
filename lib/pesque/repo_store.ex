@@ -97,7 +97,8 @@ defmodule Pesque.RepoStore do
 
   A CID this repo does not hold is absent from the map rather than nil: a
   block either exists or it does not, and the caller is the one that decides
-  what a missing one means. Chunked for the same reason existing_cids/2 is.
+  what a missing one means. Chunked because 500 is SQLite's bound-variable
+  ceiling, not a tuning knob.
   """
   def blocks_by_cids(did, cid_strings) do
     cid_strings
@@ -181,16 +182,6 @@ defmodule Pesque.RepoStore do
   # report how big it is.
   def block_count(did) do
     Repo.one(from b in Block, where: b.did == ^did, select: count(b.cid)) || 0
-  end
-
-  def existing_cids(did, cid_strings) do
-    cid_strings
-    # The chunk size is SQLite's bound-variable ceiling, not a tuning knob.
-    |> Enum.chunk_every(500)
-    |> Enum.flat_map(fn chunk ->
-      Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: b.cid)
-    end)
-    |> MapSet.new()
   end
 
   @doc """
@@ -326,25 +317,63 @@ defmodule Pesque.RepoStore do
 
   # events
 
+  # The seq sequence is a stream cursor, so its high-water mark is kept outside
+  # the log: retention deletes rows, and a number the log no longer holds is
+  # still a number a consumer is holding.
+  @event_seq_key "event:seq"
+
   def max_seq do
     Repo.one(from e in Event, select: max(e.seq)) || 0
   end
 
-  @doc "The next event sequence number: one past the current maximum."
-  def claim_event_seq, do: max_seq() + 1
+  @doc """
+  The next event sequence number: one past the mark.
 
-  @doc "Inserts one event row with its payload already encoded."
+  The mark is read and written inside the same transaction that inserts the
+  event it belongs to, so two writers cannot claim the same number and a
+  rollback takes the mark back with the row it was going to describe.
+
+  A database written before the mark existed has no row here, so the log's own
+  maximum is the floor rather than zero.
+  """
+  def claim_event_seq, do: event_seq_mark() + 1
+
+  defp event_seq_mark do
+    case get_meta(@event_seq_key) do
+      nil -> max_seq()
+      value -> String.to_integer(value)
+    end
+  end
+
+  @doc """
+  Inserts one event row with its payload already encoded, and moves the mark
+  onto its seq.
+
+  A seq the log already holds is answered with a rollback rather than raised:
+  the frame would go out describing a commit under a number a consumer has
+  already seen, so the caller has to treat it as a failed write rather than as
+  a crash.
+  """
   def insert_event!(did, seq, payload) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
-    {1, [event]} =
-      Repo.insert_all(
-        Event,
-        [%{seq: seq, did: did, payload: payload, inserted_at: now}],
-        returning: [:seq]
-      )
+    case Repo.insert_all(
+           Event,
+           [%{seq: seq, did: did, payload: payload, inserted_at: now}],
+           on_conflict: :nothing,
+           conflict_target: [:seq],
+           returning: [:seq]
+         ) do
+      {1, [event]} ->
+        # Frames go out in seq order, so the last insert of a commit is the
+        # highest one and the mark never moves backwards.
+        put_meta!(@event_seq_key, Integer.to_string(seq))
 
-    event.seq
+        event.seq
+
+      {0, _} ->
+        Repo.rollback(:event_seq_taken)
+    end
   end
 
   def events_after(cursor, limit \\ 10_000) do
@@ -392,9 +421,11 @@ defmodule Pesque.RepoStore do
   @doc """
   Deletes events older than `datetime`, answering how many rows went.
 
-  The seq is not renumbered: a consumer whose cursor falls inside the deleted
-  window already gets an OutdatedCursor frame from the firehose replay, which
-  is exactly what this makes possible.
+  The seq of the surviving rows is not renumbered, and neither is the sequence
+  itself: the mark the next seq is claimed from lives in meta, so an emptied log
+  still hands out numbers above every one it ever held. A consumer whose cursor
+  falls inside the deleted window already gets an OutdatedCursor frame from the
+  firehose replay, which is exactly what this makes possible.
   """
   def delete_events_before(datetime) do
     {count, _} = Repo.delete_all(from e in Event, where: e.inserted_at < ^datetime)
