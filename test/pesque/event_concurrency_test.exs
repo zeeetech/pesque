@@ -11,8 +11,14 @@ defmodule Pesque.EventConcurrencyTest do
 
   The writers go through Pesque.Events rather than a copy of its transaction,
   so what runs here is the BEGIN the account and commit paths actually issue.
-  Three is as many as this harness holds at once: past that it runs out of
-  pool before it runs out of log.
+
+  The barrier needs a connection per writer before it releases any of them, so
+  the number of writers is bounded by the pool and not by anything in the
+  server. DataCase's setup leaves this process holding one connection of the
+  test pool, so a writer count equal to pool_size is a deadlock in the harness:
+  the last writer cannot check out, so it never signals ready, so nobody is
+  told to go. That is not a server limit and it is worth being explicit about,
+  because it looks exactly like one from the failure it produces.
   """
 
   use ExUnit.Case, async: false
@@ -45,7 +51,7 @@ defmodule Pesque.EventConcurrencyTest do
 
   test "commits racing on the log all land, on one gap-free sequence", ctx do
     test = self()
-    writers = ["carol", "dave", "carol"]
+    writers = ["carol", "dave", "carol", "erin", "frank", "gina", "hank", "iris", "jack", "kate"]
 
     tasks =
       Enum.map(writers, fn name ->
@@ -76,7 +82,7 @@ defmodule Pesque.EventConcurrencyTest do
     frames = Enum.map(results, fn {:ok, frame} -> frame end)
     seqs = Enum.map(frames, &field(&1, "seq"))
 
-    assert Enum.sort(seqs) == Enum.to_list((ctx.highest + 1)..(ctx.highest + 3))
+    assert Enum.sort(seqs) == Enum.to_list((ctx.highest + 1)..(ctx.highest + 10))
 
     rows = persisted(ctx.highest)
 

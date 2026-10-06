@@ -104,7 +104,10 @@ config :pesque,
   admin_dids: admin_dids
 
 if config_env() == :test do
-  config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox
+  # Wider than the server's pool on purpose. The concurrency test checks out one
+  # connection per writer while the test process holds one more, and a pool of
+  # exactly that size deadlocks the harness rather than the server.
+  config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox, pool_size: 12
   config :pesque, PesqueWeb.Endpoint, server: false
 
   # Logger.info from the boot sequence and from on_exit callbacks escapes
