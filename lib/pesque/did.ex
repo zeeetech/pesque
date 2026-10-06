@@ -110,6 +110,43 @@ defmodule Pesque.Did do
   end
 
   @doc """
+  Whether a DID document claims `handle` for `did`.
+
+  The other half of handle resolution: the handle resolved to a DID, and this
+  is the DID document saying the same thing back. Without it a TXT record
+  pointing somebody else's handle at your DID would pass, and every handle
+  would be forgeable.
+
+  The document's own `id` is checked against the DID that was expected rather
+  than trusted, because a document served for one DID could name another, and
+  the claim is only a claim about a DID.
+
+  The first syntactically valid `at://` entry is the claimed handle, per the
+  DID spec, so a later matching entry does not make an earlier non-matching
+  one acceptable. Comparison is on the normalized handle, since handles are
+  case-insensitive and only the lowercase form is meant to be stored.
+
+  Pure, like the rest of this module: it reads the document it is given and
+  consults nothing else, so it is the same question whether the document came
+  off the network or out of a fixture.
+  """
+  def claims_handle?(document, did, handle)
+      when is_map(document) and is_binary(did) and is_binary(handle) do
+    document["id"] == did and claimed_handle(document["alsoKnownAs"]) == normalize!(handle)
+  end
+
+  def claims_handle?(_document, _did, _handle), do: false
+
+  defp claimed_handle(entries) when is_list(entries) do
+    Enum.find_value(entries, fn
+      "at://" <> handle when handle != "" -> normalize!(handle)
+      _not_a_handle -> nil
+    end)
+  end
+
+  defp claimed_handle(_entries), do: nil
+
+  @doc """
   Lowercases a username and checks it against the handle label rules, returning
   {:ok, username} or {:error, reason}.
   """
@@ -235,6 +272,12 @@ defmodule Pesque.Did do
       _ -> {:error, :not_did_web}
     end
   end
+
+  # A handle is compared, not validated: the caller is a resolver that has
+  # already settled the syntax, and this is here so the two sides of the
+  # comparison agree on spelling whatever the document published.
+  defp normalize!(handle),
+    do: handle |> String.trim() |> String.trim_leading("@") |> String.downcase()
 
   defp normalize_username!(username) do
     case normalize_username(username) do

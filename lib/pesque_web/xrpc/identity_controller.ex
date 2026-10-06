@@ -10,13 +10,23 @@ defmodule PesqueWeb.Xrpc.IdentityController do
     json(conn, Pesque.Identity.did_document())
   end
 
+  # The HTTPS half of handle resolution. The DID answered depends on the name
+  # the request arrived under, so the account is looked up by that handle and
+  # its own stored DID is what comes back: a handle can be moved without its
+  # DID moving, and answering with a re-derived one would resolve the handle to
+  # an account that does not exist.
+  #
+  # Lookup is by the stored handle, so a name no row carries is a 404 rather
+  # than a DID for somebody else's account.
   def atproto_did(conn, _params) do
-    if conn.host in served_names() do
-      conn
-      |> put_resp_content_type("text/plain")
-      |> send_resp(200, Pesque.Identity.did())
-    else
-      send_resp(conn, 404, "")
+    case did_for_host(conn.host) do
+      {:ok, did} ->
+        conn
+        |> put_resp_content_type("text/plain")
+        |> send_resp(200, did)
+
+      {:error, _reason} ->
+        send_resp(conn, 404, "")
     end
   end
 
@@ -59,6 +69,17 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   defp fail(conn, reason) do
     {status, name, message} = Xrpc.Errors.to_xrpc(reason)
     Xrpc.error(conn, status, name, message)
+  end
+
+  # The server's own names answer with the server's own DID, which is not the
+  # same question as an account's handle: it is the host-level identity the
+  # /.well-known/did.json beside this endpoint publishes.
+  defp did_for_host(host) do
+    if host in served_names() do
+      {:ok, Pesque.Identity.did()}
+    else
+      Accounts.resolve_handle(host)
+    end
   end
 
   # The DID a client is told depends on the name it reached us under, so the
