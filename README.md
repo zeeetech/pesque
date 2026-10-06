@@ -83,16 +83,20 @@ the path in `ExecStart` is the only thing that has to change.
 Registration is closed by default. From the host:
 
 ```bash
-mix pesque.create_account --handle alice.example.com --email alice@example.com --password secret123
+export PESQUE_PASSWORD=secret123
+mix pesque.create_account --handle alice.example.com --email alice@example.com --password-env PESQUE_PASSWORD
 ```
 
 ```
 created alice.example.com (did:web:example.com)
 ```
 
-It boots the whole app, so stop the server first or use a different
-`PDS_PORT`. `PDS_REGISTRATION=open` turns `createAccount` into an open
-endpoint, which is only a good idea where you want strangers holding accounts.
+`--password secret123` still works but lands in shell history and `ps`, so
+prefer `--password-env` or the no-echo prompt (used when neither is given).
+The task boots the app with the endpoint not serving, so it works alongside a
+running server instead of failing on the port. `PDS_REGISTRATION=open` turns
+`createAccount` into an open endpoint, which is only a good idea where you
+want strangers holding accounts.
 
 ## Before you put real data on it
 
@@ -148,6 +152,9 @@ Caddy every request arrives from the proxy and one caller would otherwise spend
 the whole server's budget. A server reachable directly, with no proxy, is a
 server whose per-address limit is worth nothing: anyone can forge the header.
 
+The numbers themselves are set where the plug is mounted, in
+`lib/pesque_web/router.ex`.
+
 ## Modes
 
 | Mode | DID | Accounts |
@@ -170,9 +177,15 @@ federation caveat above.
 | `PDS_HANDLE` | `PDS_HOSTNAME` | Handle published in conformant mode. |
 | `PDS_HANDLE_DOMAIN` | `PDS_HANDLE` | Accounts get `alice.<domain>`. |
 | `PDS_REGISTRATION` | `closed` | `open` lets anyone create an account. |
+| `PDS_URL_SCHEME` | `https` | Scheme the server advertises in its URLs. |
+| `PDS_URL_PORT` | `443` | Port the server advertises. |
 
 An unknown `PDS_MODE` or `PDS_REGISTRATION` raises at boot rather than
 defaulting, because a silent default shows up later as something confusing.
+The advertised URL defaults to `https://host` because the container speaks
+plain HTTP and is meant to sit behind a TLS proxy; for a local prod-like run
+with no proxy, set `PDS_URL_SCHEME=http` and the advertised port falls back to
+`PDS_PORT`.
 
 ## Backup
 

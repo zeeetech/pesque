@@ -39,4 +39,7 @@ VOLUME /data
 
 EXPOSE 4000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -q -O /dev/null "http://localhost:${PDS_PORT:-4000}/xrpc/_health" || exit 1
+
 CMD ["/app/bin/pesque", "start"]

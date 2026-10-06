@@ -50,21 +50,54 @@ Ajuste `PDS_HOSTNAME` para o endereço real, senão as URLs anunciadas e o
 Coloque Caddy ou nginx na frente para o TLS. O container fala HTTP puro e
 anuncia `https`, que é o que deveria acontecer atrás de um proxy.
 
+### Como release
+
+Sem container, `mix release` gera o mesmo servidor como uma release OTP
+autocontida. Ela precisa de um `PDS_DATA_DIR` gravável e nada mais.
+
+```bash
+MIX_ENV=prod mix release
+_build/prod/rel/pesque/bin/pesque start
+```
+
+`bin/pesque stop` é `SIGTERM` com saída limpa: o endpoint drena, os processos
+do repo terminam e o write-ahead log do SQLite sobrevive à reinicialização.
+`SIGKILL` também funciona e perde no máximo o commit em andamento.
+
+```ini
+# /etc/systemd/system/pesque.service
+[Service]
+Type=simple
+User=pesque
+Environment=PDS_DATA_DIR=/var/lib/pesque
+Environment=PDS_HOSTNAME=pds.example.com
+ExecStart=/opt/pesque/bin/pesque start
+ExecStop=/opt/pesque/bin/pesque stop
+Restart=on-failure
+```
+
+Copie a release de `_build` e rode `bin/pesque` de onde quiser; o caminho em
+`ExecStart` é o único que precisa mudar.
+
 ## Criando uma conta
 
 O registro começa fechado. A partir da máquina:
 
 ```bash
-mix pesque.create_account --handle alice.example.com --email alice@example.com --password secret123
+export PESQUE_PASSWORD=secret123
+mix pesque.create_account --handle alice.example.com --email alice@example.com --password-env PESQUE_PASSWORD
 ```
 
 ```
 created alice.example.com (did:web:example.com)
 ```
 
-O comando sobe a aplicação inteira, então pare o servidor antes ou use outro
-`PDS_PORT`. Com `PDS_REGISTRATION=open`, `createAccount` vira um endpoint
-aberto, o que só faz sentido onde você quer desconhecidos com conta.
+`--password secret123` ainda funciona, mas fica no histórico do shell e no
+`ps`; prefira `--password-env` ou o prompt sem eco (usado quando nenhum dos
+dois é passado). O comando sobe a aplicação sem servir o endpoint, então roda
+ao lado de um servidor em execução em vez de falhar na porta. Com
+`PDS_REGISTRATION=open`, `createAccount` vira um endpoint aberto, o que só faz
+sentido onde você quer desconhecidos com conta.
 
 ## Antes de colocar dados reais
 
@@ -97,20 +130,33 @@ primeira coisa que eu mudaria.
 
 ## O que não existe
 
-- **Validação de Lexicon.** Os registros são gravados como vieram.
-  `Pesque.Lexicon` converte `$link` e `$bytes` entre JSON e CBOR, e só.
 - **OAuth.** As sessões são tokens HS256 legados. Sem PAR, sem DPoP, sem escopos.
 - **`did:plc` e sincronização entre servidores.** Duas instâncias do Pesque não
   conversam entre si.
 - **AppView.** Isto serve um PDS, não um feed.
+- **`deactivateAccount`, `migrateTo`, `getServiceAuth`.** Os outros métodos de
+  `com.atproto.server.*` e `com.atproto.repo.*` do protocolo são respondidos;
+  estes três não, e respondem `501` em vez de fingir.
 
 ## Endpoints
 
 Repositório: `createRecord`, `putRecord`, `deleteRecord`, `getRecord`, `listRecords`
 Sincronização: `getRepo`, `getLatestCommit`, `subscribeRepos`
 Blobs: `uploadBlob`, `getBlob`
-Servidor: `createAccount`, `createSession`, `refreshSession`, `getSession`, `deleteSession`
+Servidor: `describeServer`, `checkAccountStatus`, `createAccount`, `createSession`, `refreshSession`, `getSession`, `deleteSession`
 Identidade: `resolveHandle`, `describeRepo`, documentos `did:web`
+
+`describeServer` e `checkAccountStatus` respondem sem token. Tudo o que escreve,
+ou que nomeia um repositório, precisa de um.
+
+Os endpoints de sessão são limitados a 100 requisições por hora por endereço e
+por conta, e os de leitura a 3000 a cada cinco minutos, que é o que o protocolo
+ped. O endereço vem do `x-forwarded-for`, porque atrás de Caddy toda requisição
+chega do proxy e um chamador gastaria o orçamento inteiro do servidor. Um
+servidor acessível direto, sem proxy, tem limite por endereço que não vale nada:
+qualquer um forja o cabeçalho.
+
+Os números em si ficam onde o plug é montado, em `lib/pesque_web/router.ex`.
 
 ## Modos
 
@@ -134,10 +180,16 @@ de federação acima.
 | `PDS_HANDLE` | `PDS_HOSTNAME` | Handle publicado no modo conformante. |
 | `PDS_HANDLE_DOMAIN` | `PDS_HANDLE` | Contas recebem `alice.<domínio>`. |
 | `PDS_REGISTRATION` | `closed` | `open` libera `createAccount` para qualquer um. |
+| `PDS_URL_SCHEME` | `https` | Esquema anunciado nas URLs. |
+| `PDS_URL_PORT` | `443` | Porta anunciada. |
 
 Um `PDS_MODE` ou `PDS_REGISTRATION` desconhecido interrompe a inicialização em vez
 de assumir um padrão, porque uma escolha silenciosa aparece depois como uma falha
 difícil de entender.
+
+A URL anunciada assume `https` porque o container fala HTTP puro e deve ficar
+atrás de um proxy TLS; para uma execução local parecida com produção, sem
+proxy, use `PDS_URL_SCHEME=http` e a porta anunciada cai para `PDS_PORT`.
 
 ## Backup
 

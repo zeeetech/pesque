@@ -21,8 +21,10 @@ defmodule Mix.Tasks.Pesque.GenUnicode do
   never needs the UCD at runtime. This task exists so the tables can be
   rebuilt when the pinned Unicode version moves.
 
-  An offline run reads `GraphemeBreakProperty.txt`, `emoji-data.txt`, and
-  `DerivedCoreProperties.txt` from the given directory.
+  An offline run reads `auxiliary/GraphemeBreakProperty.txt`,
+  `emoji/emoji-data.txt`, and `DerivedCoreProperties.txt` from the given
+  directory, which should be the UCD root, so pass the directory that
+  contains `auxiliary/` and `emoji/`.
 
   """
 
@@ -41,6 +43,10 @@ defmodule Mix.Tasks.Pesque.GenUnicode do
   @impl Mix.Task
   def run(argv) do
     dir = List.first(argv)
+
+    if length(argv) > 1 do
+      Mix.shell().info("ignoring extra arguments: #{Enum.drop(argv, 1) |> inspect()}")
+    end
 
     gcb = read(dir, @sources[:gcb])
     ep = read(dir, @sources[:ep])
@@ -69,7 +75,14 @@ defmodule Mix.Tasks.Pesque.GenUnicode do
     body
   end
 
-  defp read(dir, relative), do: dir |> Path.join(Path.basename(relative)) |> File.read!()
+  defp read(dir, relative) do
+    path = Path.join(dir, relative)
+
+    case File.read(path) do
+      {:ok, contents} -> contents
+      {:error, reason} -> Mix.raise("cannot read #{path}: #{:file.format_error(reason)}")
+    end
+  end
 
   # Every line of GraphemeBreakProperty.txt assigns a Grapheme_Cluster_Break
   # value, so the second field is the value.
@@ -155,7 +168,7 @@ defmodule Mix.Tasks.Pesque.GenUnicode do
       "Linker" -> :linker
       "Other" -> :other
       "None" -> :none
-      value -> value |> String.downcase() |> String.to_atom()
+      value -> value |> String.downcase() |> String.to_existing_atom()
     end
   end
 

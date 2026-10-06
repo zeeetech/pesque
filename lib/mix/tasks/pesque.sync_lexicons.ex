@@ -86,7 +86,12 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
   end
 
   defp get(url) do
-    case :httpc.request(:get, {String.to_charlist(url), []}, [], body_format: :binary) do
+    case :httpc.request(
+           :get,
+           {String.to_charlist(url), []},
+           [timeout: 30_000, connect_timeout: 10_000],
+           body_format: :binary
+         ) do
       {:ok, {{_, 200, _}, _headers, body}} -> {:ok, body}
       {:ok, {{_, status, _}, _headers, body}} -> {:error, "HTTP #{status}: #{body}"}
       {:error, reason} -> {:error, inspect(reason)}

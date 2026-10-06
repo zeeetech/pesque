@@ -8,3 +8,6 @@ data
 Dockerfile
 .dockerignore
 README.md
+tmp/
+erl_crash.dump
+.claude/

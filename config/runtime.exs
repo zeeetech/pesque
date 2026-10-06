@@ -3,7 +3,37 @@ import Config
 data_dir = System.get_env("PDS_DATA_DIR", if(config_env() == :test, do: "tmp/test", else: "data"))
 hostname = System.get_env("PDS_HOSTNAME", "localhost")
 handle = System.get_env("PDS_HANDLE", hostname)
-port = String.to_integer(System.get_env("PDS_PORT", "4000"))
+
+port =
+  case Integer.parse(System.get_env("PDS_PORT", "4000")) do
+    {n, ""} when n > 0 and n <= 65_535 ->
+      n
+
+    _ ->
+      raise "PDS_PORT must be an integer between 1 and 65535, got: #{System.get_env("PDS_PORT")}"
+  end
+
+# The advertised URL defaults to https on 443 because the container speaks
+# plain HTTP and is meant to sit behind a TLS proxy. For a local prod-like
+# run with no proxy, set PDS_URL_SCHEME=http (port then defaults to PDS_PORT).
+url_scheme =
+  case System.get_env("PDS_URL_SCHEME", "https") do
+    "https" -> "https"
+    "http" -> "http"
+    other -> raise "PDS_URL_SCHEME must be http or https, got: #{other}"
+  end
+
+url_port =
+  case System.get_env("PDS_URL_PORT") do
+    nil ->
+      if url_scheme == "https", do: 443, else: port
+
+    raw ->
+      case Integer.parse(raw) do
+        {n, ""} when n > 0 and n <= 65_535 -> n
+        _ -> raise "PDS_URL_PORT must be an integer between 1 and 65535, got: #{raw}"
+      end
+  end
 
 mode =
   case System.get_env("PDS_MODE", "conformant_single") do
@@ -33,8 +63,7 @@ config :pesque, Pesque.Repo,
 
 config :pesque, PesqueWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: port],
-  url: [host: hostname, scheme: "https", port: 443],
-  secret_key_base: Pesque.Storage.server_secret!(data_dir),
+  url: [host: hostname, scheme: url_scheme, port: url_port],
   server: true
 
 config :pesque,

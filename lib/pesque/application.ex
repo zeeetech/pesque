@@ -11,6 +11,17 @@ defmodule Pesque.Application do
     Pesque.Identity.load!()
     Pesque.Lexicon.Registry.reload()
 
+    # Resolving the secret reads (or creates) data/server.secret. Doing it
+    # here rather than in config/runtime.exs keeps everyday mix tasks from
+    # touching the data directory; only an app boot does.
+    endpoint = Application.get_env(:pesque, PesqueWeb.Endpoint, [])
+
+    Application.put_env(
+      :pesque,
+      PesqueWeb.Endpoint,
+      Keyword.put(endpoint, :secret_key_base, Pesque.Secret.get())
+    )
+
     children = [
       Pesque.Repo,
       Pesque.BootMigrator,
