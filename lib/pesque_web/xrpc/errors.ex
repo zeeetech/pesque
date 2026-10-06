@@ -86,6 +86,29 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:key_unavailable),
     do: {500, "InternalServerError", "the server signing key could not be loaded"}
 
+  # The PLC directory. A refused or unreachable submission is a server-side
+  # failure: the account was not created, and a retry is the client's move.
+  def to_xrpc(:plc_unreachable),
+    do: {500, "InternalServerError", "the PLC directory could not be reached"}
+
+  def to_xrpc({:plc_unreachable, _reason}),
+    do: {500, "InternalServerError", "the PLC directory could not be reached"}
+
+  def to_xrpc({:plc_status, _status}),
+    do: {500, "InternalServerError", "the PLC directory refused the operation"}
+
+  def to_xrpc(:plc_operation_missing),
+    do: {500, "InternalServerError", "the account has no PLC operation to update"}
+
+  def to_xrpc({:rotation_key_unreadable, _reason}),
+    do: {500, "InternalServerError", "the account rotation key could not be read"}
+
+  def to_xrpc(:pds_mismatch),
+    do: {400, "InvalidRequest", "the DID document does not point at this server"}
+
+  def to_xrpc(:pds_missing),
+    do: {400, "InvalidRequest", "the DID document names no atproto_pds service"}
+
   def to_xrpc(:wrong_account_did),
     do: {400, "InvalidRequest", "did must be the authenticated account"}
 

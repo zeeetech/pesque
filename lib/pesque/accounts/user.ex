@@ -18,6 +18,10 @@ defmodule Pesque.Accounts.User do
     field :email, :string
     field :password_hash, :string
 
+    # The signed PLC operation for a did:plc account. NULL for every did:web
+    # account, which has no operation log.
+    field :plc_operation, :string
+
     # Not cast by changeset/1: whether an account is deactivated is not
     # something a create request decides, and the only way to move it is
     # deactivate_account/activate_account.
@@ -28,7 +32,15 @@ defmodule Pesque.Accounts.User do
 
   def changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [:did, :handle, :username, :pubkey_multibase, :email, :password_hash])
+    |> cast(attrs, [
+      :did,
+      :handle,
+      :username,
+      :pubkey_multibase,
+      :email,
+      :password_hash,
+      :plc_operation
+    ])
     |> validate_required([:did, :handle, :email, :password_hash])
     |> unique_constraint(:did)
     |> unique_constraint(:handle)

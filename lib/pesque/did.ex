@@ -69,6 +69,17 @@ defmodule Pesque.Did do
   def service_endpoint(hostname), do: "https://" <> hostname
 
   @doc """
+  The did:key identifier for a compressed secp256k1 public key.
+
+  Same multikey bytes as a `publicKeyMultibase` (multicodec 0xE7, compressed,
+  base58btc, `z` prefix), with the `did:key:` scheme in front. This is the
+  encoding PLC operations use for rotation and signing keys.
+  """
+  def key_did(compressed_pub) do
+    "did:key:" <> Pesque.Secp256k1.public_key_multibase(compressed_pub)
+  end
+
+  @doc """
   The DID document for an account.
 
   `identity` carries the username (nil for the server itself), the hostname,
@@ -104,6 +115,40 @@ defmodule Pesque.Did do
           "id" => "#atproto_pds",
           "type" => "AtprotoPersonalDataServer",
           "serviceEndpoint" => service_endpoint(hostname)
+        }
+      ]
+    }
+  end
+
+  @doc """
+  The DID document for a did:plc account, keyed by the stored DID.
+
+  A did:plc account's document is published by the PLC directory, not by this
+  server, but describeRepo still has to render one and the DID is the stored
+  string rather than anything re-derived. `endpoint` is this server's PDS
+  endpoint, the same one the genesis operation published.
+  """
+  def plc_document(%{did: did, handle: handle, pub_multibase: pub_multibase, endpoint: endpoint}) do
+    %{
+      "@context" => [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/multikey/v1"
+      ],
+      "id" => did,
+      "alsoKnownAs" => ["at://" <> handle],
+      "verificationMethod" => [
+        %{
+          "id" => did <> "#atproto",
+          "type" => "Multikey",
+          "controller" => did,
+          "publicKeyMultibase" => pub_multibase
+        }
+      ],
+      "service" => [
+        %{
+          "id" => "#atproto_pds",
+          "type" => "AtprotoPersonalDataServer",
+          "serviceEndpoint" => endpoint
         }
       ]
     }

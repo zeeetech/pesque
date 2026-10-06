@@ -67,15 +67,16 @@ defmodule Pesque.Accounts do
          :ok <- check_password(password),
          :ok <- check_email(email),
          :ok <- check_available(identity, email),
-         {:ok, key} <- claim_key(identity),
+         {:ok, account} <- claim_account(identity),
          {:ok, password_hash} <- hash_password(password) do
       insert(
-        identity,
+        account.identity,
         email,
         password_hash,
-        key.pub_multibase,
+        account.key.pub_multibase,
         Keyword.get(opts, :invite_code),
-        true
+        true,
+        account.plc_operation
       )
     end
   end
@@ -107,7 +108,8 @@ defmodule Pesque.Accounts do
         password_hash,
         key.pub_multibase,
         Keyword.get(opts, :invite_code),
-        false
+        false,
+        nil
       )
     end
   end
@@ -293,25 +295,27 @@ defmodule Pesque.Accounts do
   become a DID before it can be looked up.
   """
   def repo_did(identifier) when is_binary(identifier) do
-    case String.trim(identifier) do
-      "did:web:" <> _rest ->
-        # Matched exactly, not case-folded: did:web percent-encodes as
-        # uppercase, so folding turns %3A into %3a and matches nothing.
-        case Repo.get_by(User, did: String.trim(identifier)) do
-          %User{did: did} -> {:ok, did}
-          nil -> {:error, :not_found}
-        end
+    identifier = String.trim(identifier)
 
-      _handle ->
-        # Matched the same way, for the same reason. Deriving the DID from
-        # the live config and then looking that up means the port the server
-        # runs on today decides whether an account created yesterday is
-        # reachable at all. Only stored rows match, so a handle from another
-        # network still answers {:error, :not_found}.
-        case Repo.get_by(User, handle: String.downcase(String.trim(identifier))) do
-          %User{did: did} -> {:ok, did}
-          nil -> {:error, :not_found}
-        end
+    if String.starts_with?(identifier, "did:") do
+      # Matched exactly, not case-folded: a DID is case-sensitive and did:web
+      # percent-encodes as uppercase, so folding turns %3A into %3a and matches
+      # nothing. did:plc is minted by the directory and matched the same way,
+      # because re-deriving either from the live config is what this avoids.
+      case Repo.get_by(User, did: identifier) do
+        %User{did: did} -> {:ok, did}
+        nil -> {:error, :not_found}
+      end
+    else
+      # Matched the same way, for the same reason. Deriving the DID from
+      # the live config and then looking that up means the port the server
+      # runs on today decides whether an account created yesterday is
+      # reachable at all. Only stored rows match, so a handle from another
+      # network still answers {:error, :not_found}.
+      case Repo.get_by(User, handle: String.downcase(identifier)) do
+        %User{did: did} -> {:ok, did}
+        nil -> {:error, :not_found}
+      end
     end
   end
 
@@ -368,11 +372,20 @@ defmodule Pesque.Accounts do
   row moving back and nothing else.
   """
   def activate_account(%User{} = user) do
-    with {:ok, _user} <- set_active(user, true) do
+    with :ok <- verify_identity(user),
+         {:ok, _user} <- set_active(user, true) do
       Events.emit_account(user.did, :activated)
       {:ok, user.did}
     end
   end
+
+  # A did:plc account is activated only once the directory's document names
+  # this server as its PDS: a row activated against a document that points
+  # somewhere else would have every client resolve the account away from here.
+  # A did:web account's document is served here and derived from this server,
+  # so there is nothing to fetch.
+  defp verify_identity(%User{did: "did:plc:" <> _} = user), do: Pesque.Plc.verify_pds(user.did)
+  defp verify_identity(%User{}), do: :ok
 
   defp set_active(%User{} = user, active) do
     case User.active_changeset(user, active) |> Repo.update() do
@@ -408,15 +421,31 @@ defmodule Pesque.Accounts do
   """
   def update_handle(%User{} = user, handle) do
     with {:ok, identity} <- identity_for(handle),
-         :ok <- check_reclaimable(identity, user) do
-      case User.handle_changeset(user, %{handle: identity.handle}) |> Repo.update() do
-        {:ok, updated} ->
-          Events.emit_identity(updated.did, updated.handle)
-          {:ok, updated}
+         :ok <- check_reclaimable(identity, user),
+         {:ok, operation} <- update_plc_operation(user, identity.handle),
+         {:ok, updated} <- write_handle(user, identity.handle, operation) do
+      Events.emit_identity(updated.did, updated.handle)
+      {:ok, updated}
+    end
+  end
 
-        {:error, _changeset} ->
-          {:error, :handle_not_available}
-      end
+  # The PLC operation is written before the row. If the directory refuses it
+  # nothing local moves, so the handle this server resolves never disagrees
+  # with the handle the DID document claims.
+  defp update_plc_operation(%User{did: "did:plc:" <> _} = user, handle),
+    do: Pesque.Plc.update_handle(user, handle)
+
+  defp update_plc_operation(%User{}, _handle), do: {:ok, nil}
+
+  defp write_handle(user, handle, operation) do
+    overrides =
+      if operation,
+        do: %{handle: handle, plc_operation: operation},
+        else: %{handle: handle}
+
+    case User.handle_changeset(user, overrides) |> Repo.update() do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:error, :handle_not_available}
     end
   end
 
@@ -768,7 +797,7 @@ defmodule Pesque.Accounts do
   # The blobs row is gone with the rest, so the bytes are unreachable already;
   # removing the directory is what stops them outliving the account on disk.
   defp remove_files(did) do
-    _ = Keys.delete(did)
+    _ = Pesque.Plc.Keys.delete(did)
 
     _ =
       did
@@ -894,6 +923,27 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # Under PDS_IDENTITY=plc the DID is minted by the directory rather than
+  # derived from the hostname, so the key claim and the DID arrive together
+  # from Pesque.Plc. Under the default web identity this is exactly the old
+  # claim_key/1 with the extra fields left nil.
+  defp claim_account(identity) do
+    if Pesque.Plc.enabled?() do
+      with {:ok, minted} <- Pesque.Plc.mint(identity.handle) do
+        {:ok,
+         %{
+           identity: %{identity | did: minted.did},
+           key: minted.key,
+           plc_operation: minted.operation
+         }}
+      end
+    else
+      with {:ok, key} <- claim_key(identity) do
+        {:ok, %{identity: identity, key: key, plc_operation: nil}}
+      end
+    end
+  end
+
   # The single account is the server and publishes the key created at boot,
   # so claiming a second one here would sign with a key the DID document
   # does not carry.
@@ -923,11 +973,12 @@ defmodule Pesque.Accounts do
   # account, so a code spent on an insert that then failed goes back to being
   # spendable. The frame is announced after that transaction commits: a frame
   # for an account nobody can log into is worse than a late one.
-  defp insert(identity, email, password, pub_multibase, invite_code, active) do
+  defp insert(identity, email, password, pub_multibase, invite_code, active, plc_operation) do
     result =
       Repo.transaction(fn ->
         with :ok <- consume_invite(invite_code, identity.did),
-             {:ok, user} <- insert_user(identity, email, password, pub_multibase, active) do
+             {:ok, user} <-
+               insert_user(identity, email, password, pub_multibase, active, plc_operation) do
           user
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -941,11 +992,11 @@ defmodule Pesque.Accounts do
         {:ok, user}
 
       {:error, :invalid_invite_code} ->
-        Keys.delete(identity.did)
+        Pesque.Plc.Keys.delete(identity.did)
         {:error, :invalid_invite_code}
 
       {:error, changeset} ->
-        Keys.delete(identity.did)
+        Pesque.Plc.Keys.delete(identity.did)
 
         if email_taken?(changeset) do
           {:error, :email_taken}
@@ -955,14 +1006,15 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp insert_user(identity, email, password_hash, pub_multibase, active) do
+  defp insert_user(identity, email, password_hash, pub_multibase, active, plc_operation) do
     attrs = %{
       did: identity.did,
       handle: identity.handle,
       username: identity.username,
       pubkey_multibase: pub_multibase,
       email: email,
-      password_hash: password_hash
+      password_hash: password_hash,
+      plc_operation: plc_operation
     }
 
     changeset = if active, do: User.changeset(attrs), else: User.import_changeset(attrs)
@@ -985,6 +1037,18 @@ defmodule Pesque.Accounts do
   # derivation from the username: updateHandle/2 moves the handle and the DID
   # path it is served at does not move with it, so the derivation would publish
   # a handle the account no longer answers to.
+  #
+  # A did:plc account's document is published by the directory, so it is keyed
+  # by the stored DID rather than derived from the hostname.
+  defp document(%User{did: "did:plc:" <> _} = user) do
+    Did.plc_document(%{
+      did: user.did,
+      handle: user.handle,
+      pub_multibase: user.pubkey_multibase,
+      endpoint: Did.service_endpoint(Pesque.hostname())
+    })
+  end
+
   defp document(user) do
     Did.did_document(Pesque.mode(), %{
       username: user.username,

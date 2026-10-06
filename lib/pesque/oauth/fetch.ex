@@ -42,6 +42,52 @@ defmodule Pesque.OAuth.Fetch do
     end
   end
 
+  @doc """
+  Posts `body` as a JSON document to `uri`.
+
+  Answers :ok on a 2xx and {:error, reason} otherwise. The scheme and address
+  checks of json/2 are kept: the URL here is the PLC directory base from
+  configuration rather than a stranger's string, but one outbound path with
+  one set of rules is worth more than a second unchecked one.
+  """
+  def post_json(%URI{} = uri, body, _max_bytes) do
+    with :ok <- hardened(uri) do
+      post(uri, JSON.encode!(body))
+    end
+  end
+
+  defp hardened(uri) do
+    with :ok <- check_scheme(uri),
+         :ok <- check_address(uri.host) do
+      :ok
+    else
+      {:error, _reason} -> {:error, :plc_unreachable}
+    end
+  end
+
+  defp post(uri, body) do
+    case :httpc.request(
+           :post,
+           {URI.to_string(uri), [{~c"accept", ~c"application/json"}], ~c"application/json", body},
+           [
+             connect_timeout: @connect_timeout,
+             timeout: @timeout,
+             ssl: ssl_options(),
+             autoredirect: false
+           ],
+           []
+         ) do
+      {:ok, {{_version, status, _reason}, _headers, _body}} when status in 200..299 ->
+        :ok
+
+      {:ok, {{_version, status, _reason}, _headers, _body}} ->
+        {:error, {:plc_status, status}}
+
+      {:error, reason} ->
+        {:error, {:plc_unreachable, reason}}
+    end
+  end
+
   defp request(uri, max_bytes) do
     case :httpc.request(
            :get,

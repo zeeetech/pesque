@@ -42,6 +42,37 @@ mode =
     other -> raise "PDS_MODE must be conformant_single or path_multi, got: #{other}"
   end
 
+# The DID method accounts are minted with. web is the default and the whole
+# existing behaviour; plc mints through the directory instead.
+identity =
+  case System.get_env("PDS_IDENTITY", "web") do
+    "web" -> :web
+    "plc" -> :plc
+    other -> raise "PDS_IDENTITY must be web or plc, got: #{other}"
+  end
+
+# conformant_single serves the one account as the server itself, so the account
+# DID has to be the server's DID, and the server's identity is minted at boot
+# from the hostname. plc accounts are minted per account instead, so the two
+# modes cannot be combined until the server identity is minted through PLC too.
+if identity == :plc and mode == :conformant_single do
+  raise "PDS_IDENTITY=plc requires PDS_MODE=path_multi: conformant_single serves the account as the server, and the server's own DID is did:web"
+end
+
+# Only read when PDS_IDENTITY=plc. A directory the operator points at is a
+# deployment choice, so it is configuration rather than a constant.
+plc_directory = System.get_env("PDS_PLC_DIRECTORY", "https://plc.directory")
+
+# Relays to announce this server to at boot. Comma separated, empty by default:
+# a relay also discovers PDS instances other ways, so an operator who names none
+# still works.
+crawlers =
+  "PDS_CRAWLER"
+  |> System.get_env("")
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+  |> Enum.reject(&(&1 == ""))
+
 # PDS_HANDLE goes away with multi-account, so until then it is what
 # conformant_single publishes, and path_multi ignores it.
 handle_domain =
@@ -108,6 +139,9 @@ config :pesque, PesqueWeb.Endpoint,
 config :pesque,
   data_dir: data_dir,
   mode: mode,
+  identity: identity,
+  plc_directory: plc_directory,
+  crawlers: crawlers,
   hostname: hostname,
   handle_domain: handle_domain,
   handle: handle,

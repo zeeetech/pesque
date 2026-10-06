@@ -33,6 +33,15 @@ defmodule Pesque do
   @doc "The DID mode: :conformant_single or :path_multi."
   def mode, do: Application.get_env(:pesque, :mode, :conformant_single)
 
+  @doc "The DID method accounts are minted with: :web (the default) or :plc."
+  def identity, do: Application.get_env(:pesque, :identity, :web)
+
+  @doc "The PLC directory base URL. Only read under PDS_IDENTITY=plc."
+  def plc_directory, do: Application.get_env(:pesque, :plc_directory, "https://plc.directory")
+
+  @doc "Relay base URLs to ask for a crawl at boot. Empty means ask nobody."
+  def crawlers, do: Application.get_env(:pesque, :crawlers, [])
+
   @doc "The host this server is reached at, without scheme or port."
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
 

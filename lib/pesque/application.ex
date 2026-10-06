@@ -37,8 +37,19 @@ defmodule Pesque.Application do
     with {:ok, pid} <-
            Supervisor.start_link(children, strategy: :one_for_one, name: Pesque.Supervisor) do
       log_boot()
+      announce_to_relays()
       {:ok, pid}
     end
+  end
+
+  # A relay that is slow or down must not delay or fail this boot, so the crawl
+  # requests go out in a task nobody waits on.
+  defp announce_to_relays do
+    if Pesque.crawlers() != [] do
+      Task.start(fn -> Pesque.Crawl.request_all() end)
+    end
+
+    :ok
   end
 
   # The four things worth knowing when a server comes back wrong are which
