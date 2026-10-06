@@ -20,6 +20,16 @@ defmodule Pesque.Keys do
   Exclusive is the point: two createAccount calls for one handle race here,
   and the loser gets {:error, :eexist} instead of overwriting the winner's
   key with a fresh one the winner has already published.
+
+  The chmod is not a leftover. It cannot be replaced by a mode on the open,
+  because Erlang's file:open/2 has no creation-mode option: `{:mode, 0o600}`
+  is accepted and ignored, and the file lands 0644 under the umask. A
+  descriptor opened in the window between the create and the chmod therefore
+  does keep reading the key, and closing that window needs a mode that
+  open(2) honours, which this API does not offer. What the ordering buys is
+  that the window holds an empty file rather than a private key, and
+  keys_dir is 0700 (Storage.init!/1), so a local process that is not this
+  user cannot reach the path at all.
   """
   def create_exclusive(did) do
     case :file.open(path(did), [:write, :exclusive]) do
@@ -66,8 +76,8 @@ defmodule Pesque.Keys do
   defp write(did, device) do
     {pub, priv} = Secp256k1.generate_keypair()
 
-    # The file opens with the default mode, so tighten it before the key
-    # bytes land in it: the brief 0644 moment holds an empty file.
+    # Before the key bytes, not after: the file opens with the umask's mode, so
+    # chmodming first means the moment it is briefly too wide it is empty.
     :ok = File.chmod(path(did), 0o600)
     :ok = :file.write(device, priv)
     :ok = :file.close(device)

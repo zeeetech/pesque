@@ -88,11 +88,21 @@ defmodule PesqueWeb.Xrpc.SessionController do
   # Open registration needs nothing from the caller. Closed registration is
   # invite-only, which is what describeServer already advertises: a code the
   # operator handed out, spent exactly once.
-  def create_account(conn, params) do
+  #
+  # The password is checked for being a string here, at the boundary, because
+  # it is the one field whose type decides whether a raise escapes: argon2's
+  # NIF raises ArgumentError on a non-binary, so {"handle":...,"password":[]}
+  # is a 500 here and a 400 there. Under a closed registration that status
+  # difference says whether the handle is taken.
+  def create_account(conn, %{"password" => password} = params) when is_binary(password) do
     case invite_code(params) do
       {:ok, opts} -> provision(conn, params, opts)
       {:error, reason} -> fail(conn, reason)
     end
+  end
+
+  def create_account(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "handle, email and password are required")
   end
 
   defp invite_code(params) do
@@ -131,7 +141,14 @@ defmodule PesqueWeb.Xrpc.SessionController do
     Xrpc.error(conn, status, name, message)
   end
 
-  def create_session(conn, %{"identifier" => identifier, "password" => password}) do
+  # The guard on the password is the boundary fix for a status-code oracle.
+  # Argon2 raises ArgumentError from the NIF on anything that is not a binary,
+  # and it only gets there for an identifier a row names: an unknown handle
+  # with "password":[] takes the no_user_verify branch and answers 401, while
+  # a real handle answers 500. Answered 400 either way, the shape of the
+  # request is what separates them now, not whether an account exists.
+  def create_session(conn, %{"identifier" => identifier, "password" => password})
+      when is_binary(identifier) and is_binary(password) do
     case Accounts.verify_login(identifier, password) do
       {:ok, user} ->
         {:ok, session} = Accounts.issue_session(user.did)
