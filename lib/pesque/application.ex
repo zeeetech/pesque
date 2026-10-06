@@ -10,6 +10,7 @@ defmodule Pesque.Application do
     Pesque.Secret.load!()
     Pesque.Identity.load!()
     Pesque.Lexicon.Registry.reload()
+    Pesque.Release.migrate()
 
     # Resolving the secret reads (or creates) data/server.secret. Doing it
     # here rather than in config/runtime.exs keeps everyday mix tasks from
@@ -24,7 +25,6 @@ defmodule Pesque.Application do
 
     children = [
       Pesque.Repo,
-      Pesque.BootMigrator,
       Pesque.RateLimit,
       {Registry, keys: :duplicate, name: Pesque.EventRegistry},
       {Registry, keys: :unique, name: Pesque.RepoRegistry},
