@@ -20,6 +20,23 @@ defmodule PesqueWeb.FirehoseTest do
   @page_size 10_000
   @did "did:web:localhost"
 
+  # The log is emptied before each test, and that is load bearing rather than
+  # tidiness.
+  #
+  # One SQLite file backs the whole suite, and the event table's primary key is
+  # the seq every firehose assertion below is written against: page boundaries,
+  # the retention edge at oldest - 1, the replay watermark. Anything that
+  # commits outside the sandbox leaves rows nothing rolls back, and the next
+  # seed from seq 1 then dies on the primary key with a UNIQUE constraint
+  # failure that reads as a firehose bug rather than a dirty fixture.
+  #
+  # The delete runs inside each test's own sandbox transaction, so it is undone
+  # with everything else this file writes and cannot affect another test.
+  setup do
+    Repo.delete_all(Event)
+    :ok
+  end
+
   # A page that is the whole log is a replay, not a truncation. Only a cursor
   # with something past the page is too far behind, and reading the first case
   # as the second would put every consumer sitting exactly one page back into a
@@ -63,10 +80,25 @@ defmodule PesqueWeb.FirehoseTest do
   test "a cursor predating retention gets the info frame ahead of what is left" do
     seed_events(5, 2)
 
-    assert {:push, [{:binary, info} | rest], %{replayed_through: 6}} = Firehose.init(%{cursor: 0})
+    assert {:push, [{:binary, info} | rest], %{replayed_through: 6}} =
+             Firehose.init(%{cursor: 0})
 
     assert {%{"t" => "#info"}, %{"name" => "OutdatedCursor"}} = decode(info)
     assert length(rest) == 2
+  end
+
+  test "a cursor at the edge of retention is served without a warning" do
+    seed_events(5, 2)
+
+    assert {:push, frames, _state} = Firehose.init(%{cursor: 4})
+
+    assert length(frames) == 2
+
+    # No #info in any of them, which is the point: oldest - 1 is still
+    # serviceable and must not be told to resync.
+    for {_kind, frame} <- frames do
+      refute match?(%{"t" => "#info"}, decode(frame))
+    end
   end
 
   # The registration happens before the replay query, so a commit written in

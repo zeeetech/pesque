@@ -92,8 +92,17 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
   end
 
+  # Account management is a write path like any other, and deleteAccount is the
+  # expensive one: it verifies a password with argon2. The permit in Accounts
+  # bounds how many of those run at once, which caps the memory but not the
+  # rate, so without a limit of its own this scope has the cheapest 64 MiB a
+  # token holder can spend, repeatedly and as fast as the network allows.
+  #
+  # The window matches :write_limits so the two write scopes read as one policy,
+  # and it runs before the auth plug so a flood is refused before it costs a
+  # token verification.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through :auth_account
+    pipe_through [:write_limits, :auth_account]
 
     post "/com.atproto.server.requestAccountDelete", SessionController, :request_account_delete
     post "/com.atproto.server.deleteAccount", SessionController, :delete_account
@@ -102,8 +111,10 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
   end
 
+  # Behind :admin as well as :auth_account, because on this server it is also
+  # the operator's endpoint rather than an account's.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:auth_account, :admin]
+    pipe_through [:write_limits, :auth_account, :admin]
 
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
   end
