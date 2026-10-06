@@ -6,7 +6,6 @@ defmodule PesqueWeb.Xrpc.RepoController do
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.Blob
-  # writes (behind PesqueWeb.Plugs.Auth)
   alias Pesque.CBOR
   alias Pesque.Lexicon
   alias Pesque.RepoStore
@@ -15,6 +14,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # Claimed by Plug.Parsers before the router runs, so the body is already
   # gone by the time a controller could read it.
   @parsed_media_types ["application/json", "application/x-www-form-urlencoded"]
+
+  # writes (behind PesqueWeb.Plugs.Auth)
 
   def create_record(conn, params) do
     write(conn, params, :create)
@@ -33,14 +34,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
         {:ok, result} ->
           json(conn, %{"commit" => result["commit"]})
 
-        {:error, :record_not_found} ->
-          Xrpc.error(conn, 400, "RecordNotFound", "no record at that key")
-
-        {:error, :invalid_collection} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "collection is not a valid NSID")
-
-        {:error, :invalid_rkey} ->
-          Xrpc.error(conn, 400, "InvalidRecordKey", "rkey is not valid")
+        {:error, reason} ->
+          write_error(conn, reason)
       end
     else
       {:error, reason} -> write_error(conn, reason)
@@ -71,26 +66,6 @@ defmodule PesqueWeb.Xrpc.RepoController do
             "validationStatus" => if(validate, do: "valid", else: "unknown")
           })
 
-        {:error, :record_exists} ->
-          Xrpc.error(conn, 400, "InvalidRecordKey", "a record already exists at that key")
-
-        {:error, :invalid_collection} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "collection is not a valid NSID")
-
-        {:error, :invalid_rkey} ->
-          Xrpc.error(conn, 400, "InvalidRecordKey", "rkey is not valid")
-
-        {:error, {:type_mismatch, found, collection}} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "record $type #{found} is not #{collection}")
-
-        {:error, :unknown_collection} ->
-          Xrpc.error(
-            conn,
-            400,
-            "InvalidRequest",
-            "this server has no lexicon for that collection"
-          )
-
         {:error, {:invalid_record, errors}} ->
           Xrpc.error(
             conn,
@@ -99,14 +74,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
             "record does not match #{params["collection"]}: #{describe(errors)}"
           )
 
-        {:error, :invalid_link} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "a $link is not a parseable CID")
-
-        {:error, :invalid_bytes} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "a $bytes value is not valid base64")
-
-        {:error, :unencodable} ->
-          Xrpc.error(conn, 400, "InvalidRequest", "record holds a value DAG-CBOR cannot encode")
+        {:error, reason} ->
+          write_error(conn, reason)
       end
     else
       {:error, reason} -> write_error(conn, reason)
@@ -159,14 +128,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
       {:error, {status, name, message}} ->
         Xrpc.error(conn, status, name, message)
 
-      {:error, :empty} ->
-        Xrpc.error(conn, 400, "InvalidRequest", "blob body is empty")
-
-      {:error, :too_large} ->
-        Xrpc.error(conn, 400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes")
-
-      {:error, :unwritable} ->
-        Xrpc.error(conn, 500, "InternalServerError", "blob could not be written to disk")
+      {:error, reason} ->
+        write_error(conn, reason)
     end
   end
 
@@ -195,7 +158,6 @@ defmodule PesqueWeb.Xrpc.RepoController do
       {:more, _partial, _conn} ->
         {:error, {400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes"}}
 
-      # reads (public)
       {:error, reason} ->
         {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
     end
@@ -212,6 +174,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
       _ -> {:error, {400, "InvalidRequest", "content-length does not match the body"}}
     end
   end
+
+  # reads (public)
 
   def get_record(conn, %{"repo" => repo, "collection" => collection, "rkey" => rkey}) do
     case resolve_repo(repo) do
@@ -234,7 +198,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
             end
         end
 
-      :error ->
+      {:error, _reason} ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
@@ -294,7 +258,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
             Xrpc.error(conn, 500, "InternalServerError", "stored record could not be decoded")
         end
 
-      :error ->
+      {:error, _reason} ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
@@ -367,11 +331,13 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp require_record(record) when is_map(record), do: :ok
   defp require_record(_), do: {:error, :missing_params}
 
-  defp write_error(conn, :wrong_repo),
-    do: Xrpc.error(conn, 400, "InvalidRequest", "repo must be the authenticated account")
-
   defp write_error(conn, :missing_params),
     do: Xrpc.error(conn, 400, "InvalidRequest", "missing required params")
+
+  defp write_error(conn, reason) do
+    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
+    Xrpc.error(conn, status, name, message)
+  end
 
   defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do

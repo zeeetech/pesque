@@ -3,8 +3,6 @@ defmodule PesqueWeb.Xrpc.IdentityController do
 
   use Phoenix.Controller, formats: [:json]
 
-  import Plug.Conn
-
   alias Pesque.Accounts
   alias PesqueWeb.Xrpc
 
@@ -25,14 +23,17 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   def user_did_document(conn, %{"username" => username}) do
     case Accounts.did_document_for(username) do
       {:ok, doc} -> json(conn, doc)
-      :error -> send_resp(conn, 404, "")
+      {:error, _reason} -> send_resp(conn, 404, "")
     end
   end
 
   def resolve_handle(conn, %{"handle" => handle}) do
     case Accounts.resolve_handle(handle) do
-      {:ok, did} -> json(conn, %{"did" => did})
-      :error -> Xrpc.error(conn, 400, "HandleNotFound", "no such handle on this server")
+      {:ok, did} ->
+        json(conn, %{"did" => did})
+
+      {:error, _reason} ->
+        Xrpc.error(conn, 400, "HandleNotFound", "no such handle on this server")
     end
   end
 

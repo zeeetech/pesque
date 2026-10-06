@@ -1,6 +1,8 @@
 defmodule PesqueWeb.Xrpc.SyncController do
   use Phoenix.Controller, formats: [:json]
 
+  require Logger
+
   alias Pesque.Accounts
   alias Pesque.Blob
   alias Pesque.Car
@@ -16,15 +18,20 @@ defmodule PesqueWeb.Xrpc.SyncController do
             Xrpc.error(conn, 404, "RepoNotFound", "repo has no commits yet")
 
           commit ->
-            blocks = Map.new(RepoStore.blocks_for(did), fn b -> {CID.parse(b.cid), b.data} end)
-            car = Car.encode([CID.parse(commit)], blocks)
+            with {:ok, root} <- parse_cid(commit),
+                 {:ok, blocks} <- parse_blocks(did) do
+              car = Car.encode([root], blocks)
 
-            conn
-            |> put_resp_content_type("application/vnd.ipld.car")
-            |> send_resp(200, car)
+              conn
+              |> put_resp_content_type("application/vnd.ipld.car")
+              |> send_resp(200, car)
+            else
+              :error ->
+                Xrpc.error(conn, 500, "InternalServerError", "stored repo could not be decoded")
+            end
         end
 
-      :error ->
+      {:error, _reason} ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
@@ -44,7 +51,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
             Xrpc.error(conn, 404, "RepoNotFound", "repo has no commits")
         end
 
-      :error ->
+      {:error, _reason} ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
@@ -66,10 +73,10 @@ defmodule PesqueWeb.Xrpc.SyncController do
       {:ok, did} ->
         case Blob.parse_cid(cid) do
           {:ok, blob_cid} -> send_blob(conn, did, blob_cid)
-          :error -> Xrpc.error(conn, 400, "InvalidRequest", "cid is not a blob CID")
+          {:error, _reason} -> Xrpc.error(conn, 400, "InvalidRequest", "cid is not a blob CID")
         end
 
-      :error ->
+      {:error, _reason} ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
     end
   end
@@ -92,8 +99,30 @@ defmodule PesqueWeb.Xrpc.SyncController do
         |> put_resp_header("content-security-policy", "default-src 'none'; sandbox")
         |> send_resp(200, bytes)
 
-      {:error, :not_found} ->
-        Xrpc.error(conn, 400, "BlobNotFound", "no blob at that CID for this repo")
+      {:error, reason} ->
+        {status, name, message} = Xrpc.Errors.to_xrpc(reason)
+        Xrpc.error(conn, status, name, message)
     end
+  end
+
+  defp parse_blocks(did) do
+    RepoStore.blocks_for(did)
+    |> Enum.reduce_while({:ok, %{}}, fn b, {:ok, acc} ->
+      case parse_cid(b.cid) do
+        {:ok, cid} -> {:cont, {:ok, Map.put(acc, cid, b.data)}}
+        :error -> {:halt, :error}
+      end
+    end)
+  end
+
+  # The same store-level corruption decode_record/1 in RepoController answers
+  # 500 for, so the two agree: a stored CID that does not parse is not a client
+  # fault, and the string in the log is what ties the bad row back to storage.
+  defp parse_cid(cid) do
+    {:ok, CID.parse(cid)}
+  rescue
+    e ->
+      Logger.error("parsing stored cid #{cid} failed: #{Exception.message(e)}")
+      :error
   end
 end
