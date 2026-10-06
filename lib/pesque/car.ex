@@ -7,17 +7,36 @@ defmodule Pesque.Car do
 
   @doc "roots: list of %CID{}. blocks: %{(%CID{}) => binary}. Returns iodata-ready binary."
   def encode(roots, blocks) when is_list(roots) and is_map(blocks) do
+    IO.iodata_to_binary(Enum.to_list(stream(roots, sort(blocks))))
+  end
+
+  @doc """
+  The same CAR encode/2 writes, as a lazy stream of chunks: the header first,
+  then one chunk per block.
+
+  Blocks are taken in the order the enumerable yields them, not sorted, so a
+  caller reading from storage decides the order and no intermediate map of
+  every block is needed. The laziness is the point: the blocks enumerable is
+  only advanced as each chunk is written, so a caller that pulls one block at a
+  time never has the rest of the repo in memory. encode/2 is this same framing
+  over sort/1 collected into one binary, which is what keeps the two
+  byte-identical: the header, the roots, the block order and the section
+  framing are written here once.
+  """
+  def stream(roots, blocks) when is_list(roots) do
     header = CBOR.encode(%{"version" => 1, "roots" => roots})
+    Stream.concat([[Varint.encode(byte_size(header)), header]], Stream.map(blocks, &section/1))
+  end
 
-    sections =
-      blocks
-      |> Enum.sort_by(fn {%CID{} = cid, _bytes} -> CID.to_bytes(cid) end)
-      |> Enum.map(fn {%CID{} = cid, bytes} ->
-        cid_bytes = CID.to_bytes(cid)
-        [Varint.encode(byte_size(cid_bytes) + byte_size(bytes)), cid_bytes, bytes]
-      end)
+  # Ascending CID, so the order a CAR's blocks come out in does not depend on
+  # which map or table they were read from.
+  defp sort(blocks) do
+    Enum.sort_by(blocks, fn {%CID{} = cid, _bytes} -> CID.to_bytes(cid) end)
+  end
 
-    IO.iodata_to_binary([Varint.encode(byte_size(header)), header | sections])
+  defp section({%CID{} = cid, bytes}) do
+    cid_bytes = CID.to_bytes(cid)
+    [Varint.encode(byte_size(cid_bytes) + byte_size(bytes)), cid_bytes, bytes]
   end
 
   @doc """

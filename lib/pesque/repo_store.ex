@@ -93,6 +93,19 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  Every CID of `did`, without the bytes behind them.
+
+  A CAR stream has to know the whole block order before it writes the header,
+  and a block order is the set of CIDs, not the set of payloads. Selecting only
+  the CID column is what lets getRepo decide its whole answer up front and then
+  read the bytes a batch at a time; blocks_map/1 here would defeat that by
+  pulling the repo in first.
+  """
+  def block_cids(did) do
+    Repo.all(from b in Block, where: b.did == ^did, select: b.cid)
+  end
+
+  @doc """
   The stored blocks `cid_strings` names, keyed by CID string.
 
   A CID this repo does not hold is absent from the map rather than nil: a

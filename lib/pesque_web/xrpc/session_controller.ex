@@ -10,6 +10,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   use Phoenix.Controller, formats: [:json]
 
   alias Pesque.Accounts
+  alias Pesque.Blob
   alias Pesque.Identity
   alias Pesque.RepoStore
   alias Pesque.ServiceAuth
@@ -24,6 +25,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
       "availableUserDomains" => [Pesque.handle_domain()],
       "inviteCodeRequired" => Pesque.registration() == :closed,
       "phoneVerificationRequired" => false,
+      "blobUploadLimit" => Blob.max_bytes(),
       "links" => links()
     })
   end

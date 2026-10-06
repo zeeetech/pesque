@@ -189,17 +189,35 @@ defmodule PesqueWeb.Xrpc.RepoController do
     end
   end
 
+  # The limit is the length given to read_body/2, so a body over it is refused
+  # while the socket is still being drained rather than after the whole upload
+  # has been held in memory and measured. A body of exactly the limit is the
+  # largest accepted, so the read is capped at the limit itself and anything
+  # past it arrives as {:more, _}. Nothing about the cap belongs to
+  # Plug.Parsers: it claims only json and urlencoded, which blob_media_type/1
+  # turns away before a byte is read, so the two media types a blob cannot
+  # arrive as are the only ones the endpoint's length option ever sees.
   defp read_blob_body(conn) do
-    case read_body(conn, length: Blob.max_bytes() + 1) do
+    case read_body(conn, length: Blob.max_bytes()) do
       {:ok, bytes, conn} ->
         {:ok, bytes, conn}
 
       {:more, _partial, _conn} ->
-        {:error, {400, "InvalidRequest", "blob is larger than #{Blob.max_bytes()} bytes"}}
+        {:error, blob_too_large()}
 
       {:error, reason} ->
         {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
     end
+  end
+
+  # 413 is what the XRPC conventions reserve for a body too large, and it is the
+  # only status a client can tell apart from a malformed request by the status
+  # alone: a caller that can shrink its upload retries, and a caller that
+  # cannot fix its request does not. Blob.max_bytes/0 is the same value
+  # describeServer advertises, so the message says the cap that was applied
+  # rather than one the client has to guess.
+  defp blob_too_large do
+    {413, "PayloadTooLarge", "blob is larger than #{Blob.max_bytes()} bytes"}
   end
 
   # A Content-Length is a claim about the body, not a fact about it, until the

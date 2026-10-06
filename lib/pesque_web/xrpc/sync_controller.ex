@@ -18,11 +18,23 @@ defmodule PesqueWeb.Xrpc.SyncController do
             Xrpc.error(conn, 404, "RepoNotFound", "repo has no commits yet")
 
           commit ->
-            with {:ok, root} <- parse_cid(commit) do
-              send_car(conn, root, RepoStore.blocks_map(did))
+            with {:ok, root} <- parse_cid(commit),
+                 {:ok, cids} <- repo_blocks(did) do
+              stream_car(conn, root, cids, did)
             else
               :error ->
                 Xrpc.error(conn, 500, "InternalServerError", "stored repo could not be decoded")
+
+              {:error, :corrupt_block} ->
+                Xrpc.error(
+                  conn,
+                  500,
+                  "InternalServerError",
+                  "a stored block could not be decoded"
+                )
+
+              {:error, :missing_block} ->
+                Xrpc.error(conn, 500, "InternalServerError", "stored repo is missing a block")
             end
         end
 
@@ -221,6 +233,109 @@ defmodule PesqueWeb.Xrpc.SyncController do
         Xrpc.error(conn, 500, "InternalServerError", "stored repo could not be decoded")
     end
   end
+
+  # getRepo streams: a repo is the one CAR whose size the server does not know
+  # in advance, and building it in memory made every mirror a full copy of the
+  # repo in one allocation. The blocks arrive in Car.stream/2's order from the
+  # same store call, so the bytes on the wire are what send_car/3 would have
+  # written for the same repo.
+  #
+  # Everything that can be wrong is decided before the first chunk: an unknown
+  # repo, a repo with no commit, a commit CID that does not parse, a stored CID
+  # that does not parse, and a commit block that is not stored. A chunked
+  # response has no way to answer any of those as JSON once the header is out,
+  # so they are all resolved first and a failure is an ordinary error response.
+  defp stream_car(conn, root, cids, did) do
+    conn =
+      conn
+      |> put_resp_content_type("application/vnd.ipld.car")
+      |> send_chunked(200)
+
+    Enum.reduce_while(Car.stream([root], repo_block_stream(did, cids)), conn, &send_chunk/2)
+  end
+
+  # Blocks are read a batch at a time as the response advances, so what is in
+  # memory is the batch rather than the repo. The batch size is the one
+  # RepoStore.blocks_by_cids/2 already chunks on, so no new tuning knob: SQLite
+  # caps the bound variables in an IN clause, and reading past that cap in a
+  # larger batch is not a choice this stream gets to make.
+  defp repo_block_stream(did, cids) do
+    cids
+    |> Enum.chunk_every(500)
+    |> Stream.flat_map(fn batch ->
+      strings = Enum.map(batch, &CID.to_string/1)
+      stored = RepoStore.blocks_by_cids(did, strings)
+      Enum.map(batch, &{&1, stored_block(stored, CID.to_string(&1))})
+    end)
+  end
+
+  # repo_blocks/1 checked that every CID is still there, so a nil here is a
+  # block swept between that check and this read. It cannot be answered as JSON
+  # once the header is out, so the stream stops: a truncated CAR is refused
+  # rather than completed with a block the repo cannot produce.
+  defp stored_block(stored, cid_string) do
+    case stored[cid_string] do
+      nil -> raise "block #{cid_string} disappeared mid-stream"
+      data -> data
+    end
+  end
+
+  defp send_chunk(iodata, conn) do
+    case chunk(conn, iodata) do
+      {:ok, conn} -> {:cont, conn}
+      {:error, _reason} -> {:halt, conn}
+    end
+  end
+
+  # Every stored CID, parsed and ordered, with the commit block checked to still
+  # be there. The payloads are not read here: this is the list a CAR's block
+  # order is decided from, and pulling them would put the whole repo back in
+  # memory.
+  #
+  # The ordering is Car's, applied here so the sections come out in the order
+  # encode/2 would have written them. A CAR whose block order changed would be a
+  # different byte string, and a consumer that hashes or dedupes the response
+  # would see a different repo.
+  #
+  # A named block that is not stored is an error here rather than a skipped
+  # section. A CAR that silently dropped the commit is indistinguishable from a
+  # repo that has no commits, which is the failure getBlocks already refuses.
+  # Checking it up front is what lets it still be a JSON answer: once the header
+  # is out, nothing can be.
+  defp repo_blocks(did) do
+    with {:ok, cids} <- parse_cids(RepoStore.block_cids(did)) do
+      if root_stored?(did, cids) do
+        {:ok, cids}
+      else
+        {:error, :missing_block}
+      end
+    end
+  end
+
+  # The commit is named by a meta row and the rest of the repo by nothing at
+  # all, so the commit block is the one that can be named and not stored: a
+  # meta row outlives the block it names. The rest of the blocks are the table
+  # contents themselves, so listing the CIDs already is the list of what exists
+  # and there is nothing to check them against.
+  defp root_stored?(did, cids) do
+    commit = RepoStore.get_meta("commit:" <> did)
+    Enum.any?(cids, &(CID.to_string(&1) == commit))
+  end
+
+  defp parse_cids(cid_strings) do
+    Enum.reduce_while(cid_strings, {:ok, []}, fn cid_string, {:ok, acc} ->
+      case parse_cid(cid_string) do
+        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
+        :error -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, acc |> Enum.reverse() |> sort_cids()}
+      :error -> {:error, :corrupt_block}
+    end
+  end
+
+  defp sort_cids(cids), do: Enum.sort_by(cids, &CID.to_bytes/1)
 
   # The commit is the root because it is the only block a consumer of any of
   # these endpoints is guaranteed to have: getRepo roots it the same way.

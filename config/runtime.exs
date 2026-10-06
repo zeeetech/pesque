@@ -54,6 +54,18 @@ registration =
     other -> raise "PDS_REGISTRATION must be open or closed, got: #{other}"
   end
 
+# Raising rather than falling back, like PDS_PORT above: a blob limit that
+# silently reads as something other than what was configured is a limit nobody
+# chose.
+blob_max_bytes =
+  case System.get_env("PDS_BLOB_UPLOAD_LIMIT", "5242880") do
+    raw ->
+      case Integer.parse(raw) do
+        {n, ""} when n > 0 -> n
+        _ -> raise "PDS_BLOB_UPLOAD_LIMIT must be a positive integer, got: #{raw}"
+      end
+  end
+
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),
   journal_mode: :wal,
@@ -73,7 +85,8 @@ config :pesque,
   handle_domain: handle_domain,
   handle: handle,
   port: port,
-  registration: registration
+  registration: registration,
+  blob_max_bytes: blob_max_bytes
 
 if config_env() == :test do
   config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox

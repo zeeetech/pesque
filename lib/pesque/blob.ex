@@ -13,12 +13,11 @@ defmodule Pesque.Blob do
   alias Pesque.RepoStore
   alias Pesque.Storage
 
-  @max_blob_bytes 5 * 1024 * 1024
   @raw_codec Pesque.CID.raw()
   @sha2_256 Pesque.CID.sha2_256()
 
   @doc "Largest upload accepted, in bytes."
-  def max_bytes, do: @max_blob_bytes
+  defdelegate max_bytes, to: Pesque, as: :blob_max_bytes
 
   @doc "Path of the blob file for a DID and CID."
   def path(did, %CID{} = cid) do
@@ -101,7 +100,7 @@ defmodule Pesque.Blob do
 
     cond do
       size == 0 -> {:error, :empty}
-      size > @max_blob_bytes -> {:error, :too_large}
+      size > max_bytes() -> {:error, :too_large}
       true -> store(did, bytes, content_type, size)
     end
   end

@@ -115,10 +115,52 @@ defmodule PesqueWeb.BlobTest do
     assert empty.status == 400
     assert %{"error" => "InvalidRequest"} = JSON.decode!(empty.resp_body)
 
-    oversize = upload(ctx.token, String.duplicate("a", 5 * 1024 * 1024 + 1), "image/jpeg")
-    assert oversize.status == 400
-    assert %{"error" => "InvalidRequest"} = JSON.decode!(oversize.resp_body)
+    oversize = upload(ctx.token, String.duplicate("a", Blob.max_bytes() + 1), "image/jpeg")
+
+    # 413 rather than 400, so a client that can shrink its upload can tell the
+    # two apart from the status alone, and the name the XRPC conventions
+    # reserve for it.
+    assert oversize.status == 413
+    assert %{"error" => "PayloadTooLarge"} = JSON.decode!(oversize.resp_body)
   end
+
+  # The limit is the length handed to the body read, so a body of exactly the
+  # limit arrives whole and one of a single byte more is refused. Off by one
+  # either way and the endpoint accepts an upload it will not store, or refuses
+  # one the size it advertises.
+  test "a blob of exactly the limit is accepted", ctx do
+    conn = upload(ctx.token, String.duplicate("a", Blob.max_bytes()), "image/jpeg")
+
+    assert conn.status == 200
+    assert %{"size" => size} = blob(conn)
+    assert size == Blob.max_bytes()
+  end
+
+  # A blob that large is slow to build and slow to write, so the limit is
+  # lowered for the size arithmetic rather than the request running at 5 MiB.
+  # The cap is read per request, not at compile time, so this is the same code
+  # path an operator gets from PDS_BLOB_UPLOAD_LIMIT.
+  test "the advertised limit is the enforced limit", ctx do
+    put_blob_limit(1024)
+
+    assert describe_server()["blobUploadLimit"] == 1024
+
+    assert upload(ctx.token, String.duplicate("a", 1024), "image/jpeg").status == 200
+
+    over = upload(ctx.token, String.duplicate("a", 1025), "image/jpeg")
+    assert over.status == 413
+    assert %{"error" => "PayloadTooLarge"} = JSON.decode!(over.resp_body)
+  end
+
+  defp put_blob_limit(bytes) do
+    previous = Application.get_env(:pesque, :blob_max_bytes)
+    on_exit(fn -> Application.put_env(:pesque, :blob_max_bytes, previous) end)
+    Application.put_env(:pesque, :blob_max_bytes, bytes)
+    :ok
+  end
+
+  defp describe_server,
+    do: xrpc_get("/xrpc/com.atproto.server.describeServer").resp_body |> JSON.decode!()
 
   # A filesystem failure is the server's problem, not the client's. What matters
   # is that Blob.put/3 answers a reason the endpoint can map rather than passing

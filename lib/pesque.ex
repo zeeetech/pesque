@@ -47,4 +47,14 @@ defmodule Pesque do
 
   @doc "Whether self-service account creation is open or requires an invite."
   def registration, do: Application.get_env(:pesque, :registration, :closed)
+
+  @doc """
+  The largest blob uploadBlob accepts, in bytes.
+
+  5 MiB by default, which is what the reference PDS advertises and what an
+  operator sizing a disk budget expects to find. One number, read by both the
+  upload path and describeServer, so the advertised cap cannot be a different
+  cap from the enforced one.
+  """
+  def blob_max_bytes, do: Application.get_env(:pesque, :blob_max_bytes, 5 * 1024 * 1024)
 end
