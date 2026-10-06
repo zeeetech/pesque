@@ -69,7 +69,7 @@ defmodule PesqueWeb.AtprotoDidTest do
 
     {:ok, document} = Pesque.Accounts.did_document_for(ctx.alice)
 
-    assert Pesque.Did.claims_handle?(document, ctx.alice.did, ctx.alice.handle)
+    assert document["alsoKnownAs"] == ["at://" <> ctx.alice.handle]
   end
 
   # The DID is minted once, at account creation, and a handle change does not
