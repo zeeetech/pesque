@@ -23,7 +23,29 @@ defmodule Pesque.RepoServer do
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
-  defstruct [:did, :clock_id, :priv, :commit_cid, entries: %{}, tid_int: 0, rev: nil]
+  # Genesis retry pacing. A commit that rolls back because the database was
+  # busy at boot clears in milliseconds, so the first retry is short: the
+  # account is headless for a fifth of a second rather than forever. Doubling
+  # from there reaches the ceiling in eight attempts, about fifty seconds, and
+  # from then on a database that is refusing writes outright is probed once
+  # every thirty seconds. The numbers are here rather than in a config file
+  # because a genesis that keeps failing is a broken database, not a
+  # deployment knob, and the process has to keep serving an already-genesied
+  # repo while it waits.
+  @genesis_retry_initial 200
+  @genesis_retry_factor 2
+  @genesis_retry_ceiling 30_000
+
+  defstruct [
+    :did,
+    :clock_id,
+    :priv,
+    :commit_cid,
+    entries: %{},
+    tid_int: 0,
+    rev: nil,
+    genesis_delay: nil
+  ]
 
   def start_link(did) do
     GenServer.start_link(__MODULE__, did, name: {:via, Registry, {Pesque.RepoRegistry, did}})
@@ -116,16 +138,62 @@ defmodule Pesque.RepoServer do
   end
 
   @impl true
-  def handle_continue(:genesis_if_needed, state) do
-    if state.rev == nil do
-      # Genesis commit: a signed head over the empty tree, so the repo
-      # has a valid, verifiable head before the first record exists.
-      {state, _result} = commit(state, [])
-      {:noreply, state}
-    else
-      {:noreply, state}
+  def handle_continue(:genesis_if_needed, state), do: {:noreply, genesis(state)}
+
+  @impl true
+  def handle_info(:genesis_retry, state), do: {:noreply, genesis(state)}
+
+  # Genesis commit: a signed head over the empty tree, so the repo has a
+  # valid, verifiable head before the first record exists.
+  #
+  # A repo that already has a head is left alone, which is also what makes a
+  # retry that fires after the head exists harmless: the guard answers before
+  # commit/2 is ever called.
+  #
+  # A database that is permanently refusing writes is retried forever, at the
+  # capped interval, rather than stopping this process. RepoSupervisor is a
+  # DynamicSupervisor on one_for_one at its defaults, intensity 3 in 5 seconds:
+  # a child that stops three times inside that window takes the supervisor
+  # down, and with it every other repo on the server. One repo whose database
+  # is refusing writes is a much smaller blast radius than all of them, so a
+  # bounded attempt count ending in {:stop, reason} is the worse of the two
+  # here, and silence is not an option at all. The repo stays a live process
+  # throughout, so it keeps answering reads and keeps accepting writes while
+  # genesis waits; a write would produce a head anyway, and the retry would
+  # then be a no-op.
+  defp genesis(%{rev: rev} = state) when not is_nil(rev), do: state
+
+  defp genesis(state) do
+    {state, result} = commit(state, [])
+
+    case result do
+      {:ok, _prepared} ->
+        %{state | genesis_delay: nil}
+
+      {:error, reason} ->
+        # The transaction rolled back whole, so nothing of the commit landed
+        # and the state is the one commit/2 handed back. What is left is a repo
+        # with no head, which is a broken account rather than an empty one:
+        # getLatestCommit and describeRepo read the head from meta and find
+        # nothing, and nothing else would ever retry it. So the failure is
+        # logged with the DID it belongs to, and retried.
+        delay = next_genesis_delay(state.genesis_delay)
+
+        Logger.error("genesis commit rolled back, retrying",
+          did: state.did,
+          reason: inspect(reason),
+          retry_in_ms: delay
+        )
+
+        Process.send_after(self(), :genesis_retry, delay)
+        %{state | genesis_delay: delay}
     end
   end
+
+  defp next_genesis_delay(nil), do: @genesis_retry_initial
+
+  defp next_genesis_delay(delay),
+    do: min(delay * @genesis_retry_factor, @genesis_retry_ceiling)
 
   @impl true
   def handle_call(:entries, _from, state), do: {:reply, state.entries, state}
