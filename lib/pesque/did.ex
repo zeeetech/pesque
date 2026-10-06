@@ -14,6 +14,10 @@ defmodule Pesque.Did do
 
   @username_regex ~r/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
 
+  # The atproto limit on a DID, which bounds what a resolution is allowed to
+  # build a URL out of.
+  @did_max_length 2048
+
   @doc """
   The did:web authority for a hostname, with the port percent-encoded.
 
@@ -65,8 +69,36 @@ defmodule Pesque.Did do
     end
   end
 
-  @doc "The ATProto PDS endpoint for a hostname."
-  def service_endpoint(hostname), do: "https://" <> hostname
+  @doc """
+  The HTTPS URI a did:web resolves to, per the did:web resolution rules.
+
+  The first method-specific segment is the authority, with `%3A` decoded to a
+  port separator; the remaining segments are the path, and an empty path is the
+  `.well-known` document. Answers `{:ok, %URI{}}` or `{:error, :invalid_did}`.
+  The URI is untrusted: the caller still applies its own scheme and address
+  checks before fetching it.
+  """
+  def web_uri(did) when is_binary(did) do
+    with true <- byte_size(did) <= @did_max_length,
+         ["did", "web", rest] <- String.split(did, ":", parts: 3),
+         [host | _path] <- String.split(rest, ":"),
+         path when is_binary(path) <- path_for_did(did) do
+      case URI.new("https://" <> decode_port(host) <> path) do
+        {:ok, %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil} = uri}
+        when is_binary(host) and host != "" ->
+          {:ok, uri}
+
+        _other ->
+          {:error, :invalid_did}
+      end
+    else
+      _other -> {:error, :invalid_did}
+    end
+  end
+
+  def web_uri(_did), do: {:error, :invalid_did}
+
+  defp decode_port(host), do: String.replace(host, ~r/%3[aA]/, ":")
 
   @doc """
   The did:key identifier for a compressed secp256k1 public key.
@@ -85,13 +117,16 @@ defmodule Pesque.Did do
   `identity` carries the username (nil for the server itself), the hostname,
   the port, the handle domain, and the multibase public key.
   """
-  def did_document(mode, %{
-        username: username,
-        hostname: hostname,
-        port: port,
-        handle_domain: handle_domain,
-        pub_multibase: pub_multibase
-      }) do
+  def did_document(
+        mode,
+        %{
+          username: username,
+          hostname: hostname,
+          port: port,
+          handle_domain: handle_domain,
+          pub_multibase: pub_multibase
+        } = attrs
+      ) do
     did = did_for_username(mode, did_host(hostname, port), username)
     handle = handle_for_username(mode, handle_domain, username)
 
@@ -114,7 +149,7 @@ defmodule Pesque.Did do
         %{
           "id" => "#atproto_pds",
           "type" => "AtprotoPersonalDataServer",
-          "serviceEndpoint" => service_endpoint(hostname)
+          "serviceEndpoint" => Map.get(attrs, :endpoint, "https://" <> hostname)
         }
       ]
     }

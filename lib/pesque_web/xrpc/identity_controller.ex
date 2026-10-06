@@ -4,6 +4,7 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   use Phoenix.Controller, formats: [:json]
 
   alias Pesque.Accounts
+  alias Pesque.Plc
   alias PesqueWeb.Xrpc
 
   def did_document(conn, _params) do
@@ -64,6 +65,30 @@ defmodule PesqueWeb.Xrpc.IdentityController do
 
   def update_handle(conn, _params) do
     Xrpc.error(conn, 400, "InvalidRequest", "missing required param: handle")
+  end
+
+  # What a client puts in the DID document it asks the old PDS to sign. The
+  # account's own key and handle are answered from the row, not from the
+  # request, so the recommendation always names this server.
+  def get_recommended_did_credentials(conn, _params) do
+    case Plc.recommended_credentials(conn.assigns.current_user) do
+      {:ok, credentials} -> json(conn, credentials)
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  # The operation is signed by the old PDS and arrives already signed; this
+  # server's job is to refuse one that would leave the identity unusable from
+  # here, then pass it on. A refusal happens before the directory sees it.
+  def submit_plc_operation(conn, %{"operation" => operation}) do
+    case Plc.submit_operation(conn.assigns.current_user, operation) do
+      {:ok, _did} -> json(conn, %{})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  def submit_plc_operation(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "missing required param: operation")
   end
 
   defp fail(conn, reason) do

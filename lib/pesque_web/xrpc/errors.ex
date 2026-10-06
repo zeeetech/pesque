@@ -109,6 +109,36 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:pds_missing),
     do: {400, "InvalidRequest", "the DID document names no atproto_pds service"}
 
+  # An operation a migrating account submitted. Each is a constraint this
+  # server puts on the identity before it lets the directory see the operation,
+  # so each names the one field that did not hold rather than a generic refusal.
+  def to_xrpc(:plc_operation_invalid),
+    do: {400, "InvalidRequest", "operation is not a valid PLC operation"}
+
+  def to_xrpc(:plc_endpoint_mismatch),
+    do: {400, "InvalidRequest", "the operation's PDS endpoint is not this server"}
+
+  def to_xrpc(:plc_signing_key_mismatch),
+    do: {400, "InvalidRequest", "the operation's signing key is not this account's"}
+
+  def to_xrpc(:plc_handle_mismatch),
+    do: {400, "InvalidRequest", "the operation does not claim this account's handle"}
+
+  def to_xrpc(:not_a_plc_account),
+    do: {400, "InvalidRequest", "this account is not a did:plc identity"}
+
+  # An import proves control of the DID it claims with a service-auth token
+  # signed by the DID's own key. A token that does not verify, does not name
+  # this server, or is for another method proves nothing, so it is refused the
+  # same way a missing one is.
+  def to_xrpc(:invalid_service_auth),
+    do: {401, "AuthenticationRequired", "a valid service auth token is required"}
+
+  def to_xrpc(:unresolvable_did),
+    do: {400, "UnresolvableDid", "the DID does not resolve"}
+
+  def to_xrpc(:invalid_did), do: {400, "InvalidRequest", "did is not a valid DID"}
+
   def to_xrpc(:wrong_account_did),
     do: {400, "InvalidRequest", "did must be the authenticated account"}
 

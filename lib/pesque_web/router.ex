@@ -92,6 +92,18 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
   end
 
+  # Identity management is account permission, not the transition scope: an app
+  # password can write records but cannot move the identity behind them. This
+  # one also mints the account's rotation key on the first ask, so it is behind
+  # the token rather than public.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :auth_account
+
+    get "/com.atproto.identity.getRecommendedDidCredentials",
+        IdentityController,
+        :get_recommended_did_credentials
+  end
+
   # listMissingBlobs walks every record of the account to find the blob refs,
   # so it is a read that costs like a repo listing rather than like a session
   # lookup, and it gets the read budget on top of the token.
@@ -118,6 +130,7 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.server.deactivateAccount", SessionController, :deactivate_account
     post "/com.atproto.server.activateAccount", SessionController, :activate_account
     post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
+    post "/com.atproto.identity.submitPlcOperation", IdentityController, :submit_plc_operation
   end
 
   # Behind :admin as well as :auth_account, because on this server it is also

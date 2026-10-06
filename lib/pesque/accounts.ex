@@ -84,11 +84,12 @@ defmodule Pesque.Accounts do
   @doc """
   Creates the local account an imported DID lands on, deactivated and empty.
 
-  The reference implementation proves control of the DID with a service-auth
-  JWT signed by the DID's key; this server cannot verify inbound service auth
-  yet, so that proof is not made here. What is checked is local and decidable:
-  the DID has to be the one this server would derive for the handle, or its
-  DID document would point at a host this server cannot answer for.
+  The DID is the caller's, not one derived from the handle: an import moves an
+  identity this server did not mint. Control of it is proven at the endpoint
+  with a service-auth token signed by the DID's key, so all this function
+  checks is the shape of the string and the handle it is being attached to.
+  The key file it claims is this server's, so the account signs with a key it
+  holds from its first write.
 
   The account starts deactivated, so nothing is served or written until
   activateAccount; the repo is empty until importRepo fills it. The same key
@@ -96,9 +97,10 @@ defmodule Pesque.Accounts do
   """
   def create_imported_account(handle, email, password, did, opts \\ []) do
     with {:ok, identity} <- identity_for(handle),
-         :ok <- check_import_did(identity, did),
+         :ok <- check_import_did(did),
          :ok <- check_password(password),
          :ok <- check_email(email),
+         {:ok, identity} <- put_import_did(identity, did),
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity),
          {:ok, password_hash} <- hash_password(password) do
@@ -114,8 +116,16 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp check_import_did(%{did: did}, did), do: :ok
-  defp check_import_did(_identity, _did), do: {:error, :unsupported_did}
+  defp check_import_did(did) when is_binary(did) do
+    if String.starts_with?(did, "did:"), do: :ok, else: {:error, :invalid_did}
+  end
+
+  defp check_import_did(_did), do: {:error, :invalid_did}
+
+  # The identity_for/1 struct carries the DID this server would derive for the
+  # handle. An import replaces it with the caller's, so the row, the key file
+  # and every check below are about the imported identity and not the local one.
+  defp put_import_did(identity, did), do: {:ok, %{identity | did: did}}
 
   @doc """
   Creates `code_count` invite codes, each good for `use_count` accounts, and
@@ -1045,7 +1055,7 @@ defmodule Pesque.Accounts do
       did: user.did,
       handle: user.handle,
       pub_multibase: user.pubkey_multibase,
-      endpoint: Did.service_endpoint(Pesque.hostname())
+      endpoint: Pesque.service_endpoint()
     })
   end
 
@@ -1055,7 +1065,8 @@ defmodule Pesque.Accounts do
       hostname: Pesque.hostname(),
       port: Pesque.port(),
       handle_domain: Pesque.handle_domain(),
-      pub_multibase: user.pubkey_multibase
+      pub_multibase: user.pubkey_multibase,
+      endpoint: Pesque.service_endpoint()
     })
     |> Map.put("alsoKnownAs", ["at://" <> user.handle])
   end

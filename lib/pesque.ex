@@ -27,6 +27,9 @@ defmodule Pesque do
     "#{scheme}://#{authority}"
   end
 
+  @doc "The PDS endpoint published in DID documents and PLC operations."
+  def service_endpoint, do: base_url()
+
   @doc "Where the repo store, keys and database live. A relative path is relative to the cwd."
   def data_dir, do: Application.get_env(:pesque, :data_dir, "data")
 

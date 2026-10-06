@@ -55,6 +55,13 @@ defmodule Pesque.Accounts.User do
     attrs |> changeset() |> put_change(:active, false)
   end
 
+  # The operation a migrating account submitted, recorded after the PLC
+  # directory accepted it. It is the `prev` the next handle change points at,
+  # so it is only written once the network agrees with it.
+  def plc_operation_changeset(%__MODULE__{} = row, operation) do
+    change(row, plc_operation: operation)
+  end
+
   def handle_changeset(%__MODULE__{} = row, overrides) do
     row
     |> change(overrides)

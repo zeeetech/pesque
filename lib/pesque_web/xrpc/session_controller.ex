@@ -11,6 +11,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
   alias Pesque.Accounts
   alias Pesque.Blob
+  alias Pesque.DidResolver
   alias Pesque.Identity
   alias Pesque.RepoStore
   alias Pesque.ServiceAuth
@@ -121,7 +122,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   end
 
   defp provision(conn, %{"did" => did} = params, opts) when is_binary(did) do
-    case requester_matches?(conn, did) do
+    case prove_import(conn, did) do
       :ok -> provision_imported(conn, params, opts, did)
       {:error, reason} -> fail(conn, reason)
     end
@@ -147,18 +148,40 @@ defmodule PesqueWeb.Xrpc.SessionController do
     end
   end
 
-  # A DID on createAccount means an account being moved here, and the reference
-  # implementation proves the caller controls that DID with a service-auth JWT
-  # signed by the DID's key and naming this server. This server cannot verify
-  # inbound service auth yet, so that proof is not made: what remains is the
-  # equality it would establish for a caller this server had already
-  # authenticated. createAccount carries no token today, so this clause is not
-  # reached; it is where the service-auth check belongs when there is one.
-  defp requester_matches?(conn, did) do
-    case conn.assigns[:did] do
-      nil -> :ok
-      ^did -> :ok
-      _other -> {:error, :wrong_account_did}
+  # A DID on createAccount means an account being moved here, and the caller
+  # proves control of it with a service-auth JWT signed by the DID's current
+  # signing key and naming this server and this method. verify/3 resolves that
+  # key from the DID's document and answers the issuer, which has to be the DID
+  # being claimed; the DID also has to resolve, or there is no document for the
+  # network to move. Nothing is written until all of it holds.
+  defp prove_import(conn, did) do
+    with {:ok, token} <- bearer_token(conn),
+         {:ok, _document} <- resolve_import(did),
+         {:ok, issuer} <- verify_import(token),
+         true <- issuer == did do
+      :ok
+    else
+      {:error, :unresolvable_did} -> {:error, :unresolvable_did}
+      false -> {:error, :wrong_account_did}
+      _ -> {:error, :invalid_service_auth}
+    end
+  end
+
+  defp bearer_token(conn) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] when token != "" -> {:ok, token}
+      _ -> {:error, :invalid_service_auth}
+    end
+  end
+
+  defp verify_import(token) do
+    ServiceAuth.verify(token, Identity.did(), "com.atproto.server.createAccount")
+  end
+
+  defp resolve_import(did) do
+    case DidResolver.resolve(did) do
+      {:ok, document} -> {:ok, document}
+      {:error, _reason} -> {:error, :unresolvable_did}
     end
   end
 
