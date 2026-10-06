@@ -3,12 +3,18 @@ defmodule PesqueWeb.Plugs.RateLimit do
   Turns the spec's per-endpoint limits into something the router can hang on a
   pipeline.
 
-  Two keys are counted, not one: the account the token names and the address
+  Two keys are counted, not one: the account the request names and the address
   the request came from. One account is one limit however many addresses it
   uses, and one address is one limit however many accounts it holds, so
   neither a single client spreading requests out nor a single client holding a
   dozen accounts gets past the number the spec chose. Both are counted in one
   pass, and the tighter of the two answers.
+
+  The account is named by conn.assigns.did when an auth plug ran first, and by
+  the request's own `identifier` param when it did not. The session endpoints
+  run before any auth plug, so for them the identifier is the only account key
+  there is: without it they would be limited per address only and the
+  per-account number would be dead code.
 
   Which address that is depends on what is in front of the server, and the
   README says Caddy or nginx is. `x-forwarded-for` is therefore read ahead of
@@ -52,8 +58,22 @@ defmodule PesqueWeb.Plugs.RateLimit do
     address = {:address, bucket, address(conn)}
 
     case Map.get(conn.assigns, :did) do
-      nil -> [address]
+      nil -> [address | account_keys(conn, bucket)]
       did -> [{:account, bucket, did}, address]
+    end
+  end
+
+  # Session endpoints run before any auth plug, so conn.assigns.did is never
+  # set there; the account is only recoverable from the request's own
+  # identifier param, which is present unauthenticated on createSession and
+  # similar calls.
+  defp account_keys(conn, bucket) do
+    case conn.params do
+      %{"identifier" => identifier} when is_binary(identifier) ->
+        [{:account, bucket, identifier}]
+
+      _ ->
+        []
     end
   end
 
@@ -82,7 +102,15 @@ defmodule PesqueWeb.Plugs.RateLimit do
     conn
     |> put_resp_header("ratelimit-limit", Integer.to_string(limit))
     |> put_resp_header("ratelimit-remaining", Integer.to_string(max(limit - count, 0)))
-    |> put_resp_header("ratelimit-reset", Integer.to_string(ceil(window / 1000)))
+    |> put_resp_header("ratelimit-reset", Integer.to_string(seconds_until_reset(window)))
+  end
+
+  # seconds left in the current window, not the window's size. `window` and the
+  # rate limiter's periods use the same monotonic clock, so the same
+  # floor-div/mod arithmetic answers how long until the counter rolls over.
+  defp seconds_until_reset(window) do
+    now = System.monotonic_time(:millisecond)
+    ceil((window - Integer.mod(now, window)) / 1000)
   end
 
   defp refuse(conn, limit, window, retry_after) do

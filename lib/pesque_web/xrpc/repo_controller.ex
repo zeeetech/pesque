@@ -1,6 +1,8 @@
 defmodule PesqueWeb.Xrpc.RepoController do
   use Phoenix.Controller, formats: [:json]
 
+  require Logger
+
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.Blob
@@ -219,11 +221,17 @@ defmodule PesqueWeb.Xrpc.RepoController do
             Xrpc.error(conn, 404, "RecordNotFound", "no record at that key")
 
           row ->
-            json(conn, %{
-              "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
-              "cid" => row.cid,
-              "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
-            })
+            case decode_record(row) do
+              {:ok, value} ->
+                json(conn, %{
+                  "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
+                  "cid" => row.cid,
+                  "value" => value
+                })
+
+              :error ->
+                Xrpc.error(conn, 500, "InternalServerError", "stored record could not be decoded")
+            end
         end
 
       :error ->
@@ -252,20 +260,39 @@ defmodule PesqueWeb.Xrpc.RepoController do
         records =
           rows
           |> Enum.take(limit)
-          |> Enum.map(fn row ->
-            %{
-              "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
-              "cid" => row.cid,
-              "value" => row.data |> CBOR.decode!() |> Lexicon.to_json()
-            }
+          |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+            case decode_record(row) do
+              {:ok, value} ->
+                {:cont,
+                 {:ok,
+                  [
+                    %{
+                      "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
+                      "cid" => row.cid,
+                      "value" => value
+                    }
+                    | acc
+                  ]}}
+
+              :error ->
+                {:halt, :error}
+            end
           end)
 
-        reply = %{"records" => records}
+        case records do
+          {:ok, records} ->
+            reply = %{"records" => Enum.reverse(records)}
 
-        reply =
-          if more, do: Map.put(reply, "cursor", Integer.to_string(offset + limit)), else: reply
+            reply =
+              if more,
+                do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
+                else: reply
 
-        json(conn, reply)
+            json(conn, reply)
+
+          :error ->
+            Xrpc.error(conn, 500, "InternalServerError", "stored record could not be decoded")
+        end
 
       :error ->
         Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
@@ -318,6 +345,17 @@ defmodule PesqueWeb.Xrpc.RepoController do
       :ok -> {:ok, conn.assigns.did}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # A row whose bytes do not decode as DAG-CBOR is a store-level corruption,
+  # not a client fault, so it answers 500. The CID in the log is what ties the
+  # bad bytes back to the block in storage.
+  defp decode_record(row) do
+    {:ok, row.data |> CBOR.decode!() |> Lexicon.to_json()}
+  rescue
+    e ->
+      Logger.error("decoding record #{row.cid} failed: #{Exception.message(e)}")
+      :error
   end
 
   defp resolve_repo(repo), do: Accounts.repo_did(repo)

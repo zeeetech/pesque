@@ -12,6 +12,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   alias Pesque.Accounts
   alias Pesque.Identity
   alias Pesque.RepoStore
+  alias PesqueWeb.Xrpc
 
   # The first thing every client asks. A server that does not answer it cannot
   # be used by an app that follows the spec, whatever else it implements, so it
@@ -49,7 +50,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   end
 
   def check_account_status(conn, _params) do
-    PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "did is required")
+    Xrpc.error(conn, 400, "InvalidRequest", "did is required")
   end
 
   # A repo with no commit is a repo nobody has written to, which is not the
@@ -72,7 +73,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
     if Pesque.registration() == :open do
       provision(conn, params)
     else
-      PesqueWeb.Xrpc.error(
+      Xrpc.error(
         conn,
         400,
         "InvalidRequest",
@@ -95,10 +96,10 @@ defmodule PesqueWeb.Xrpc.SessionController do
         })
 
       {:error, :account_exists} ->
-        PesqueWeb.Xrpc.error(conn, 400, "AccountExists", "this server already hosts its account")
+        Xrpc.error(conn, 400, "AccountExists", "this server already hosts its account")
 
       {:error, :handle_not_available} ->
-        PesqueWeb.Xrpc.error(
+        Xrpc.error(
           conn,
           400,
           "HandleNotAvailable",
@@ -106,7 +107,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
         )
 
       {:error, :password_too_short} ->
-        PesqueWeb.Xrpc.error(
+        Xrpc.error(
           conn,
           400,
           "InvalidRequest",
@@ -114,10 +115,10 @@ defmodule PesqueWeb.Xrpc.SessionController do
         )
 
       {:error, :email_required} ->
-        PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "an email is required")
+        Xrpc.error(conn, 400, "InvalidRequest", "an email is required")
 
       {:error, :email_taken} ->
-        PesqueWeb.Xrpc.error(
+        Xrpc.error(
           conn,
           400,
           "InvalidRequest",
@@ -125,7 +126,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
         )
 
       {:error, _reason} ->
-        PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "account could not be created")
+        Xrpc.error(conn, 400, "InvalidRequest", "account could not be created")
     end
   end
 
@@ -144,7 +145,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
         })
 
       :error ->
-        PesqueWeb.Xrpc.error(
+        Xrpc.error(
           conn,
           401,
           "AuthenticationRequired",
@@ -154,7 +155,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   end
 
   def create_session(conn, _params) do
-    PesqueWeb.Xrpc.error(conn, 400, "InvalidRequest", "identifier and password are required")
+    Xrpc.error(conn, 400, "InvalidRequest", "identifier and password are required")
   end
 
   # The refresh token's subject names the account, so the answer is that
@@ -171,7 +172,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
         "active" => true
       })
     else
-      _ -> PesqueWeb.Xrpc.error(conn, 401, "InvalidToken", "refresh token is expired or revoked")
+      _ -> Xrpc.error(conn, 401, "InvalidToken", "refresh token is expired or revoked")
     end
   end
 
@@ -180,7 +181,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
          :ok <- Accounts.revoke_session(token) do
       json(conn, %{})
     else
-      _ -> PesqueWeb.Xrpc.error(conn, 401, "InvalidToken", "refresh token is expired or revoked")
+      _ -> Xrpc.error(conn, 401, "InvalidToken", "refresh token is expired or revoked")
     end
   end
 

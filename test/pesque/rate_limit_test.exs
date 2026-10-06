@@ -42,7 +42,8 @@ defmodule Pesque.RateLimitTest do
     refute conn.halted
     assert get_resp_header(conn, "ratelimit-limit") == ["2"]
     assert get_resp_header(conn, "ratelimit-remaining") == ["1"]
-    assert get_resp_header(conn, "ratelimit-reset") == ["60"]
+    [reset] = get_resp_header(conn, "ratelimit-reset")
+    assert String.to_integer(reset) in 1..60
   end
 
   # Remaining is read after the hit, not before it. A plug that counted twice

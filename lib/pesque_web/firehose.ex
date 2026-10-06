@@ -10,16 +10,22 @@ defmodule PesqueWeb.Firehose do
   alias Pesque.RepoStore
 
   @impl true
-  def init(%{cursor: cursor}) do
-    Registry.register(Pesque.EventRegistry, :firehose, [])
+  def init(%{cursor: :invalid}) do
+    frame = error_frame("InvalidCursor", "cursor is not a non-negative integer")
+    {:stop, :normal, 1000, [{:binary, frame}], %{}}
+  end
 
+  def init(%{cursor: cursor}) do
     case replay(cursor) do
       {:ok, frames} ->
+        Registry.register(Pesque.EventRegistry, :firehose, [])
         {:push, Enum.map(frames, &{:binary, &1}), %{}}
 
       {:error, :future_cursor} ->
         frame = error_frame("FutureCursor", "cursor is ahead of the current sequence")
-        {:push, [{:binary, frame}], %{}}
+        # Close after the error frame; registering and staying open would keep
+        # the socket on the registry and streaming live frames nobody asked for.
+        {:stop, :normal, 1000, [{:binary, frame}], %{}}
     end
   end
 

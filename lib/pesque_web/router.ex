@@ -35,9 +35,6 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.server.createAccount", SessionController, :create_account
     post "/com.atproto.server.createSession", SessionController, :create_session
     post "/com.atproto.server.refreshSession", SessionController, :refresh_session
-  end
-
-  scope "/xrpc", PesqueWeb.Xrpc do
     post "/com.atproto.server.deleteSession", SessionController, :delete_session
   end
 
@@ -64,6 +61,10 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.repo.getRecord", RepoController, :get_record
     get "/com.atproto.repo.listRecords", RepoController, :list_records
     get "/com.atproto.repo.describeRepo", RepoController, :describe_repo
+    get "/com.atproto.sync.subscribeRepos", FirehoseController, :upgrade
+    get "/com.atproto.sync.getRepo", SyncController, :get_repo
+    get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
+    get "/com.atproto.sync.getBlob", SyncController, :get_blob
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
@@ -73,13 +74,6 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.repo.putRecord", RepoController, :put_record
     post "/com.atproto.repo.deleteRecord", RepoController, :delete_record
     post "/com.atproto.repo.uploadBlob", RepoController, :upload_blob
-  end
-
-  scope "/xrpc", PesqueWeb.Xrpc do
-    get "/com.atproto.sync.subscribeRepos", FirehoseController, :upgrade
-    get "/com.atproto.sync.getRepo", SyncController, :get_repo
-    get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
-    get "/com.atproto.sync.getBlob", SyncController, :get_blob
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

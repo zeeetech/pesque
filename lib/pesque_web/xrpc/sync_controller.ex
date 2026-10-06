@@ -9,7 +9,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
   alias PesqueWeb.Xrpc
 
   def get_repo(conn, %{"did" => did}) do
-    case resolve_did(did) do
+    case Accounts.repo_did(did) do
       {:ok, did} ->
         case RepoStore.get_meta("commit:" <> did) do
           nil ->
@@ -34,7 +34,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
   end
 
   def get_latest_commit(conn, %{"did" => did}) do
-    case resolve_did(did) do
+    case Accounts.repo_did(did) do
       {:ok, did} ->
         case {RepoStore.get_meta("commit:" <> did), RepoStore.get_meta("rev:" <> did)} do
           {cid, rev} when is_binary(cid) and is_binary(rev) ->
@@ -62,7 +62,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
   # appends, so the policy here is the one that ships, not the global one
   # from SecurityHeaders.
   def get_blob(conn, %{"did" => did, "cid" => cid}) do
-    case resolve_did(did) do
+    case Accounts.repo_did(did) do
       {:ok, did} ->
         case Blob.parse_cid(cid) do
           {:ok, blob_cid} -> send_blob(conn, did, blob_cid)
@@ -96,6 +96,4 @@ defmodule PesqueWeb.Xrpc.SyncController do
         Xrpc.error(conn, 400, "BlobNotFound", "no blob at that CID for this repo")
     end
   end
-
-  defp resolve_did(did), do: Accounts.repo_did(did)
 end
