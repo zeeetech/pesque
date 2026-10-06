@@ -158,7 +158,7 @@ defmodule Pesque.RepoServer do
       if Map.has_key?(state.entries, key) do
         change = %{action: "delete", key: key, cid: nil, data: nil}
         {state, result} = commit(state, [change])
-        {:reply, {:ok, result}, state}
+        {:reply, result, state}
       else
         {:reply, {:error, :record_not_found}, state}
       end
@@ -180,7 +180,7 @@ defmodule Pesque.RepoServer do
     with :ok <- check_swap(state, Keyword.get(opts, :swap_commit)),
          {:ok, next_state, changes} <- prepare(writes, state, opts) do
       {state, result} = commit(next_state, changes)
-      {:reply, {:ok, result}, state}
+      {:reply, result, state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -302,7 +302,7 @@ defmodule Pesque.RepoServer do
     case Commit.encode_write(state.entries, action, key, record) do
       {:ok, change} ->
         {state, result} = commit(state, [change])
-        {:reply, {:ok, result}, state}
+        {:reply, result, state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -312,65 +312,82 @@ defmodule Pesque.RepoServer do
   defp commit(state, changes) do
     {:ok, prepared} = Commit.commit(state, changes)
 
-    {:ok, frames} =
-      Repo.transaction(fn ->
-        # The seq comes first because the frame carries it; the event row
-        # is inserted with its payload already encoded, so a crash can
-        # never leave an empty-payload row behind. Two writers racing on
-        # the same seq lose on the primary key and roll back whole.
-        seq = RepoStore.claim_event_seq()
+    # immediate, because the first statement in here reads the seq mark and a
+    # deferred transaction that read before another connection committed cannot
+    # upgrade its snapshot to a write: SQLite answers SQLITE_BUSY_SNAPSHOT at
+    # once, and a busy timeout does not make a stale snapshot current. Two
+    # accounts committing at the same time is enough to hit it.
+    case Repo.transaction(
+           fn ->
+             # The seq comes first because the frame carries it, and the event
+             # row is inserted with its payload already encoded, so a crash can
+             # never leave an empty-payload row behind. What guards the seq
+             # against a second writer is insert_event!/3 rolling back on the
+             # primary key, inside the transaction the claim was made in.
+             seq = RepoStore.claim_event_seq()
 
-        cid_strings = Enum.map(Map.keys(prepared.all_blocks), &CID.to_string/1)
-        existing = RepoStore.existing_cids(state.did, cid_strings)
+             blocks =
+               Map.new(prepared.all_blocks, fn {cid, bytes} -> {CID.to_string(cid), bytes} end)
 
-        new_blocks =
-          for {cid, bytes} <- prepared.all_blocks,
-              not MapSet.member?(existing, CID.to_string(cid)),
-              into: %{},
-              do: {CID.to_string(cid), bytes}
+             # Every block goes in, including the ones this repo already holds:
+             # the insert is a no-op on the ones it does, and a sweep landing
+             # between the two commits of an identical block would otherwise
+             # collect a block the head names.
+             RepoStore.insert_blocks!(state.did, blocks)
 
-        RepoStore.insert_blocks!(state.did, new_blocks)
+             Enum.each(changes, fn
+               %{action: "delete", key: key} ->
+                 [collection, rkey] = String.split(key, "/", parts: 2)
+                 RepoStore.delete_record!(state.did, collection, rkey)
 
-        Enum.each(changes, fn
-          %{action: "delete", key: key} ->
-            [collection, rkey] = String.split(key, "/", parts: 2)
-            RepoStore.delete_record!(state.did, collection, rkey)
+               %{key: key, cid: cid, data: data} ->
+                 [collection, rkey] = String.split(key, "/", parts: 2)
+                 RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
+             end)
 
-          %{key: key, cid: cid, data: data} ->
-            [collection, rkey] = String.split(key, "/", parts: 2)
-            RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
+             RepoStore.put_meta!("root:" <> state.did, CID.to_string(prepared.root_cid))
+             RepoStore.put_meta!("rev:" <> state.did, prepared.rev)
+             RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(prepared.tid_int))
+             RepoStore.put_meta!("commit:" <> state.did, CID.to_string(prepared.commit_cid))
+
+             # A commit over the lexicon's limits goes out as a #commit followed
+             # by the #sync that tells a consumer to re-fetch. Both rows are
+             # written here so a cursor replay hands them back in seq order.
+             frames = Commit.frames(prepared, seq, blocks, changes)
+
+             Enum.each(frames, fn {frame_seq, frame} ->
+               RepoStore.insert_event!(state.did, frame_seq, frame)
+             end)
+
+             frames
+           end,
+           mode: :immediate
+         ) do
+      {:ok, frames} ->
+        Enum.each(frames, fn {_frame_seq, frame} ->
+          Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
+            for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
+          end)
         end)
 
-        RepoStore.put_meta!("root:" <> state.did, CID.to_string(prepared.root_cid))
-        RepoStore.put_meta!("rev:" <> state.did, prepared.rev)
-        RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(prepared.tid_int))
-        RepoStore.put_meta!("commit:" <> state.did, CID.to_string(prepared.commit_cid))
+        {next_state(state, prepared), {:ok, prepared.result}}
 
-        # A commit over the lexicon's limits goes out as a #commit followed by
-        # the #sync that tells a consumer to re-fetch. Both rows are written
-        # here so a cursor replay hands them back in seq order.
-        frames = Commit.frames(prepared, seq, new_blocks, changes)
+      {:error, :event_seq_taken} ->
+        # Another commit took the seq between the claim and the insert. The
+        # transaction rolled back whole, so nothing of this one landed and the
+        # state is untouched; the caller retries.
+        {state, {:error, :busy}}
+    end
+  end
 
-        Enum.each(frames, fn {frame_seq, frame} ->
-          RepoStore.insert_event!(state.did, frame_seq, frame)
-        end)
-
-        frames
-      end)
-
-    Enum.each(frames, fn {_frame_seq, frame} ->
-      Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
-        for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
-      end)
-    end)
-
-    {%{
-       state
-       | entries: prepared.entries,
-         tid_int: prepared.tid_int,
-         rev: prepared.rev,
-         commit_cid: prepared.commit_cid
-     }, prepared.result}
+  defp next_state(state, prepared) do
+    %{
+      state
+      | entries: prepared.entries,
+        tid_int: prepared.tid_int,
+        rev: prepared.rev,
+        commit_cid: prepared.commit_cid
+    }
   end
 
   # validation

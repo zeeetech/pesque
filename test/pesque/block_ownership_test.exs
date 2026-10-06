@@ -25,8 +25,8 @@ defmodule Pesque.BlockOwnershipTest do
     root = RepoStore.get_meta("root:" <> alice.did)
 
     assert root == RepoStore.get_meta("root:" <> bob.did)
-    assert RepoStore.existing_cids(alice.did, [root]) == MapSet.new([root])
-    assert RepoStore.existing_cids(bob.did, [root]) == MapSet.new([root])
+    assert RepoStore.get_block(alice.did, root)
+    assert RepoStore.get_block(bob.did, root)
   end
 
   test "the second account's repo CAR carries its genesis root block", %{bob: bob} do
