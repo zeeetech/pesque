@@ -41,6 +41,29 @@ defmodule Pesque.OAuth.Jwt do
 
   def decode(_token), do: {:error, :malformed_jwt}
 
+  @doc """
+  The `alg` of a token's header, without checking anything else about it.
+
+  Only the header, so a caller can tell an ES256 access token from an HS256
+  session token and pick the verifier to run. Reading the header is not
+  trusting it: it is the token's own claim about itself, and the verifier it
+  selects checks the signature over the whole token against the published key
+  before anything is acted on. A token that does not carry one of the two
+  algorithms this server issues is `{:error, :unsupported_alg}` rather than a
+  guess, so no token is ever verified as a kind it did not claim to be.
+  """
+  def alg(token) when is_binary(token) do
+    with [header64, _payload, _signature] <- String.split(token, ".", parts: 3),
+         {:ok, header} <- decode_segment(header64),
+         %{"alg" => alg} when is_binary(alg) <- header do
+      {:ok, alg}
+    else
+      _other -> {:error, :unsupported_alg}
+    end
+  end
+
+  def alg(_token), do: {:error, :unsupported_alg}
+
   # Never the bang version: a DPoP proof and a client assertion both arrive
   # from a stranger, and a raise here is a 500 on a request that was simply
   # malformed. The header has to be an object and the payload a map of claims,
@@ -113,17 +136,32 @@ defmodule Pesque.OAuth.Jwt do
   end
 
   # A DER INTEGER over 32 bytes carries a leading zero so the value stays
-  # positive, and that zero has to come off to reach the fixed 32-byte half. The
-  # size is checked first: a half whose top byte really is zero is a 32-byte
-  # half, not a 33-byte one with padding to remove.
+  # positive, and that zero has to come off to reach the fixed 32-byte half.
+  #
+  # A half shorter than 32 bytes is the other case, and the one that matters: a
+  # signature value whose top byte is zero is encoded in fewer than 32 bytes,
+  # because DER drops leading zero octets, and that is roughly one signature in
+  # 128. It has to be zero-extended back to 32 bytes, not stripped. Stripping
+  # it produced a 31-byte half, raw_to_der/1 then matched nothing, and every
+  # proof carrying such a signature was signed with an empty one and refused.
   defp pad(bin) when byte_size(bin) == 32, do: bin
+  defp pad(bin) when byte_size(bin) < 32, do: :binary.copy(<<0>>, 32 - byte_size(bin)) <> bin
   defp pad(<<0, rest::binary>>), do: pad(rest)
   defp pad(bin), do: bin
 
   defp der_integer(bin) do
-    case bin do
-      <<b, _rest::binary>> when (b &&& 0x80) != 0 -> <<0>> <> bin
-      _ -> bin
+    value = drop_zeros(bin)
+
+    case value do
+      <<b, _rest::binary>> when (b &&& 0x80) != 0 -> <<0>> <> value
+      _ -> value
     end
   end
+
+  # DER drops leading zero octets, so a half whose top byte is already zero
+  # encodes as 31 bytes rather than 32. Emitting the 32 bytes anyway is a
+  # non-minimal integer, which a strict parser is entitled to refuse, so the
+  # zero is dropped here and pad/1 puts it back on the way out.
+  defp drop_zeros(<<0, rest::binary>>), do: drop_zeros(rest)
+  defp drop_zeros(bin), do: bin
 end

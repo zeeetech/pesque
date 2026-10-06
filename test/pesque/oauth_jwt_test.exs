@@ -56,6 +56,39 @@ defmodule Pesque.OAuth.JwtTest do
     refute Jwt.verify_es256(ctx.input, :binary.copy(<<0>>, 32), ctx.pub)
   end
 
+  # A signature value whose top byte is zero is encoded by :crypto in fewer than
+  # 32 bytes, because DER drops leading zero octets. Roughly one signature in
+  # 128 looks like that, so a round trip that only ever sees 32- and 33-byte
+  # halves passes almost every time and fails in production. This signs the
+  # same input until it produces one, then checks the halves survived.
+  test "a signature half shorter than 32 bytes survives the round trip", ctx do
+    {short, _count} =
+      Enum.reduce_while(1..2_000, {nil, 0}, fn _i, {_found, tries} ->
+        signature = Jwt.sign_raw(ctx.input, ctx.priv)
+
+        case signature do
+          <<r::binary-size(32), s::binary-size(32)>> ->
+            if short_half?(r) or short_half?(s) do
+              {:halt, {signature, tries}}
+            else
+              {:cont, {nil, tries + 1}}
+            end
+
+          _other ->
+            {:cont, {nil, tries + 1}}
+        end
+      end)
+
+    assert short, "no signature with a short half in #{2_000} tries"
+
+    assert <<r::binary-size(32), s::binary-size(32)>> = short
+    assert byte_size(r) == 32 and byte_size(s) == 32
+    assert Jwt.verify_es256(ctx.input, short, ctx.pub)
+  end
+
+  defp short_half?(<<0, _rest::binary>>), do: true
+  defp short_half?(_half), do: false
+
   test "sign and decode round trip the claims" do
     claims = %{"sub" => "did:web:example.com", "exp" => 1_800_000_000, "cnf" => %{"jkt" => "abc"}}
 

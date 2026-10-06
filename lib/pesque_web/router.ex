@@ -45,15 +45,34 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.server.describeServer", SessionController, :describe_server
   end
 
-  pipeline :auth do
-    plug PesqueWeb.Plugs.Auth
+  # What each authenticated route needs, which is what an OAuth token's scope
+  # is checked against: read is the account's own session and service auth,
+  # write is records and blobs, account is the endpoints that manage the
+  # account itself and that transition:generic deliberately does not reach.
+  # A legacy session token is one scope that grants all three, so nothing it
+  # could reach before is behind a permission it does not have.
+  pipeline :auth_read do
+    plug PesqueWeb.Plugs.Auth, permission: :read
+  end
+
+  pipeline :auth_write do
+    plug PesqueWeb.Plugs.Auth, permission: :write
+  end
+
+  pipeline :auth_account do
+    plug PesqueWeb.Plugs.Auth, permission: :account
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through :auth
+    pipe_through :auth_read
 
     get "/com.atproto.server.getSession", SessionController, :get_session
     get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :auth_account
+
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
     post "/com.atproto.server.requestAccountDelete", SessionController, :request_account_delete
     post "/com.atproto.server.deleteAccount", SessionController, :delete_account
@@ -79,7 +98,7 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through :auth
+    pipe_through :auth_write
 
     post "/com.atproto.repo.applyWrites", RepoController, :apply_writes
     post "/com.atproto.repo.createRecord", RepoController, :create_record

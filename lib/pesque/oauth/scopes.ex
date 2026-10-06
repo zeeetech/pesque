@@ -16,8 +16,64 @@ defmodule Pesque.OAuth.Scopes do
 
   @supported ~w(atproto transition:generic)
 
+  # What each scope reaches, and the one place that answer is written down.
+  #
+  # `atproto` is the whole account: reading and writing its records and blobs,
+  # and the endpoints that manage the account itself. `transition:generic` is
+  # the app-password equivalent, so it stops short of the second.
+  #
+  # The permissions are what the router asks about, not the scopes: a route
+  # says what it needs to reach and the granted scopes are checked against it,
+  # so adding an endpoint never means writing a scope check and never means
+  # guessing which of the two scopes it belongs behind.
+  @permissions %{
+    "atproto" => [:read, :write, :account],
+    "transition:generic" => [:read, :write]
+  }
+
+  @all_permissions [:read, :write, :account]
+
   @doc "The scopes named in `scopes_supported`."
   def supported, do: @supported
+
+  @doc """
+  Every permission a token with this scope string was granted, as a list.
+
+  A token is granted the narrowest scope it asked for, not the union of them:
+  `atproto` is in every token, so a union would make `transition:generic`
+  decorative and an app password would be handed the account management it was
+  asked not to have. Intersecting means asking for the compatibility scope
+  costs exactly what it is meant to.
+
+  A scope this server does not grant contributes nothing rather than raising,
+  because a token handed out before a scope was dropped still verifies and
+  still has to answer requests: it just answers fewer of them. A token with
+  no scope at all is granted nothing, which is the same answer as one asking
+  for everything this server has never heard of.
+  """
+  def permissions(scope) when is_binary(scope) do
+    case String.split(scope, " ", trim: true) do
+      [] -> []
+      granted -> narrow(granted, @all_permissions)
+    end
+  end
+
+  def permissions(_scope), do: []
+
+  defp narrow([name | rest], granted) do
+    case Map.get(@permissions, name) do
+      nil -> narrow(rest, [])
+      allowed -> narrow(rest, Enum.filter(granted, &(&1 in allowed)))
+    end
+  end
+
+  defp narrow([], granted), do: granted
+
+  @doc "Whether a granted scope string carries a permission."
+  def permit?(scope, permission) when is_binary(scope),
+    do: permission in permissions(scope)
+
+  def permit?(_scope, _permission), do: false
 
   @doc """
   Validates a space-separated scope parameter.

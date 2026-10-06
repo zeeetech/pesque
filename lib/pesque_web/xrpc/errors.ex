@@ -11,6 +11,24 @@ defmodule PesqueWeb.Xrpc.Errors do
 
   alias Pesque.Blob
 
+  # Every way a DPoP proof fails to answer for a request. They share a status,
+  # a name and a message, and a client is not told which part was wrong: a
+  # proof that does not verify is a proof that does not verify.
+  @dpop_proof_failures [
+    :missing_dpop_proof,
+    :invalid_dpop_proof,
+    :unsupported_jwk,
+    :htm_mismatch,
+    :htu_mismatch,
+    :missing_jti,
+    :missing_iat,
+    :expired_dpop_proof,
+    :ath_mismatch,
+    :ath_not_allowed,
+    :malformed_jwt,
+    :dpop_key_mismatch
+  ]
+
   @spec to_xrpc(term()) :: {integer(), String.t(), String.t()}
 
   def to_xrpc(:record_exists),
@@ -115,4 +133,52 @@ defmodule PesqueWeb.Xrpc.Errors do
 
   def to_xrpc(:unwritable), do: {500, "InternalServerError", "blob could not be written to disk"}
   def to_xrpc(:not_found), do: {400, "BlobNotFound", "no blob at that CID for this repo"}
+
+  # The authentication plug. A rejected token, a missing or wrong DPoP proof
+  # and a scope that does not reach the route are three different answers,
+  # because a client can act on all three differently: get a new token, send
+  # the nonce back, or ask for a scope it was not granted.
+  def to_xrpc(:no_bearer_token),
+    do: {401, "AuthenticationRequired", "a valid access token is required"}
+
+  def to_xrpc(:malformed_authorization),
+    do: {401, "AuthenticationRequired", "a valid access token is required"}
+
+  def to_xrpc(:rejected_token),
+    do: {401, "AuthenticationRequired", "a valid access token is required"}
+
+  def to_xrpc(:unknown_account),
+    do: {401, "AuthenticationRequired", "a valid access token is required"}
+
+  def to_xrpc({:insufficient_scope, permission}),
+    do: {403, "InsufficientScope", "this token does not grant #{permission}"}
+
+  def to_xrpc(:use_dpop_nonce),
+    do: {401, "AuthenticationRequired", "the DPoP proof needs the server nonce"}
+
+  def to_xrpc(reason) when reason in @dpop_proof_failures,
+    do: {401, "AuthenticationRequired", "a valid DPoP proof is required for this request"}
+
+  # The WWW-Authenticate header RFC 9449 and the atproto profile require on a
+  # refused request. It is what a client reads to tell the three failures
+  # apart, so it is decided here next to the status rather than in the plug
+  # that sends it.
+  @spec to_challenge(term()) :: String.t()
+
+  def to_challenge(:no_bearer_token), do: "DPoP"
+  def to_challenge(:malformed_authorization), do: "DPoP"
+
+  def to_challenge(reason)
+      when reason in [:rejected_token, :invalid_token, :expired_token, :unknown_account],
+      do: ~s(DPoP error="invalid_token")
+
+  def to_challenge(:use_dpop_nonce),
+    do:
+      ~s(DPoP error="use_dpop_nonce", error_description="retry with the DPoP-Nonce from this response")
+
+  def to_challenge(reason) when reason in @dpop_proof_failures,
+    do: ~s(DPoP error="invalid_dpop_proof")
+
+  def to_challenge({:insufficient_scope, _permission}),
+    do: ~s(DPoP error="insufficient_scope")
 end
