@@ -239,7 +239,9 @@ defmodule Pesque.DidTest do
     single = server(mode: :conformant_single)
 
     assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
-    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == {:error, :not_local}
+
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") ==
+             {:error, :not_local}
   end
 
   # Each mode names its accounts differently, so the two identifier shapes
@@ -331,7 +333,9 @@ defmodule Pesque.DidTest do
   test "a did whose path is not exactly user/username is not local" do
     config = server(mode: :path_multi)
 
-    assert Did.to_local_did(config, "did:web:example.com:user:alice:extra") == {:error, :not_local}
+    assert Did.to_local_did(config, "did:web:example.com:user:alice:extra") ==
+             {:error, :not_local}
+
     assert Did.to_local_did(config, "did:web:example.com:user") == {:error, :not_local}
     assert Did.to_local_did(config, "did:web:example.com:alice") == {:error, :not_local}
     assert Did.to_local_did(config, "did:web:example.com:user:no!") == {:error, :not_local}
@@ -341,7 +345,8 @@ defmodule Pesque.DidTest do
     assert Did.to_local_did(server(mode: :conformant_single), "did:web:example.com") ==
              {:ok, "did:web:example.com"}
 
-    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == {:error, :not_local}
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") ==
+             {:error, :not_local}
   end
 
   test "resolution is case insensitive on the host and the handle" do
