@@ -228,7 +228,14 @@ defmodule Pesque.RepoServer do
       key = collection <> "/" <> rkey
 
       if Map.has_key?(state.entries, key) do
-        change = %{action: "delete", key: key, cid: nil, data: nil}
+        change = %{
+          action: "delete",
+          key: key,
+          cid: nil,
+          data: nil,
+          prev_cid: Map.fetch!(state.entries, key)
+        }
+
         {state, result} = commit(state, [change])
         {:reply, result, state}
       else
@@ -340,7 +347,14 @@ defmodule Pesque.RepoServer do
       key = write["collection"] <> "/" <> write["rkey"]
 
       if Map.has_key?(state.entries, key) do
-        change = %{action: "delete", key: key, cid: nil, data: nil}
+        change = %{
+          action: "delete",
+          key: key,
+          cid: nil,
+          data: nil,
+          prev_cid: Map.fetch!(state.entries, key)
+        }
+
         {:ok, change, %{state | entries: Map.delete(state.entries, key)}}
       else
         {:error, :record_not_found}

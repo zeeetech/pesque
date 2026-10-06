@@ -46,13 +46,15 @@ defmodule Pesque.Commit do
       {:ok, internal} ->
         data = CBOR.encode(internal)
         cid = CID.from_data(data)
+        action = write_action(action, entries, key)
 
         {:ok,
          %{
-           action: write_action(action, entries, key),
+           action: action,
            key: key,
            cid: cid,
-           data: data
+           data: data,
+           prev_cid: if(action == "create", do: nil, else: Map.fetch!(entries, key))
          }}
 
       {:error, reason} ->
@@ -77,7 +79,8 @@ defmodule Pesque.Commit do
           entries: entries,
           rev: prev_rev,
           tid_int: tid_int,
-          commit_cid: prev_commit
+          commit_cid: prev_commit,
+          root_cid: prev_root
         } = state,
         changes
       ) do
@@ -128,6 +131,7 @@ defmodule Pesque.Commit do
        rev: rev,
        tid_int: tid_int,
        root_cid: root_cid,
+       prev_root: prev_root,
        commit_cid: commit_cid,
        all_blocks: all_blocks,
        mst: mst,
@@ -189,7 +193,13 @@ defmodule Pesque.Commit do
   here is a commit with a diff, so there is no repo update without one.
   """
   def frames(
-        %{did: did, prev_rev: prev_rev, rev: rev, commit_cid: commit_cid} = prepared,
+        %{
+          did: did,
+          prev_rev: prev_rev,
+          rev: rev,
+          commit_cid: commit_cid,
+          prev_root: prev_root
+        } = prepared,
         seq,
         new_blocks,
         changes
@@ -202,28 +212,33 @@ defmodule Pesque.Commit do
 
     ops =
       Enum.map(changes, fn c ->
-        %{"action" => c.action, "path" => c.key, "cid" => c.cid}
+        op = %{"action" => c.action, "path" => c.key, "cid" => c.cid}
+        if c.action == "create", do: op, else: Map.put(op, "prev", c.prev_cid)
       end)
 
     too_big = byte_size(car) > @max_blocks_bytes or length(ops) > @max_ops
     time = now()
 
+    body =
+      with_prev_data(
+        %{
+          "seq" => seq,
+          "rebase" => false,
+          "tooBig" => too_big,
+          "repo" => did,
+          "commit" => commit_cid,
+          "rev" => rev,
+          "since" => prev_rev,
+          "blocks" => %CBOR.Bytes{data: car},
+          "ops" => ops,
+          "blobs" => [],
+          "time" => time
+        },
+        prev_root
+      )
+
     commit =
-      {seq,
-       CBOR.encode(%{"op" => 1, "t" => "#commit"}) <>
-         CBOR.encode(%{
-           "seq" => seq,
-           "rebase" => false,
-           "tooBig" => too_big,
-           "repo" => did,
-           "commit" => commit_cid,
-           "rev" => rev,
-           "since" => prev_rev,
-           "blocks" => %CBOR.Bytes{data: car},
-           "ops" => ops,
-           "blobs" => [],
-           "time" => time
-         })}
+      {seq, CBOR.encode(%{"op" => 1, "t" => "#commit"}) <> CBOR.encode(body)}
 
     if too_big do
       [commit, sync_frame(prepared, seq + 1, time)]
@@ -231,6 +246,13 @@ defmodule Pesque.Commit do
       [commit]
     end
   end
+
+  # prevData is the previous commit's MST root, which is the field the
+  # inductive firehose applies its diff on top of. A genesis commit has no
+  # previous root and the lexicon does not mark the field nullable, so it is
+  # absent rather than null.
+  defp with_prev_data(body, nil), do: body
+  defp with_prev_data(body, prev_root), do: Map.put(body, "prevData", prev_root)
 
   defp sync_frame(
          %{did: did, rev: rev, commit_cid: commit_cid, all_blocks: all_blocks},
