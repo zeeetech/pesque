@@ -38,7 +38,7 @@ defmodule Pesque.Record do
     if Keyword.get(opts, :validate, true) do
       verify(collection, record)
     else
-      {:ok, record}
+      {:ok, Map.put_new(record, "$type", collection)}
     end
   end
 

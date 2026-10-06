@@ -123,8 +123,13 @@ defmodule Pesque.CBOR do
       6 ->
         if n != 42, do: raise(ArgumentError, "unsupported tag: #{n}")
 
-        {%Bytes{data: <<0, cid_bytes::binary>>}, tail} = dec(rest)
-        {CID.from_bytes(cid_bytes), tail}
+        case dec(rest) do
+          {%Bytes{data: <<0, cid_bytes::binary>>}, tail} ->
+            {CID.from_bytes(cid_bytes), tail}
+
+          _ ->
+            raise ArgumentError, "malformed CID link in tag 42"
+        end
     end
   end
 

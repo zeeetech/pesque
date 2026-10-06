@@ -10,7 +10,7 @@ defmodule Pesque.Tid do
   @alphabet ~c"234567abcdefghijklmnopqrstuvwxyz"
 
   @doc "Returns {tid_string, integer_value}, strictly greater than `last`."
-  def next(last, clock_id) do
+  def next(last, clock_id) when is_integer(clock_id) and clock_id >= 0 and clock_id <= 1023 do
     now = System.system_time(:microsecond)
     n = max(last + 1, now <<< 10 ||| clock_id)
     {encode(n), n}

@@ -14,8 +14,8 @@ defmodule Pesque.Blob do
   alias Pesque.Storage
 
   @max_blob_bytes 5 * 1024 * 1024
-  @raw_codec 0x55
-  @sha2_256 0x12
+  @raw_codec Pesque.CID.raw()
+  @sha2_256 Pesque.CID.sha2_256()
 
   @doc "Largest upload accepted, in bytes."
   def max_bytes, do: @max_blob_bytes
@@ -45,7 +45,9 @@ defmodule Pesque.Blob do
          :ok <- File.rename(tmp, final) do
       :ok
     else
-      {:error, _reason} -> {:error, :unwritable}
+      {:error, _reason} ->
+        _ = File.rm(tmp)
+        {:error, :unwritable}
     end
   end
 

@@ -41,7 +41,8 @@ defmodule Pesque.Keys do
   def ensure(did) do
     case load(did) do
       {:ok, priv} -> {:ok, keypair(priv)}
-      {:error, _reason} -> create_exclusive(did)
+      {:error, :enoent} -> create_exclusive(did)
+      {:error, reason} -> raise File.Error, reason: reason, action: "read", path: path(did)
     end
   end
 
@@ -56,9 +57,11 @@ defmodule Pesque.Keys do
   defp write(did, device) do
     {pub, priv} = Secp256k1.generate_keypair()
 
+    # The file opens with the default mode, so tighten it before the key
+    # bytes land in it: the brief 0644 moment holds an empty file.
+    :ok = File.chmod(path(did), 0o600)
     :ok = :file.write(device, priv)
     :ok = :file.close(device)
-    :ok = File.chmod(path(did), 0o600)
 
     %{priv: priv, pub: pub, pub_multibase: Secp256k1.public_key_multibase(pub)}
   end

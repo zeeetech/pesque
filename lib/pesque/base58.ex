@@ -2,6 +2,7 @@ defmodule Pesque.Base58 do
   @moduledoc "Base58btc encoding (Bitcoin alphabet), as used by multibase `z`."
 
   @alphabet ~c"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+  @decode_map Map.new(Enum.with_index(@alphabet))
 
   def encode(bin) when is_binary(bin) do
     zeros = leading_zeros(bin, 0)
@@ -29,9 +30,9 @@ defmodule Pesque.Base58 do
   end
 
   defp index!(c) do
-    case Enum.find_index(@alphabet, &(&1 == c)) do
-      nil -> raise ArgumentError, "invalid base58 character: #{<<c>>}"
-      i -> i
+    case @decode_map do
+      %{^c => i} -> i
+      _ -> raise ArgumentError, "invalid base58 character: #{<<c>>}"
     end
   end
 end

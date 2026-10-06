@@ -66,7 +66,10 @@ defmodule Pesque.RecordTest do
   test "validate false stores a record no lexicon would accept" do
     record = %{"text" => 42, "nonsense" => true}
 
-    assert {:ok, ^record} = Record.check("com.example.nope", record, validate: false)
-    assert {:ok, ^record} = Record.check("app.bsky.feed.post", record, validate: false)
+    assert {:ok, %{"$type" => "com.example.nope"}} =
+             Record.check("com.example.nope", record, validate: false)
+
+    assert {:ok, %{"$type" => "app.bsky.feed.post"}} =
+             Record.check("app.bsky.feed.post", record, validate: false)
   end
 end

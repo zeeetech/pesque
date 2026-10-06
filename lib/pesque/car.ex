@@ -10,7 +10,9 @@ defmodule Pesque.Car do
     header = CBOR.encode(%{"version" => 1, "roots" => roots})
 
     sections =
-      Enum.map(blocks, fn {%CID{} = cid, bytes} ->
+      blocks
+      |> Enum.sort_by(fn {%CID{} = cid, _bytes} -> CID.to_bytes(cid) end)
+      |> Enum.map(fn {%CID{} = cid, bytes} ->
         cid_bytes = CID.to_bytes(cid)
         [Varint.encode(byte_size(cid_bytes) + byte_size(bytes)), cid_bytes, bytes]
       end)

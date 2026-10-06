@@ -11,6 +11,7 @@ defmodule Pesque.CID do
 
   def dag_cbor, do: @dag_cbor
   def raw, do: @raw
+  def sha2_256, do: @sha2_256
 
   @doc "Builds a CIDv1 for `data` under the given codec (default dag-cbor)."
   def from_data(data, codec \\ @dag_cbor) do
@@ -45,12 +46,22 @@ defmodule Pesque.CID do
   end
 
   def from_bytes(bin) do
-    {1, rest} = Varint.decode(bin)
+    {version, rest} = Varint.decode(bin)
+
+    if version != 1 do
+      raise ArgumentError, "unsupported CID version: #{version}"
+    end
+
     {codec, rest} = Varint.decode(rest)
     {algo, rest} = Varint.decode(rest)
     {len, rest} = Varint.decode(rest)
-    <<digest::binary-size(^len), _rest::binary>> = rest
 
-    %__MODULE__{codec: codec, hash_algo: algo, digest: digest}
+    case rest do
+      <<digest::binary-size(^len)>> ->
+        %__MODULE__{codec: codec, hash_algo: algo, digest: digest}
+
+      _ ->
+        raise ArgumentError, "malformed CID bytes: truncated digest or trailing garbage"
+    end
   end
 end

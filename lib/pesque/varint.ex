@@ -11,6 +11,9 @@ defmodule Pesque.Varint do
   @doc "Returns {value, rest}."
   def decode(bin), do: decode(bin, 0, 0)
 
+  defp decode(<<>>, _acc, _shift), do: raise(ArgumentError, "truncated varint")
+  defp decode(_bin, _acc, shift) when shift > 64, do: raise(ArgumentError, "varint too long")
+
   defp decode(<<b, rest::binary>>, acc, shift) do
     n = acc ||| (b &&& 0x7F) <<< shift
     if b < 0x80, do: {n, rest}, else: decode(rest, n, shift + 7)

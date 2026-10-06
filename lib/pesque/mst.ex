@@ -33,12 +33,18 @@ defmodule Pesque.Mst do
 
   @doc "Returns {root_cid, blocks} where blocks maps %CID{} -> encoded node bytes."
   def build(entries) when is_map(entries) do
-    case Enum.sort(Map.to_list(entries)) do
+    sorted =
+      entries
+      |> Map.to_list()
+      |> Enum.map(fn {k, v} -> {k, v, depth(k)} end)
+      |> Enum.sort_by(fn {k, _v, _d} -> k end)
+
+    case sorted do
       [] ->
         add_block({nil, []}, %{})
 
-      sorted ->
-        layer = sorted |> Enum.map(fn {k, _v} -> depth(k) end) |> Enum.max()
+      _ ->
+        layer = sorted |> Enum.map(fn {_k, _v, d} -> d end) |> Enum.max()
         node_for(sorted, layer, %{})
     end
   end
@@ -46,7 +52,7 @@ defmodule Pesque.Mst do
   # Builds one node for entries whose depths are all <= layer, adds its
   # block, and returns {cid, blocks}.
   defp node_for(entries, layer, blocks) do
-    {left, rest} = Enum.split_while(entries, fn {k, _v} -> depth(k) < layer end)
+    {left, rest} = Enum.split_while(entries, fn {_k, _v, d} -> d < layer end)
 
     {l, blocks} =
       case left do
@@ -62,12 +68,12 @@ defmodule Pesque.Mst do
   # runs of deeper keys between them become right subtrees.
   defp collect([], _layer, acc, blocks), do: {Enum.reverse(acc), blocks}
 
-  defp collect([{k, v} | rest], layer, acc, blocks) do
-    if depth(k) != layer do
+  defp collect([{k, v, d} | rest], layer, acc, blocks) do
+    if d != layer do
       raise ArgumentError, "MST build invariant violated: key depth above node layer"
     end
 
-    {group, rest2} = Enum.split_while(rest, fn {k2, _v2} -> depth(k2) < layer end)
+    {group, rest2} = Enum.split_while(rest, fn {_k2, _v2, d2} -> d2 < layer end)
 
     {t, blocks} =
       case group do
