@@ -24,7 +24,8 @@ defmodule Pesque.Crawl do
 
     case :httpc.request(
            :post,
-           {String.to_charlist(url), [{~c"content-type", ~c"application/json"}], ~c"application/json", body},
+           {String.to_charlist(url), [{~c"content-type", ~c"application/json"}],
+            ~c"application/json", body},
            [timeout: @timeout, connect_timeout: @timeout],
            []
          ) do
