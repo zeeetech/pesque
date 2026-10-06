@@ -146,6 +146,36 @@ defmodule Pesque.Lexicon.ExtensionTest do
     assert Registry.record("com.example.b")
   end
 
+  # Resolving a union's members walks the ref graph too, so a union whose
+  # member is the lexicon holding it has to terminate for the same reason the
+  # two-lexicon cycle above does.
+  test "a union whose member points back at its own lexicon terminates" do
+    write("com.example.selfref", %{
+      "lexicon" => 1,
+      "id" => "com.example.selfref",
+      "defs" => %{
+        "main" => %{
+          "type" => "record",
+          "key" => "tid",
+          "record" => %{
+            "type" => "object",
+            "required" => ["body"],
+            "properties" => %{
+              "body" => %{"type" => "union", "refs" => ["com.example.selfref"]}
+            }
+          }
+        }
+      }
+    })
+
+    assert %{"properties" => %{"body" => body}} = Registry.record("com.example.selfref")
+    assert body["type"] == "union"
+
+    # The member resolves once and then stops: the cycle guard leaves the second
+    # pass with nothing to look up, rather than resolving forever.
+    assert Map.keys(body["variants"]) == ["com.example.selfref"]
+  end
+
   defp other("com.example.a"), do: "com.example.b"
   defp other("com.example.b"), do: "com.example.a"
 

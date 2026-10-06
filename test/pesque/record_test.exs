@@ -25,15 +25,36 @@ defmodule Pesque.RecordTest do
     assert stored["$type"] == "app.bsky.feed.post"
   end
 
-  # app.bsky.actor.profile is the one record lexicon with no `required`, which
-  # is the closed case, and no record lexicon declares $type as a property. So
-  # a profile carrying the $type the protocol requires of it validates only
-  # because the type is checked apart from the fields rather than among them.
-  test "a closed record carrying a $type is not refused for it" do
+  # app.bsky.actor.profile declares no required fields, so before undeclared
+  # fields stopped being refused it was the one record type a $type could be
+  # turned away for. It does not need that any more: the record is validated as
+  # submitted and a field the lexicon does not name is ignored.
+  test "a record carrying a $type the lexicon does not declare is not refused for it" do
     profile = %{"$type" => "app.bsky.actor.profile", "displayName" => "Alice"}
 
     assert {:ok, stored} = Record.check("app.bsky.actor.profile", profile)
     assert stored["displayName"] == "Alice"
+    assert stored["$type"] == "app.bsky.actor.profile"
+  end
+
+  # A null $type is not an absent one. The spec says a record object always
+  # carries its type, and a stored null is a value with nothing to dispatch on
+  # and nothing that can ever validate it.
+  test "a $type of null is refused rather than stored" do
+    record = Map.put(@post, "$type", nil)
+
+    assert {:error, {:invalid_record, [{["$type"], :missing_type}]}} =
+             Record.check("app.bsky.feed.post", record)
+  end
+
+  # And the stored record always carries the collection, whatever the client
+  # sent, so a consumer reading it off the firehose has the one value to
+  # dispatch on.
+  test "the stored record carries the collection even when validation is off" do
+    record = %{"text" => "hi", "$type" => nil}
+
+    assert {:ok, %{"$type" => "app.bsky.feed.post"}} =
+             Record.check("app.bsky.feed.post", record, validate: false)
   end
 
   test "a $type naming another collection is refused" do
