@@ -23,8 +23,19 @@ defmodule PesqueWeb.Xrpc.SessionController do
       "availableUserDomains" => [Pesque.handle_domain()],
       "inviteCodeRequired" => Pesque.registration() == :closed,
       "phoneVerificationRequired" => false,
-      "links" => %{}
+      "links" => links()
     })
+  end
+
+  # Absolute URLs to the documents this server serves itself, because a client
+  # reading describeServer from another host cannot follow a path.
+  defp links do
+    base = Pesque.base_url()
+
+    %{
+      "privacyPolicy" => base <> "/privacy-policy.md",
+      "termsOfService" => base <> "/terms-of-service.md"
+    }
   end
 
   # What an AppView asks before it mirrors a repo. `activated` is answered from
@@ -69,21 +80,31 @@ defmodule PesqueWeb.Xrpc.SessionController do
     }
   end
 
+  # Open registration needs nothing from the caller. Closed registration is
+  # invite-only, which is what describeServer already advertises: a code the
+  # operator handed out, spent exactly once.
   def create_account(conn, params) do
-    if Pesque.registration() == :open do
-      provision(conn, params)
-    else
-      Xrpc.error(
-        conn,
-        400,
-        "InvalidRequest",
-        "registration is closed; accounts are provisioned by the operator"
-      )
+    case invite_code(params) do
+      {:ok, opts} -> provision(conn, params, opts)
+      {:error, reason} -> fail(conn, reason)
     end
   end
 
-  defp provision(conn, params) do
-    case Accounts.create_account(params["handle"], params["email"], params["password"]) do
+  defp invite_code(params) do
+    case Pesque.registration() do
+      :open ->
+        {:ok, []}
+
+      :closed ->
+        case params["invitationCode"] do
+          code when is_binary(code) -> {:ok, [invite_code: code]}
+          _ -> {:error, :invite_code_required}
+        end
+    end
+  end
+
+  defp provision(conn, params, opts) do
+    case Accounts.create_account(params["handle"], params["email"], params["password"], opts) do
       {:ok, user} ->
         {:ok, session} = Accounts.issue_session(user.did)
 
@@ -96,9 +117,13 @@ defmodule PesqueWeb.Xrpc.SessionController do
         })
 
       {:error, reason} ->
-        {status, name, message} = Xrpc.Errors.to_xrpc(reason)
-        Xrpc.error(conn, status, name, message)
+        fail(conn, reason)
     end
+  end
+
+  defp fail(conn, reason) do
+    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
+    Xrpc.error(conn, status, name, message)
   end
 
   def create_session(conn, %{"identifier" => identifier, "password" => password}) do
@@ -155,6 +180,16 @@ defmodule PesqueWeb.Xrpc.SessionController do
       _ -> Xrpc.error(conn, 401, "InvalidToken", "refresh token is expired or revoked")
     end
   end
+
+  def create_invite_codes(conn, params) do
+    case Accounts.create_invite_code(code_count(params)) do
+      {:ok, codes} -> json(conn, %{"codes" => codes})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  defp code_count(%{"codeCount" => count}) when is_integer(count), do: count
+  defp code_count(_params), do: 1
 
   def get_session(conn, _params) do
     user = conn.assigns.current_user

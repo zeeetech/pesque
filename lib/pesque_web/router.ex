@@ -53,6 +53,7 @@ defmodule PesqueWeb.Router do
     pipe_through :auth
 
     get "/com.atproto.server.getSession", SessionController, :get_session
+    post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
@@ -65,6 +66,8 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.sync.getRepo", SyncController, :get_repo
     get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
     get "/com.atproto.sync.getBlob", SyncController, :get_blob
+    get "/com.atproto.sync.getRepoStatus", SyncController, :get_repo_status
+    get "/com.atproto.sync.listRepos", SyncController, :list_repos
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

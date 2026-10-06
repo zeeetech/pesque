@@ -5,6 +5,11 @@ defmodule PesqueWeb.Endpoint do
   plug PesqueWeb.Plugs.SecurityHeaders
   plug PesqueWeb.Plugs.Cors
 
+  plug Plug.Static,
+    at: "/",
+    from: :pesque,
+    only: ~w(privacy-policy.md terms-of-service.md)
+
   plug Plug.Parsers,
     parsers: [:urlencoded, :json],
     pass: ["*/*"],

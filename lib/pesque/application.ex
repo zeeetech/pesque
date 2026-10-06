@@ -29,6 +29,7 @@ defmodule Pesque.Application do
       {Registry, keys: :duplicate, name: Pesque.EventRegistry},
       {Registry, keys: :unique, name: Pesque.RepoRegistry},
       Pesque.RepoSupervisor,
+      Pesque.EventReaper,
       PesqueWeb.Endpoint
     ]
 

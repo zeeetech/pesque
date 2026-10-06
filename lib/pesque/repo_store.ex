@@ -3,6 +3,10 @@ defmodule Pesque.RepoStore do
 
   import Ecto.Query
 
+  require Logger
+
+  alias Pesque.CBOR
+  alias Pesque.CID
   alias Pesque.Repo
   alias Pesque.RepoStore.Blob
   alias Pesque.RepoStore.Block
@@ -22,6 +26,17 @@ defmodule Pesque.RepoStore do
 
   def get_record(did, collection, rkey) do
     Repo.get_by(Record, did: did, collection: collection, rkey: rkey)
+  end
+
+  @doc """
+  A stored block by CID, whatever collection or key wrote it.
+
+  This is what a getRecord carrying a cid answers from: a superseded version
+  was replaced in `records`, but the block it was stored as is still here
+  until sweep_blocks!/1 collects it, which a later commit made unreachable.
+  """
+  def get_block(did, cid_string) do
+    Repo.get_by(Block, did: did, cid: cid_string)
   end
 
   def list_records(did, collection, limit, offset, reverse) do
@@ -83,6 +98,103 @@ defmodule Pesque.RepoStore do
     end)
     |> MapSet.new()
   end
+
+  @doc """
+  Deletes every block of `did` the current MST cannot reach.
+
+  The head commit, the record CIDs the tree points at, and every MST node on
+  the way down are reachable and kept. The head commit block in particular is
+  not in the tree at all, it is only named by the meta rows, so it is marked
+  by hand.
+
+  A tree the walk cannot finish is not swept at all. A block the tree names
+  that is missing, or whose bytes do not decode, means the walk cannot say what
+  hangs below it, and everything below it would look unreachable. Deleting on
+  an incomplete walk is how a repo loses records a reader can still ask for by
+  CID, so the answer is to delete nothing and answer 0.
+
+  Answers the number of rows deleted.
+  """
+  def sweep_blocks!(did) do
+    blocks = Map.new(blocks_for(did), &{&1.cid, &1.data})
+
+    case get_meta("root:" <> did) do
+      nil ->
+        0
+
+      root ->
+        walk(MapSet.new([get_meta("commit:" <> did)]), blocks, [root], did)
+    end
+  end
+
+  defp walk(marked, blocks, [cid | queue], did) do
+    cond do
+      MapSet.member?(marked, cid) ->
+        walk(marked, blocks, queue, did)
+
+      not Map.has_key?(blocks, cid) ->
+        Logger.warning("block sweep gave up: #{cid} is named by the tree but not stored")
+        0
+
+      true ->
+        case children(blocks[cid]) do
+          {:ok, children} ->
+            walk(MapSet.put(marked, cid), blocks, children ++ queue, did)
+
+          :error ->
+            Logger.warning("block sweep gave up: #{cid} does not decode")
+            0
+        end
+    end
+  end
+
+  defp walk(marked, blocks, [], did), do: sweep(marked, blocks, did)
+
+  defp sweep(marked, blocks, did) do
+    blocks
+    |> Map.keys()
+    |> Enum.reject(&MapSet.member?(marked, &1))
+    |> Enum.chunk_every(500)
+    |> Enum.reduce(0, fn chunk, acc ->
+      {count, _} = Repo.delete_all(from b in Block, where: b.did == ^did and b.cid in ^chunk)
+      acc + count
+    end)
+  end
+
+  # An MST node carries the subtree to its left plus, per entry, the subtree
+  # and the record the entry points at. A record block carries $type and none
+  # of those keys, and the walk stops there rather than mistaking every record
+  # for a tree.
+  defp children(data) do
+    case safe_decode(data) do
+      {:ok, %{"l" => left, "e" => entries} = node} ->
+        if Map.has_key?(node, "$type") do
+          {:ok, []}
+        else
+          {:ok,
+           Enum.reduce(entries, cid_link([], left), fn
+             %{"t" => subtree, "v" => value}, acc -> acc |> cid_link(subtree) |> cid_link(value)
+             _entry, acc -> acc
+           end)}
+        end
+
+      {:ok, _record_or_commit} ->
+        {:ok, []}
+
+      :error ->
+        :error
+    end
+  end
+
+  defp safe_decode(data) do
+    {:ok, CBOR.decode!(data)}
+  rescue
+    _ -> :error
+  end
+
+  defp cid_link(acc, nil), do: acc
+  defp cid_link(acc, %CID{} = cid), do: [CID.to_string(cid) | acc]
+  defp cid_link(acc, _other), do: acc
 
   @doc "Inserts blocks; content-addressed, so conflicts are no-ops by definition."
   def insert_blocks!(did, blocks) do
@@ -155,6 +267,18 @@ defmodule Pesque.RepoStore do
     Repo.one(from e in Event, select: min(e.seq))
   end
 
+  @doc """
+  Deletes events older than `datetime`, answering how many rows went.
+
+  The seq is not renumbered: a consumer whose cursor falls inside the deleted
+  window already gets an OutdatedCursor frame from the firehose replay, which
+  is exactly what this makes possible.
+  """
+  def delete_events_before(datetime) do
+    {count, _} = Repo.delete_all(from e in Event, where: e.inserted_at < ^datetime)
+    count
+  end
+
   # meta
 
   def get_meta(key) do
@@ -169,5 +293,27 @@ defmodule Pesque.RepoStore do
       on_conflict: {:replace, [:value]},
       conflict_target: [:key]
     )
+  end
+
+  @doc """
+  The rev and head commit of every hosted repo, keyed by DID.
+
+  Meta is where a repo's rev and head live, so this reads them all in one
+  pass rather than one lookup per repo. A repo with no rev yet has no rows
+  here at all, so the caller decides what an absent entry means.
+  """
+  def all_repo_heads do
+    Repo.all(
+      from m in Meta,
+        where: like(m.key, "rev:%") or like(m.key, "commit:%"),
+        select: {m.key, m.value}
+    )
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      case String.split(key, ":", parts: 2) do
+        ["rev", did] -> Map.update(acc, did, %{rev: value}, &Map.put(&1, :rev, value))
+        ["commit", did] -> Map.update(acc, did, %{head: value}, &Map.put(&1, :head, value))
+        _other -> acc
+      end
+    end)
   end
 end

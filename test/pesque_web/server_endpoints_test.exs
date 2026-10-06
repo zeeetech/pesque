@@ -35,6 +35,20 @@ defmodule PesqueWeb.ServerEndpointsTest do
     assert xrpc_get("/xrpc/com.atproto.server.describeServer").status == 200
   end
 
+  # A link a client cannot open is worse than no link: the client shows it to
+  # a person as the server's policy. These are the documents this server
+  # actually serves, so the test fetches them back.
+  test "describeServer links to policy documents this server serves" do
+    links = read("/xrpc/com.atproto.server.describeServer")["links"]
+
+    assert is_binary(links["privacyPolicy"])
+    assert is_binary(links["termsOfService"])
+
+    for path <- ["/privacy-policy.md", "/terms-of-service.md"] do
+      assert xrpc_get(path).status == 200
+    end
+  end
+
   test "checkAccountStatus reports a repo that has been written to", ctx do
     params = %{
       "repo" => ctx.alice.did,

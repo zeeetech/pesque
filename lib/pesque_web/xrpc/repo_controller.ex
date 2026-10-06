@@ -177,19 +177,19 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   # reads (public)
 
-  def get_record(conn, %{"repo" => repo, "collection" => collection, "rkey" => rkey}) do
+  def get_record(conn, %{"repo" => repo, "collection" => collection, "rkey" => rkey} = params) do
     case resolve_repo(repo) do
       {:ok, did} ->
-        case RepoStore.get_record(did, collection, rkey) do
+        case fetch_record(did, collection, rkey, params["cid"]) do
           nil ->
             Xrpc.error(conn, 404, "RecordNotFound", "no record at that key")
 
-          row ->
-            case decode_record(row) do
+          {cid, data} ->
+            case decode_record(cid, data) do
               {:ok, value} ->
                 json(conn, %{
-                  "uri" => "at://#{row.did}/#{row.collection}/#{row.rkey}",
-                  "cid" => row.cid,
+                  "uri" => "at://#{did}/#{collection}/#{rkey}",
+                  "cid" => cid,
                   "value" => value
                 })
 
@@ -205,6 +205,33 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   def get_record(conn, _params) do
     Xrpc.error(conn, 400, "InvalidRequest", "repo, collection, and rkey are required")
+  end
+
+  # A cid names one version of the record rather than the latest one. The
+  # records table holds only the latest version, so an older one is answered
+  # from the blocks table, for as long as the block sweeper has not yet
+  # collected it.
+  #
+  # The uri answered is the key the caller asked about. Which key a superseded
+  # version was written to is not recorded anywhere, so it cannot be checked
+  # and is not claimed: a cid naming a block this repo stores is served under
+  # the requested uri, and the caller is the one who knows both.
+  defp fetch_record(did, collection, rkey, nil) do
+    case RepoStore.get_record(did, collection, rkey) do
+      nil -> nil
+      row -> {row.cid, row.data}
+    end
+  end
+
+  defp fetch_record(did, _collection, _rkey, cid) when is_binary(cid) do
+    case RepoStore.get_block(did, cid) do
+      nil -> nil
+      block -> {block.cid, block.data}
+    end
+  end
+
+  defp fetch_record(did, collection, rkey, _cid) do
+    fetch_record(did, collection, rkey, nil)
   end
 
   # A limit or cursor that is not a whole number reads as 0, and the clamps
@@ -225,7 +252,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
           rows
           |> Enum.take(limit)
           |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
-            case decode_record(row) do
+            case decode_record(row.cid, row.data) do
               {:ok, value} ->
                 {:cont,
                  {:ok,
@@ -314,11 +341,11 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # A row whose bytes do not decode as DAG-CBOR is a store-level corruption,
   # not a client fault, so it answers 500. The CID in the log is what ties the
   # bad bytes back to the block in storage.
-  defp decode_record(row) do
-    {:ok, row.data |> CBOR.decode!() |> Lexicon.to_json()}
+  defp decode_record(cid, data) do
+    {:ok, data |> CBOR.decode!() |> Lexicon.to_json()}
   rescue
     e ->
-      Logger.error("decoding record #{row.cid} failed: #{Exception.message(e)}")
+      Logger.error("decoding record #{cid} failed: #{Exception.message(e)}")
       :error
   end
 
