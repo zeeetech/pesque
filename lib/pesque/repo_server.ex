@@ -61,27 +61,43 @@ defmodule Pesque.RepoServer do
 
   @impl true
   def init(did) do
-    entries =
-      did
-      |> RepoStore.records_for()
-      |> Map.new(fn r -> {r.collection <> "/" <> r.rkey, CID.parse(r.cid)} end)
+    with {:ok, entries} <- load_entries(did) do
+      case Keys.ensure(did) do
+        {:ok, key} ->
+          {:ok,
+           %__MODULE__{
+             did: did,
+             clock_id: :rand.uniform(1024) - 1,
+             priv: key.priv,
+             entries: entries,
+             tid_int: int_meta("tid_int:" <> did, 0),
+             rev: RepoStore.get_meta("rev:" <> did)
+           }, {:continue, :genesis_if_needed}}
 
-    case Keys.ensure(did) do
-      {:ok, key} ->
-        {:ok,
-         %__MODULE__{
-           did: did,
-           clock_id: :rand.uniform(1024) - 1,
-           priv: key.priv,
-           entries: entries,
-           tid_int: int_meta("tid_int:" <> did, 0),
-           rev: RepoStore.get_meta("rev:" <> did)
-         }, {:continue, :genesis_if_needed}}
-
-      {:error, reason} ->
-        Logger.error("repo for #{did} cannot sign: #{inspect(reason)}")
-        {:stop, {:key_unavailable, reason}}
+        {:error, reason} ->
+          Logger.error("repo for #{did} cannot sign: #{inspect(reason)}")
+          {:stop, {:key_unavailable, reason}}
+      end
     end
+  end
+
+  defp load_entries(did) do
+    did
+    |> RepoStore.records_for()
+    |> Enum.reduce_while({:ok, %{}}, fn record, {:ok, acc} ->
+      case CID.safe_parse(record.cid) do
+        {:ok, cid} ->
+          {:cont, {:ok, Map.put(acc, record.collection <> "/" <> record.rkey, cid)}}
+
+        :error ->
+          Logger.error("stored cid does not parse",
+            did: did,
+            key: record.collection <> "/" <> record.rkey
+          )
+
+          {:halt, {:error, {:corrupt_record, record.collection <> "/" <> record.rkey}}}
+      end
+    end)
   end
 
   @impl true

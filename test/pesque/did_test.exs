@@ -239,7 +239,7 @@ defmodule Pesque.DidTest do
     single = server(mode: :conformant_single)
 
     assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
-    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == :error
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == {:error, :not_local}
   end
 
   # Each mode names its accounts differently, so the two identifier shapes
@@ -252,8 +252,8 @@ defmodule Pesque.DidTest do
 
     assert Did.to_local_did(single, "example.com") == {:ok, "did:web:example.com"}
     assert Did.to_local_did(single, "did:web:example.com") == {:ok, "did:web:example.com"}
-    assert Did.to_local_did(single, "alice.example.com") == :error
-    assert Did.to_local_did(single, "did:web:example.com:user:alice") == :error
+    assert Did.to_local_did(single, "alice.example.com") == {:error, :not_local}
+    assert Did.to_local_did(single, "did:web:example.com:user:alice") == {:error, :not_local}
 
     assert Did.to_local_did(multi, "alice.example.com") ==
              {:ok, "did:web:example.com:user:alice"}
@@ -261,8 +261,8 @@ defmodule Pesque.DidTest do
     assert Did.to_local_did(multi, "did:web:example.com:user:alice") ==
              {:ok, "did:web:example.com:user:alice"}
 
-    assert Did.to_local_did(multi, "example.com") == :error
-    assert Did.to_local_did(multi, "did:web:example.com") == :error
+    assert Did.to_local_did(multi, "example.com") == {:error, :not_local}
+    assert Did.to_local_did(multi, "did:web:example.com") == {:error, :not_local}
   end
 
   test "the bare handle domain is the server's own handle under conformant_single" do
@@ -280,68 +280,68 @@ defmodule Pesque.DidTest do
   test "the bare handle domain names no account under path_multi" do
     config = server(mode: :path_multi)
 
-    assert Did.to_local_did(config, "example.com") == :error
+    assert Did.to_local_did(config, "example.com") == {:error, :not_local}
 
     lan = server(mode: :path_multi, hostname: "127.0.0.1", port: 4111, handle_domain: "127.0.0.1")
-    assert Did.to_local_did(lan, "127.0.0.1") == :error
+    assert Did.to_local_did(lan, "127.0.0.1") == {:error, :not_local}
   end
 
   test "a bare handle under a domain this server does not serve is not local" do
     config =
       server(mode: :conformant_single, hostname: "pds.example.com", handle_domain: "example.com")
 
-    assert Did.to_local_did(config, "evil.com") == :error
-    assert Did.to_local_did(config, "pds.example.com") == :error
+    assert Did.to_local_did(config, "evil.com") == {:error, :not_local}
+    assert Did.to_local_did(config, "pds.example.com") == {:error, :not_local}
   end
 
   test "a handle with an empty or leading-dot label names nothing" do
     for mode <- [:conformant_single, :path_multi] do
       config = server(mode: mode)
 
-      assert Did.to_local_did(config, ".example.com") == :error
-      assert Did.to_local_did(config, ".") == :error
-      assert Did.to_local_did(config, ".alice.example.com") == :error
-      assert Did.to_local_did(config, "example.com.") == :error
-      assert Did.to_local_did(config, "") == :error
+      assert Did.to_local_did(config, ".example.com") == {:error, :not_local}
+      assert Did.to_local_did(config, ".") == {:error, :not_local}
+      assert Did.to_local_did(config, ".alice.example.com") == {:error, :not_local}
+      assert Did.to_local_did(config, "example.com.") == {:error, :not_local}
+      assert Did.to_local_did(config, "") == {:error, :not_local}
     end
   end
 
   test "a handle that merely resembles the handle domain is not local" do
     config = server(mode: :conformant_single)
 
-    assert Did.to_local_did(config, "evil-example.com") == :error
-    assert Did.to_local_did(config, "notexample.com") == :error
-    assert Did.to_local_did(config, "xexample.com") == :error
+    assert Did.to_local_did(config, "evil-example.com") == {:error, :not_local}
+    assert Did.to_local_did(config, "notexample.com") == {:error, :not_local}
+    assert Did.to_local_did(config, "xexample.com") == {:error, :not_local}
   end
 
   test "a handle under a domain this server does not serve is not local" do
     config = server(mode: :path_multi, hostname: "pds.example.com", handle_domain: "example.com")
 
-    assert Did.to_local_did(config, "alice.evil.com") == :error
-    assert Did.to_local_did(config, "alice.pds.example.com") == :error
+    assert Did.to_local_did(config, "alice.evil.com") == {:error, :not_local}
+    assert Did.to_local_did(config, "alice.pds.example.com") == {:error, :not_local}
   end
 
   test "a well-formed did of another host is not local" do
     config = server(mode: :path_multi)
 
-    assert Did.to_local_did(config, "did:web:other.com:user:alice") == :error
-    assert Did.to_local_did(config, "did:plc:abc123") == :error
+    assert Did.to_local_did(config, "did:web:other.com:user:alice") == {:error, :not_local}
+    assert Did.to_local_did(config, "did:plc:abc123") == {:error, :not_local}
   end
 
   test "a did whose path is not exactly user/username is not local" do
     config = server(mode: :path_multi)
 
-    assert Did.to_local_did(config, "did:web:example.com:user:alice:extra") == :error
-    assert Did.to_local_did(config, "did:web:example.com:user") == :error
-    assert Did.to_local_did(config, "did:web:example.com:alice") == :error
-    assert Did.to_local_did(config, "did:web:example.com:user:no!") == :error
+    assert Did.to_local_did(config, "did:web:example.com:user:alice:extra") == {:error, :not_local}
+    assert Did.to_local_did(config, "did:web:example.com:user") == {:error, :not_local}
+    assert Did.to_local_did(config, "did:web:example.com:alice") == {:error, :not_local}
+    assert Did.to_local_did(config, "did:web:example.com:user:no!") == {:error, :not_local}
   end
 
   test "a bare host did is local in conformant_single only" do
     assert Did.to_local_did(server(mode: :conformant_single), "did:web:example.com") ==
              {:ok, "did:web:example.com"}
 
-    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == :error
+    assert Did.to_local_did(server(mode: :path_multi), "did:web:example.com") == {:error, :not_local}
   end
 
   test "resolution is case insensitive on the host and the handle" do
@@ -360,10 +360,10 @@ defmodule Pesque.DidTest do
   test "a non-identifier is not local" do
     config = server(mode: :path_multi)
 
-    assert Did.to_local_did(config, nil) == :error
-    assert Did.to_local_did(config, 42) == :error
-    assert Did.to_local_did(config, "") == :error
-    assert Did.to_local_did(config, "alice") == :error
+    assert Did.to_local_did(config, nil) == {:error, :invalid_identifier}
+    assert Did.to_local_did(config, 42) == {:error, :invalid_identifier}
+    assert Did.to_local_did(config, "") == {:error, :not_local}
+    assert Did.to_local_did(config, "alice") == {:error, :not_local}
   end
 
   # The two-identifier form had to guess whether a handle domain was the did

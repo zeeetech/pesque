@@ -141,8 +141,9 @@ defmodule Pesque.Did do
   table cannot be talked into accepting a remote account; whether the account
   exists is the caller's question, not this function's.
 
-  Returns :error for a DID of another host, a handle under a domain this
-  server does not serve, and any path that is not exactly user/<username>.
+  Answers {:error, :not_local} for a DID of another host, a handle under a
+  domain this server does not serve, and any path that is not exactly
+  user/<username>.
   """
   def to_local_did(config, identifier) when is_binary(identifier) do
     identifier = String.trim(identifier)
@@ -153,7 +154,7 @@ defmodule Pesque.Did do
     end
   end
 
-  def to_local_did(_config, _identifier), do: :error
+  def to_local_did(_config, _identifier), do: {:error, :invalid_identifier}
 
   # The host and path arrive lowercased, so the host is compared folded
   # against did_host/2, which percent-encodes a port in uppercase hex.
@@ -164,7 +165,7 @@ defmodule Pesque.Did do
          {:ok, username} <- username_in_did(config.mode, path) do
       {:ok, did_for_username(config.mode, host(config), username)}
     else
-      _ -> :error
+      _ -> {:error, :not_local}
     end
   end
 
@@ -180,16 +181,16 @@ defmodule Pesque.Did do
   # handle resolve to the single account, and under path_multi neither does,
   # because no account claims the bare domain.
   defp username_in_did(:conformant_single, []), do: {:ok, nil}
-  defp username_in_did(:conformant_single, _path), do: :error
+  defp username_in_did(:conformant_single, _path), do: {:error, :not_local}
 
   defp username_in_did(:path_multi, ["user", username]) do
     case normalize_username(username) do
       {:ok, normalized} -> {:ok, normalized}
-      {:error, _reason} -> :error
+      {:error, _reason} -> {:error, :not_local}
     end
   end
 
-  defp username_in_did(_mode, _path), do: :error
+  defp username_in_did(_mode, _path), do: {:error, :not_local}
 
   # The bare handle domain is the server's own handle in conformant_single,
   # where there is a single account and writes are addressed to it. Under
@@ -208,7 +209,7 @@ defmodule Pesque.Did do
     {:ok, did_for_username(:conformant_single, host(config), nil)}
   end
 
-  defp bare_handle_did(_config), do: :error
+  defp bare_handle_did(_config), do: {:error, :not_local}
 
   # Only path_multi has accounts named by a label, so only there does a label
   # carry meaning. Under conformant_single the single account's handle is the
@@ -220,11 +221,11 @@ defmodule Pesque.Did do
          true <- domain == String.downcase(config.handle_domain) do
       {:ok, did_for_username(:path_multi, host(config), username)}
     else
-      _ -> :error
+      _ -> {:error, :not_local}
     end
   end
 
-  defp labeled_handle_did(_config, _handle), do: :error
+  defp labeled_handle_did(_config, _handle), do: {:error, :not_local}
 
   defp host(config), do: did_host(config.hostname, config.port)
 
@@ -237,8 +238,11 @@ defmodule Pesque.Did do
 
   defp normalize_username!(username) do
     case normalize_username(username) do
-      {:ok, normalized} -> normalized
-      {:error, reason} -> raise ArgumentError, "invalid username: #{inspect(reason)}"
+      {:ok, normalized} ->
+        normalized
+
+      {:error, reason} ->
+        raise ArgumentError, "invalid username: #{inspect(reason)}"
     end
   end
 
