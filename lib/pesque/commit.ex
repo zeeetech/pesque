@@ -133,9 +133,12 @@ defmodule Pesque.Commit do
   The firehose frames one commit puts on the stream, as `{seq, frame}` pairs
   in the order they go out.
 
-  The first is always the `#commit` envelope over the CAR of the blocks the
-  transaction actually inserted; `new_blocks` carries the CID strings the
-  transaction deduplicated against, parsed back into CIDs here.
+  The first is always the `#commit` envelope over the CAR of the blocks this
+  frame carries; `new_blocks` carries their CID strings, parsed back into CIDs
+  here. The caller chooses that set: it is the blocks this commit added rather
+  than the whole commit closure, because a frame sized to the closure reports
+  `tooBig` forever on a repo past the blocks limit. Storage does not depend on
+  it, so a block that is in `new_blocks` or not is written either way.
 
   A commit whose CAR is over the lexicon's 2,000,000-byte `blocks` limit, or
   whose op count is over its limit of 200, is over what a consumer is meant to

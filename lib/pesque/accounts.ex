@@ -21,6 +21,20 @@ defmodule Pesque.Accounts do
 
   @deletion_token_ttl_seconds 24 * 60 * 60
 
+  # The rows for a batch are materialised in memory before the single
+  # insert_all, so codeCount is bounded by what one call may cost rather than
+  # by what SQLite will accept: 1000 codes is a few milliseconds, 100_000 is
+  # seconds and tens of megabytes, and both are one integer from a client.
+  # A hundred single-use codes is a year of accounts on a small server.
+  @max_code_count 1_000
+
+  # useCount multiplies what one code buys rather than what one call costs, so
+  # the bound here is about the size of the promise a single code makes: a
+  # code that admits every account the server will ever hold is closed
+  # registration with one extra step. An operator who wants more mints more
+  # codes.
+  @max_use_count 1_000
+
   @doc """
   Creates a local account from a handle, an email, and a password.
 
@@ -39,14 +53,23 @@ defmodule Pesque.Accounts do
   key file nobody owns, and an orphan there makes the next attempt at the
   same handle fail on the exclusive create, so it is removed before
   returning.
+
+  The hash is computed here rather than inside insert/5's transaction. It is a
+  pure function of the password and needs no database, while the transaction
+  holds SQLite's single write lock for as long as it runs: an argon2 hash is
+  tens of milliseconds holding tens of megabytes resident, and under an open
+  registration every unrelated write on the server queues behind it. A wrong
+  invite code is also answered before any hash is burned, which is the other
+  thing moving it out bought.
   """
   def create_account(handle, email, password, opts \\ []) do
     with {:ok, identity} <- identity_for(handle),
          :ok <- check_password(password),
          :ok <- check_email(email),
          :ok <- check_available(identity, email),
-         {:ok, key} <- claim_key(identity) do
-      insert(identity, email, password, key.pub_multibase, Keyword.get(opts, :invite_code))
+         {:ok, key} <- claim_key(identity),
+         {:ok, password_hash} <- hash_password(password) do
+      insert(identity, email, password_hash, key.pub_multibase, Keyword.get(opts, :invite_code))
     end
   end
 
@@ -62,12 +85,18 @@ defmodule Pesque.Accounts do
   `for_accounts` restricts the codes to those DIDs and answers one group per
   DID. A code made for nobody is spendable by any account, and its group names
   no account, because a code belonging to nobody cannot name one.
+
+  Both counts are bounded. The context is the only place that can be right
+  about it: the endpoint that reaches this is authenticated, and an
+  authenticated caller is not the same thing as the operator, so the numbers
+  are refused here rather than trusted from a caller.
   """
   def create_invite_codes(code_count, use_count, for_accounts \\ [])
 
   def create_invite_codes(code_count, use_count, for_accounts)
-      when is_integer(code_count) and code_count > 0 and
-             is_integer(use_count) and use_count > 0 and is_list(for_accounts) do
+      when is_integer(code_count) and code_count > 0 and code_count <= @max_code_count and
+             is_integer(use_count) and use_count > 0 and use_count <= @max_use_count and
+             is_list(for_accounts) do
     accounts = if for_accounts == [], do: [nil], else: for_accounts
     restricted = if for_accounts == [], do: nil, else: for_accounts
 
@@ -79,8 +108,12 @@ defmodule Pesque.Accounts do
     {:ok, groups}
   end
 
+  # The bound is part of the guard rather than a check after it, so an
+  # over-large count falls through to the clause naming the count rather than
+  # being answered as a bad use_count.
   def create_invite_codes(code_count, _use_count, for_accounts)
-      when is_integer(code_count) and code_count > 0 and is_list(for_accounts) do
+      when is_integer(code_count) and code_count > 0 and code_count <= @max_code_count and
+             is_list(for_accounts) do
     {:error, :invalid_use_count}
   end
 
@@ -362,12 +395,120 @@ defmodule Pesque.Accounts do
   def verify_login(identifier, password) do
     case find_by_identifier(identifier) do
       nil ->
-        Argon2.no_user_verify()
+        no_user_verify()
         :error
 
       user ->
-        if Argon2.verify_pass(password, user.password_hash), do: {:ok, user}, else: :error
+        if verify_pass(password, user.password_hash), do: {:ok, user}, else: :error
     end
+  end
+
+  # A non-string password raises ArgumentError out of the NIF, and only on the
+  # branch that found an account: {"identifier":"nosuch","password":[]} is a
+  # clean 401 and the same body with a real handle is a 500, which is an
+  # unauthenticated oracle for which handles exist on a closed server. The
+  # controller answers 400 for it, and this is the second lock on the same
+  # door for every other caller.
+  defp verify_pass(password, hash) when is_binary(password) do
+    with_hash_permit(fn -> Argon2.verify_pass(password, hash) end)
+  end
+
+  defp verify_pass(_password, _hash), do: false
+
+  # The one place argon2 options are read. Both the real hash and the dummy
+  # verify have to run at the same cost or the timing defence is not one: the
+  # dummy exists to make an unknown identifier cost what a known one costs,
+  # and Comeonin.no_user_verify/1 is hash_pwd_salt("", opts), so it runs at
+  # whatever this returns and not at the library default unless it is the same
+  # value. Prod sets nothing, which means the argon2_elixir defaults of
+  # t_cost 3, m_cost 16 (64 MiB) and 4 lanes.
+  #
+  # The memory ceiling is the reason this is a config decision rather than a
+  # constant: m_cost is read as an exponent of KiB, so m_cost 16 is 65536 KiB
+  # per hash, and with_hash_permit below bounds how many run at once. A
+  # server with 512 MiB to give away wants m_cost 12 (4 MiB) at t_cost 3;
+  # anything above about m_cost 15 wants the permit count looked at again.
+  @doc false
+  def argon2_opts, do: Application.get_env(:pesque, :argon2_opts, [])
+
+  # argon2 is memory-hard on purpose: at the defaults one verify holds 64 MiB
+  # for about 26ms, and nothing above this module bounds how many logins a
+  # client has in flight (Bandit takes no connection cap, and the session rate
+  # limit is per hour, so it bounds volume rather than concurrency). A hundred
+  # concurrent createSession calls from one address is several GiB of RSS.
+  #
+  # A semaphore, not a pool: a pool of workers would queue the callers on a
+  # GenServer and the hash would wait behind the queue. :atomics gives a
+  # counting semaphore with no process at all, so a call that gets a permit
+  # pays one atomic add, and there is nothing here to supervise, nothing to
+  # become a bottleneck, and no mailbox to serialise. The waiter sleeps
+  # between attempts rather than spinning: the hashes want the cores, and a
+  # spin loop would take exactly what they are trying to use.
+  #
+  # Sized against the schedulers because argon2 is CPU-bound, so a permit per
+  # core is what keeps throughput flat; the floor of 2 keeps a one-core box
+  # hashing while the caller finishes the rest of its request, and the ceiling
+  # stops a many-core machine reading the permit count as licence to size the
+  # gate by hardware instead of by memory.
+  @argon2_permit_floor 2
+  @argon2_permit_ceiling 8
+  @argon2_permit_retry_ms 5
+  @argon2_permits {__MODULE__, :argon2_permits}
+
+  @doc false
+  def argon2_permit_limit,
+    do: min(@argon2_permit_ceiling, max(@argon2_permit_floor, System.schedulers_online()))
+
+  defp with_hash_permit(fun) do
+    acquire_hash_permit()
+    # Released in an after, so a raise out of the NIF cannot leak a permit and
+    # wedge the gate for every login after it.
+    try do
+      fun.()
+    after
+      :atomics.sub(hash_permits(), 1, 1)
+    end
+  end
+
+  defp acquire_hash_permit do
+    permits = hash_permits()
+    limit = argon2_permit_limit()
+
+    if :atomics.add_get(permits, 1, 1) <= limit do
+      :ok
+    else
+      # Handed straight back rather than held while waiting, so a caller that
+      # lost the race does not shrink the gate for everyone queued behind it.
+      :atomics.sub(permits, 1, 1)
+      Process.sleep(@argon2_permit_retry_ms)
+      acquire_hash_permit()
+    end
+  end
+
+  # put_new rather than put, so two processes racing here cannot install two
+  # counters and hand out permits against two independent budgets.
+  defp hash_permits do
+    case :persistent_term.get(@argon2_permits, nil) do
+      nil ->
+        :persistent_term.put_new(@argon2_permits, :atomics.new(1, signed: false))
+        hash_permits()
+
+      permits ->
+        permits
+    end
+  end
+
+  # The dummy verify for an identifier no row names. Same options as the real
+  # hash, same gate, for the same reason: it has to be indistinguishable from
+  # a real one in both cost and timing.
+  defp no_user_verify, do: with_hash_permit(fn -> Argon2.no_user_verify(argon2_opts()) end)
+
+  # No non-binary clause: check_password/1 runs first in the create_account/4
+  # chain and answers one, so a non-string cannot reach here. That is the
+  # reason the raise is gone from this path rather than merely caught.
+  defp hash_password(password) when is_binary(password) do
+    hash = with_hash_permit(fn -> Argon2.hash_pwd_salt(password, argon2_opts()) end)
+    {:ok, hash}
   end
 
   @doc "Issues an access/refresh pair and registers the refresh jti as live."
@@ -426,11 +567,19 @@ defmodule Pesque.Accounts do
   The account comes back with the pair because the caller has to answer as
   that account: the refresh token's subject is the only thing that says which
   one, and a subject naming no account is a dead token.
+
+  The row's own did is compared to the subject rather than assumed. The two
+  cannot disagree today, since this server signed the token and the jti is
+  unique, so the check decides nothing today. It is here because this is the
+  one place a subject mismatch would hand one account's session to another,
+  and because the column is written and indexed, so reading it is what makes
+  the index from migration 010 worth anything.
   """
   def rotate_session(refresh_jwt) do
     with {:ok, claims} <-
            Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
          {:ok, row} <- fetch_live_refresh(claims["jti"]),
+         true <- row.did == claims["sub"],
          %User{} = user <- get_user(claims["sub"]),
          true <- revoke_live(row),
          {:ok, session} <- issue_session(user.did) do
@@ -507,11 +656,13 @@ defmodule Pesque.Accounts do
   defp check_did(%User{did: did}, did), do: :ok
   defp check_did(_user, _did), do: {:error, :wrong_account_did}
 
-  defp check_account_password(%User{password_hash: hash}, password) when is_binary(password) do
-    if Argon2.verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
+  # Through verify_pass/2, so a delete is a gated hash like every other one on a
+  # request path: deleteAccount carries no rate limit, and an ungated verify
+  # here is 64 MiB per request bought with nothing. The non-binary password is
+  # answered there too, so no second clause is needed.
+  defp check_account_password(%User{password_hash: hash}, password) do
+    if verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
   end
-
-  defp check_account_password(_user, _password), do: {:error, :invalid_password}
 
   # Expiry is answered separately from validity: the lexicon names both, and a
   # client told ExpiredToken can ask for a new one instead of guessing whether
@@ -655,9 +806,14 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp check_password(password) do
-    if byte_size(password || "") < 8, do: {:error, :password_too_short}, else: :ok
+  # A binary rather than a `password || ""` fallback into byte_size/1: a
+  # non-string is a malformed request, not a raise, and byte_size/1 on a list
+  # raises before anything downstream gets the chance to answer 400 for it.
+  defp check_password(password) when is_binary(password) do
+    if byte_size(password) < 8, do: {:error, :password_too_short}, else: :ok
   end
+
+  defp check_password(_password), do: {:error, :password_too_short}
 
   # conformant_single has exactly one account and it is the server, so a
   # second attempt is an existing server rather than a taken handle.
@@ -757,15 +913,14 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp insert_user(identity, email, password, pub_multibase) do
+  defp insert_user(identity, email, password_hash, pub_multibase) do
     %{
       did: identity.did,
       handle: identity.handle,
       username: identity.username,
       pubkey_multibase: pub_multibase,
       email: email,
-      password_hash:
-        Argon2.hash_pwd_salt(password, Application.get_env(:pesque, :argon2_opts, []))
+      password_hash: password_hash
     }
     |> User.changeset()
     |> Repo.insert()

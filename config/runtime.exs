@@ -47,6 +47,13 @@ mode =
 handle_domain =
   System.get_env("PDS_HANDLE_DOMAIN", if(mode == :path_multi, do: hostname, else: handle))
 
+admin_dids =
+  "PDS_ADMIN_DIDS"
+  |> System.get_env("")
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+  |> Enum.reject(&(&1 == ""))
+
 registration =
   case System.get_env("PDS_REGISTRATION", "closed") do
     "open" -> :open
@@ -74,7 +81,16 @@ config :pesque, Pesque.Repo,
   pool_size: 4
 
 config :pesque, PesqueWeb.Endpoint,
-  http: [ip: {0, 0, 0, 0}, port: port],
+  http: [
+    ip: {0, 0, 0, 0},
+    port: port,
+    # The firehose is server-push only, so no client frame is legitimate and
+    # Bandit's defaults (8 MB a frame, 8 MB a fragmented message) are pure
+    # attack surface: an unauthenticated socket would pay an inflate plus a
+    # CBOR validate per frame before the handler refused it. 1 MB is generous
+    # for a protocol where the client never speaks.
+    websocket: [max_frame_size: 1_048_576, max_fragmented_message_size: 1_048_576]
+  ],
   url: [host: hostname, scheme: url_scheme, port: url_port],
   server: true
 
@@ -86,10 +102,25 @@ config :pesque,
   handle: handle,
   port: port,
   registration: registration,
-  blob_max_bytes: blob_max_bytes
+  blob_max_bytes: blob_max_bytes,
+  # argon2's m_cost is an exponent of KiB, so the library default of 16 is 64
+  # MiB of memory per hash. That is a defensible number on a box with room and
+  # a fast way to OOM a small one: Accounts caps how many hashes run at once,
+  # so the ceiling is this times that cap, and the cap alone does not make the
+  # default safe. 12 is 4 MiB and still slow enough to be worth attacking.
+  argon2_opts: [t_cost: 3, m_cost: 12],
+  # Under :path_multi there is no account that is the server, so the operator
+  # is named here. Empty means the server identity only, which under
+  # :path_multi means nobody, which is deliberate: a closed server that admits
+  # no one is fixed by adding one line, one that admits the first account to
+  # ask is not fixed at all.
+  admin_dids: admin_dids
 
 if config_env() == :test do
-  config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox
+  # Wider than the server's pool on purpose. The concurrency test checks out one
+  # connection per writer while the test process holds one more, and a pool of
+  # exactly that size deadlocks the harness rather than the server.
+  config :pesque, Pesque.Repo, pool: Ecto.Adapters.SQL.Sandbox, pool_size: 12
   config :pesque, PesqueWeb.Endpoint, server: false
 
   # Logger.info from the boot sequence and from on_exit callbacks escapes

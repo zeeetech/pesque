@@ -15,21 +15,35 @@ defmodule Pesque.Lexicon.Validate do
       {:error, [{["text"], :required}]}
 
   The rules implemented are the ones the vendored lexicons actually use:
-  `object` (with `required`, `properties`, unknown fields rejected),
-  `array` (with `items`, `minLength`, `maxLength`), `string` (with `format`,
-  `enum`, `const`, `minLength`, `maxLength`, `maxGraphemes`), `integer`
-  (`minimum`, `maximum`, `const`), `boolean`, `float`, `number`, `unknown`,
-  `bytes`, `cid-link`, `blob`, `token`, `ref` and `union`.
+  `object` (with `required`, `nullable`, `properties`), `array` (with `items`,
+  `minLength`, `maxLength`), `string` (with `format`, `enum`, `const`,
+  `minLength`, `maxLength`, `maxGraphemes`), `integer` (`minimum`, `maximum`,
+  `const`), `boolean`, `float`, `number`, `unknown`, `bytes`, `cid-link`,
+  `blob`, `token`, `ref` and `union`.
 
-  `bytes`, `cid-link`, `blob` and `token` are all strings or byte arrays by the
-  time a record reaches here, since `Pesque.Lexicon.from_json/1` has already
-  turned `$link` into a `%CID{}` and `$bytes` into `%CBOR.Bytes{}`. They are
-  accepted without a further check here; the conversion itself is what rejects
-  a malformed one.
+  A field the lexicon does not declare is ignored, not refused. The
+  specification says unexpected fields in otherwise conforming data should be
+  treated at worst as warnings, and a record type a newer lexicon added a field
+  to has to keep validating against the copy this server holds.
 
-  A `ref` that cannot be resolved, and any node underneath one, is skipped
-  rather than failed. A broken cross-reference in someone's lexicon should not
-  make their server refuse every write.
+  A string's `maxLength` is counted in UTF-8 bytes, which is the unit the
+  specification uses, so the check is `byte_size/1` and a value already over it
+  is refused without the grapheme segmenter running at all. `maxGraphemes` is
+  the separate rule for what a reader sees.
+
+  `bytes`, `cid-link`, `blob` and `token` are accepted on their shape rather
+  than parsed: a `$link` that is not a CID and a `$bytes` that is not base64 are
+  turned away by `Pesque.Lexicon.from_json/1`, which is what turns a record into
+  what the encoder accepts. What the lexicon *states* about them is checked here
+  anyway, because a bound nobody enforces is not a bound: `bytes` against
+  `maxLength`, `blob` against `maxSize` and `accept`. A blob's `size` is the
+  client's own claim about bytes this server cannot see from the record, so that
+  check verifies the claim rather than the blob; the authoritative size is
+  enforced where the bytes are read, in `uploadBlob`.
+
+  A `ref` or a union member that cannot be resolved, and any node underneath
+  one, is skipped rather than failed. A broken cross-reference in someone's
+  lexicon should not make their server refuse every write.
   """
 
   alias Pesque.Grapheme
@@ -42,18 +56,21 @@ defmodule Pesque.Lexicon.Validate do
   defp result([]), do: :ok
   defp result(errors), do: {:error, errors}
 
+  # Only the declared properties are looked at. The lexicon says nothing about
+  # whether an object tolerates a field it does not name, and the answer the
+  # specification gives is to ignore one: a record type a newer lexicon added a
+  # field to has to keep validating against the older copy held here, or every
+  # client on the newer lexicon gets a 400.
   defp errors(%{"type" => "object"} = schema, value, path) when is_map(value) do
-    properties = Map.get(schema, "properties", %{})
-
-    open? = Map.has_key?(schema, "required")
+    properties = Map.get(schema, "properties", {})
+    nullable = nullable(schema)
 
     Enum.flat_map(schema["required"] || [], fn field ->
       if Map.has_key?(value, field) and not is_nil(value[field]),
         do: [],
         else: [{path ++ [field], :required}]
     end) ++
-      errors_in(value, properties, path) ++
-      if(open?, do: [], else: unknown_fields(value, properties, path))
+      errors_in(value, properties, path, nullable)
   end
 
   defp errors(%{"type" => "object"}, _value, path), do: [{path, :expected_object}]
@@ -68,8 +85,7 @@ defmodule Pesque.Lexicon.Validate do
     format_errors(schema["format"], value, path) ++
       const_errors(schema["const"], value, path) ++
       enum_errors(schema["enum"], value, path) ++
-      length_errors(schema, value, path) ++
-      grapheme_errors(schema["maxGraphemes"], value, path)
+      string_length_errors(schema, value, path)
   end
 
   defp errors(%{"type" => "string"}, _value, path), do: [{path, :expected_string}]
@@ -96,9 +112,18 @@ defmodule Pesque.Lexicon.Validate do
   defp errors(%{"type" => "boolean"}, _value, path), do: [{path, :expected_boolean}]
   defp errors(%{"type" => "unknown"}, _value, _path), do: []
 
-  # A union is closed: the $type has to name one of the refs. That is the rule
-  # the protocol relies on for polymorphic fields, so a $type nobody declared
-  # is a rejected record rather than a stored one an AppView cannot read.
+  # The $type names which member of the union the value is, and the value is
+  # checked against that member's schema, which the registry resolved and
+  # attached under "variants". Without it a union body went unchecked: the $type
+  # was a bare NSID nothing here could look up, and every field under it was
+  # accepted.
+  #
+  # A member this server holds no schema for is accepted on its name alone,
+  # which is the same degradation an unresolvable ref gets anywhere else.
+  #
+  # A union is open unless it says closed: the spec has implementations stay
+  # permissive in case they do not have the most recent lexicon, and a "$type"
+  # that no ref names is a shape a future lexicon may have added.
   defp errors(%{"type" => "union"} = schema, value, path) when is_map(value) do
     allowed = [schema["ref"] | Map.get(schema, "refs", [])] |> Enum.reject(&is_nil/1)
 
@@ -107,14 +132,15 @@ defmodule Pesque.Lexicon.Validate do
         [{path, :missing_type}]
 
       type ->
-        # #name is a reference within this same document and resolves against
-        # the defs here; a bare NSID needs the registry, which this function
-        # deliberately does not have. So a local ref is followed and a foreign
-        # one is accepted on its name alone.
+        # #name is a reference within this same document, so it resolves against
+        # the defs attached here; a bare NSID needs the registry, which this
+        # function deliberately does not have, so it is looked up in the
+        # variants the registry attached and taken on its name when it is not
+        # there.
         case resolve(schema, allowed, type) do
           {:ok, target} -> errors(target, value, path)
           :foreign -> []
-          :unknown -> [{path, :unknown_type}]
+          :unknown -> if(schema["closed"] == true, do: [{path, :unknown_type}], else: [])
         end
     end
   end
@@ -123,18 +149,52 @@ defmodule Pesque.Lexicon.Validate do
 
   defp errors(%{"type" => "ref"}, _value, _path), do: []
 
-  # Accepted for what it is: from_json/1 has already parsed the CID or decoded
-  # the bytes, and a value that failed to parse never got this far.
-  defp errors(%{"type" => type}, _value, _path)
-       when type in ["bytes", "cid-link", "blob", "token"],
-       do: []
+  # What the lexicon states about bytes is a length, and it is measurable: the
+  # value is either a decoded binary or the base64 the client sent. Skipping the
+  # bound would let a value of any size through on the strength of the lexicon
+  # asking for one.
+  defp errors(%{"type" => "bytes"} = schema, value, path) when is_binary(value),
+    do: bounds(schema, path, byte_size(value))
+
+  defp errors(%{"type" => "bytes"} = schema, value, path) when is_map(value) do
+    # A record reaches this module before from_json/1 has run, so a $bytes here
+    # is still the base64 the client sent. The bound is in bytes, so it is
+    # measured on what that decodes to rather than on the encoding of it.
+    with false <- is_struct(value),
+         {:ok, b64} when is_binary(b64) <- Map.fetch(value, "$bytes"),
+         {:ok, data} <- Base.decode64(b64) do
+      bounds(schema, path, byte_size(data))
+    else
+      _ -> []
+    end
+  end
+
+  defp errors(%{"type" => "bytes"}, _value, _path), do: []
+
+  # A blob's size is the number the client declared alongside its ref, which is
+  # the only size this record carries: the bytes themselves went to uploadBlob
+  # and are not here to measure. So this checks the claim against what the
+  # lexicon allows, and uploadBlob is where the real size is enforced.
+  defp errors(%{"type" => "blob"} = schema, value, path) when is_map(value) do
+    # A struct is a map to is_map/1 but not to [], and a blob already parsed into
+    # one carries no size or mimeType to check.
+    if is_struct(value) do
+      []
+    else
+      blob_size_errors(schema["maxSize"], value["size"], path) ++
+        accept_errors(schema["accept"], value["mimeType"], path)
+    end
+  end
+
+  defp errors(%{"type" => "blob"}, _value, _path), do: []
+
+  # cid-link and token state no bound the lexicon gives this module a way to
+  # check, so they are accepted for what they are.
+  defp errors(%{"type" => type}, _value, _path) when type in ["cid-link", "token"], do: []
 
   defp errors(_def, _value, path), do: [{path, :unrecognized_definition}]
 
-  # The declared properties are always checked. Whether the *undeclared* ones
-  # are refused is decided by the caller's `required` clause, because that is
-  # the only signal a lexicon gives: an object listing required fields is open
-  # and tolerates a field a newer lexicon added, one listing none is closed.
+  # The declared items are always checked.
   defp item_errors(nil, _value, _path), do: []
 
   defp item_errors(items, value, path) do
@@ -143,28 +203,33 @@ defmodule Pesque.Lexicon.Validate do
     |> Enum.flat_map(fn {element, index} -> errors(items, element, path ++ [index]) end)
   end
 
-  defp errors_in(value, properties, path) do
+  # The spec models nullable as an array of property names on the object, and has
+  # no boolean form of it. Anything else a lexicon puts under the key is not a
+  # list of names, and a schema this module cannot read is not one it should
+  # crash a write over.
+  defp nullable(schema) do
+    case Map.get(schema, "nullable") do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  # A null on a field the object lists as nullable is a legal value, so it is
+  # left alone rather than handed to the type check that would refuse it. The
+  # same null on any other field is handed over as before.
+  defp errors_in(value, properties, path, nullable) do
     Enum.flat_map(properties, fn {key, schema} ->
       case Map.fetch(value, key) do
+        {:ok, nil} -> if(key in nullable, do: [], else: errors(schema, nil, path ++ [key]))
         {:ok, nested} -> errors(schema, nested, path ++ [key])
         :error -> []
       end
     end)
   end
 
-  defp unknown_fields(value, properties, path) do
-    value
-    |> Map.keys()
-    |> Enum.reject(&Map.has_key?(properties, &1))
-    |> Enum.sort()
-    |> Enum.map(&{path ++ [&1], :unknown_field})
-  end
-
-  # A ref names either a whole lexicon or a "#def" inside one. Either way it
-  # has to be listed: the value's $type is compared against the refs this
-  # union declared, with the NSID before the "#" being what matters, so
-  # app.bsky.richtext.facet#link matches a ref of app.bsky.richtext.facet and a
-  # bare #link matches only a "#link" in refs.
+  # The value's $type is compared against the refs this union declared, so a $type
+  # naming none of them is not a member at all. What happens then depends on the
+  # union: a closed one refuses it, an open one has nothing to check it against.
   defp resolve(schema, allowed, type) do
     {target, fragment} =
       case String.split(type, "#", parts: 2) do
@@ -174,8 +239,15 @@ defmodule Pesque.Lexicon.Validate do
       end
 
     cond do
+      # The whole string first, fragment included. A ref a lexicon declares as
+      # "com.atproto.label.defs#selfLabels" is matched by a value whose $type is
+      # that exact string, and splitting first would look for the fragment in
+      # the wrong document's defs.
+      type in allowed ->
+        variant(schema, type, fragment)
+
       target == "" ->
-        if type in allowed, do: local_def(schema, fragment), else: :unknown
+        :unknown
 
       # A $type that names an NSID with a fragment matches a ref carrying that
       # same NSID, since that is what the lexicon declaring the ref meant: a
@@ -183,23 +255,34 @@ defmodule Pesque.Lexicon.Validate do
       # app.bsky.richtext.facet#link. Matching only the whole string would
       # refuse every one of those.
       is_nil(fragment) ->
-        if target in allowed, do: :foreign, else: :unknown
+        if target in allowed, do: variant(schema, target, nil), else: :unknown
 
       target in allowed ->
-        local_def(schema, fragment)
+        variant(schema, target, fragment)
 
       ("#" <> fragment) in allowed ->
-        local_def(schema, fragment)
+        variant(schema, "#" <> fragment, fragment)
 
       true ->
         :unknown
     end
   end
 
-  # A local ref is followed so its properties get checked. One that names a def
-  # this document does not have is treated as foreign rather than unknown: it
-  # is still inside a declared ref, and refusing it would fail records against
-  # the repository's own schema.
+  # The schema the registry resolved this ref to, keyed by the ref as the
+  # lexicon wrote it. A node that came from anywhere else (a lexicon this server
+  # does not hold, or a hand-written test schema) has none, so the defs attached
+  # to the node are the fallback.
+  defp variant(schema, ref, fragment) do
+    case Map.get(Map.get(schema, "variants", %{}), ref) do
+      nil -> local_def(schema, fragment)
+      target -> {:ok, target}
+    end
+  end
+
+  # The def attached to the node, for a schema that arrived without resolved
+  # variants behind it. One naming a def this document does not have is treated
+  # as foreign rather than unknown: it is still inside a declared ref, and
+  # refusing it would fail records against the repository's own schema.
   defp local_def(schema, fragment) do
     case Map.get(Map.get(schema, "defs", %{}), fragment) do
       nil -> :foreign
@@ -207,12 +290,22 @@ defmodule Pesque.Lexicon.Validate do
     end
   end
 
-  # Split by what length means: a string is measured in codepoints and an
-  # array in elements. A single guard using length/1 cannot, because that guard
-  # is only allowed on lists and silently fails on a binary, so a maxLength on
-  # a string would never fire.
-  defp length_errors(schema, value, path) when is_binary(value) do
-    bounds(schema, path, String.length(value))
+  # Split by what length means: a string is measured in UTF-8 bytes and an array
+  # in elements. A single guard using length/1 cannot, because that guard is
+  # only allowed on lists and silently fails on a binary, so a maxLength on a
+  # string would never fire.
+  #
+  # The byte count is the spec's unit and the only one of the three that is
+  # O(1). An over-long value is refused on it before the grapheme segmenter
+  # runs, which matters because that segmenter costs about a second on a
+  # multi-megabyte body and the body cap is 8MB: without the short circuit an
+  # oversized post was segmented in full inside the writer process only to be
+  # turned away.
+  defp string_length_errors(schema, value, path) do
+    case bounds(schema, path, byte_size(value)) do
+      [{_, :too_long}] = too_long -> too_long
+      size_errors -> size_errors ++ grapheme_errors(schema["maxGraphemes"], value, path)
+    end
   end
 
   defp length_errors(schema, value, path) when is_list(value) do
@@ -231,6 +324,48 @@ defmodule Pesque.Lexicon.Validate do
         _ -> []
       end
   end
+
+  # A blob declares its size as an integer, so a size that is not one cannot be
+  # compared and is not this check's business to rule on.
+  defp blob_size_errors(nil, _size, _path), do: []
+
+  defp blob_size_errors(max, size, path) when is_integer(size) and size > max,
+    do: [{path, :too_large}]
+
+  defp blob_size_errors(_max, _size, _path), do: []
+
+  # accept is a list of mime patterns where "*" stands for any part of the
+  # type/subtype pair, which is how a lexicon says "any image".
+  defp accept_errors(nil, _mime, _path), do: []
+
+  defp accept_errors(accepted, mime, path) when is_binary(mime) do
+    if Enum.any?(List.wrap(accepted), &accepts?(&1, mime)),
+      do: [],
+      else: [{path, :bad_mime_type}]
+  end
+
+  defp accept_errors(_accepted, _mime, _path), do: []
+
+  defp accepts?(pattern, mime) when is_binary(pattern) do
+    cond do
+      pattern == "*/*" ->
+        true
+
+      pattern == "*" ->
+        String.contains?(mime, "/")
+
+      String.ends_with?(pattern, "/*") ->
+        String.starts_with?(mime, String.trim_trailing(pattern, "*"))
+
+      String.starts_with?(pattern, "*/") ->
+        String.ends_with?(mime, String.trim_leading(pattern, "*"))
+
+      true ->
+        pattern == mime
+    end
+  end
+
+  defp accepts?(_pattern, _mime), do: false
 
   # maxGraphemes counts what a reader sees, not code points or bytes: a family
   # emoji is one character however many scalars it is made of, and a limit

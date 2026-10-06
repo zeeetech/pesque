@@ -151,6 +151,13 @@ defmodule PesqueWeb.AuthorizationTest do
 
   # Non-enumerability is why both answer with the same thing: a token holder
   # must not be able to ask which DIDs this server hosts.
+  #
+  # The rate limit's own budget headers are excluded from the comparison, and
+  # the exclusion is not a hole. They count the requests *this caller* has made
+  # in the window, keyed on the caller's own DID, so the second of two calls
+  # reads one lower whatever the target repo is. They answer "how much of your
+  # budget is left", not "does this repo exist", which is the only question
+  # this test is asking. Everything else has to be byte-identical.
   test "a repo that exists but is not yours is indistinguishable from one that does not", ctx do
     seed(ctx.bob, ctx.bob_token)
 
@@ -158,14 +165,14 @@ defmodule PesqueWeb.AuthorizationTest do
     missing = create_record(ghost_did(), ctx.alice_token)
 
     assert existing.status == missing.status
-    assert existing.resp_headers == missing.resp_headers
+    assert stable_headers(existing) == stable_headers(missing)
     assert existing.resp_body == missing.resp_body
 
     taken = create_record(ctx.bob.handle, ctx.alice_token)
     free = create_record(ghost_handle(), ctx.alice_token)
 
     assert taken.status == free.status
-    assert taken.resp_headers == free.resp_headers
+    assert stable_headers(taken) == stable_headers(free)
     assert taken.resp_body == free.resp_body
   end
 
@@ -414,6 +421,13 @@ defmodule PesqueWeb.AuthorizationTest do
   end
 
   defp ghost_did, do: Did.did_for_username(:path_multi, host(), unique("ghost"))
+
+  defp stable_headers(conn) do
+    Enum.reject(conn.resp_headers, fn {name, _} ->
+      name in ["ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"]
+    end)
+  end
+
   defp ghost_handle, do: unique("ghost") <> ".localhost"
 
   defp published(doc) do

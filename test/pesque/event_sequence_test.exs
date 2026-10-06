@@ -47,6 +47,31 @@ defmodule Pesque.EventSequenceTest do
     end
   end
 
+  # A seq is a cursor a consumer holds, so an emptied log must not hand the
+  # numbers back: the mark lives in meta, and retention only ever deletes rows.
+  # Reusing 1 here would disconnect every consumer sitting at a high cursor as
+  # a future one, silently and for good.
+  test "the sequence keeps moving after retention empties the log", %{carol: carol} do
+    pid_carol = start_repo(carol)
+
+    {:ok, _} = RepoServer.create_record(pid_carol, "app.bsky.feed.post", "1", post("1"))
+    {:ok, _} = RepoServer.create_record(pid_carol, "app.bsky.feed.post", "2", post("2"))
+
+    highest = RepoStore.max_seq()
+    count = Repo.aggregate(Event, :count)
+
+    # A second past now, because rows carry a second-resolution timestamp.
+    assert RepoStore.delete_events_before(DateTime.add(DateTime.utc_now(), 1, :second)) == count
+
+    assert RepoStore.max_seq() == 0
+    assert Repo.aggregate(Event, :count) == 0
+
+    {:ok, _} = RepoServer.create_record(pid_carol, "app.bsky.feed.post", "3", post("3"))
+
+    assert RepoStore.max_seq() > highest
+    assert events(0) == [RepoStore.max_seq()]
+  end
+
   defp repo(name) do
     suffix = Base.url_encode64(:crypto.strong_rand_bytes(8), padding: false)
     did = "did:web:localhost:user:" <> name <> suffix

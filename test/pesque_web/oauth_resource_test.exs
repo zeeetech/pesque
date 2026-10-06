@@ -24,6 +24,17 @@ defmodule PesqueWeb.OAuthResourceTest do
 
   setup do
     user = create_account("alice")
+
+    # Several tests here use createInviteCodes as the vehicle for an :account
+    # route, because it is the one that transition:generic deliberately does
+    # not reach. That makes it the operator's endpoint now, so this account is
+    # named as the operator. What these tests assert is the auth plug, which
+    # runs first and halts on its own: a 403 InsufficientScope is still decided
+    # before the admin plug is ever reached, and a 200 still means the scope and
+    # the proof were both accepted.
+    Application.put_env(:pesque, :admin_dids, [user.did])
+    on_exit(fn -> Application.delete_env(:pesque, :admin_dids) end)
+
     key = Client.dpop_key()
     granted = Client.tokens_for(user, key)
     body = Client.json(granted.token_conn)

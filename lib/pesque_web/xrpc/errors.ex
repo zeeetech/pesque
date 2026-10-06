@@ -134,6 +134,12 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:unwritable), do: {500, "InternalServerError", "blob could not be written to disk"}
   def to_xrpc(:not_found), do: {400, "BlobNotFound", "no blob at that CID for this repo"}
 
+  # SQLite has one writer, so a commit that loses the race for the write lock is
+  # a retry, not a failure. 503 is what tells a client to come back rather than
+  # treat the write as lost; the commit either happened or it did not, and
+  # neither answer is knowable from here.
+  def to_xrpc(:busy), do: {503, "InternalServerError", "the repo is busy, retry the request"}
+
   # The authentication plug. A rejected token, a missing or wrong DPoP proof
   # and a scope that does not reach the route are three different answers,
   # because a client can act on all three differently: get a new token, send

@@ -15,12 +15,10 @@ defmodule Pesque.Record do
   which is why it is a parameter and not a setting on the server.
 
   The record goes out with `$type` filled in when the client left it out, since
-  the type is the collection and the collection is the type. Filling it in
-  after validation rather than before is deliberate: no vendored record lexicon
-  declares `$type` as a property, and `app.bsky.actor.profile` is the one
-  record with no `required`, which is the closed case, so a `$type` sitting in
-  the value is an undeclared field on exactly the record type every client is
-  required to send one.
+  the type is the collection and the collection is the type. A client that sent
+  `"$type": null` is refused instead: the spec says a record object always
+  carries its type, and a null one gives a consumer off the firehose nothing to
+  dispatch on and can never be validated by anything.
   """
 
   alias Pesque.Lexicon.Registry
@@ -38,23 +36,37 @@ defmodule Pesque.Record do
     if Keyword.get(opts, :validate, true) do
       verify(collection, record)
     else
-      {:ok, Map.put_new(record, "$type", collection)}
+      {:ok, Map.put(record, "$type", collection)}
     end
   end
 
+  # Absent and null are different answers, so they are looked up separately.
+  # Absent means the client left the type to the collection it is writing to;
+  # null means the client sent a type that is not one.
   defp verify(collection, record) do
-    cond do
-      record["$type"] not in [nil, collection] ->
-        {:error, {:type_mismatch, record["$type"], collection}}
+    case Map.fetch(record, "$type") do
+      {:ok, nil} ->
+        {:error, {:invalid_record, [{["$type"], :missing_type}]}}
 
-      is_map(schema = Registry.record(collection)) ->
-        case Validate.validate(schema, Map.delete(record, "$type")) do
-          :ok -> {:ok, Map.put_new(record, "$type", collection)}
-          {:error, errors} -> {:error, {:invalid_record, errors}}
-        end
+      {:ok, type} when type != collection ->
+        {:error, {:type_mismatch, type, collection}}
 
-      true ->
-        {:error, :unknown_collection}
+      _ ->
+        check_fields(collection, record)
+    end
+  end
+
+  defp check_fields(collection, record) do
+    if is_map(schema = Registry.record(collection)) do
+      # The record is checked as it was submitted, $type and all: the validator
+      # ignores a field the lexicon does not declare, which is what the spec
+      # says to do with one, so there is no reason to hide the type from it.
+      case Validate.validate(schema, record) do
+        :ok -> {:ok, Map.put(record, "$type", collection)}
+        {:error, errors} -> {:error, {:invalid_record, errors}}
+      end
+    else
+      {:error, :unknown_collection}
     end
   end
 end

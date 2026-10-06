@@ -19,7 +19,25 @@ defmodule PesqueWeb.InviteCodeTest do
     put_registration(:closed)
     alice = create_account("alice")
 
+    # Minting a code is the operator's call and the plug holds the line, so
+    # these tests have to be the operator. The suite runs :path_multi, where
+    # there is no server identity to hold a session, so the operator is named
+    # the way that topology names one.
+    Application.put_env(:pesque, :admin_dids, [alice.did])
+    on_exit(fn -> Application.delete_env(:pesque, :admin_dids) end)
+
     %{alice: alice, token: token(alice)}
+  end
+
+  # The gate is the point of the endpoint, so it gets its own test rather than
+  # being only implied by every other test in this file passing.
+  test "createInviteCodes refuses an account that is not the operator", _ctx do
+    mallory = create_account("mallory")
+
+    conn = xrpc_post(@path, %{"codeCount" => 1, "useCount" => 1}, token(mallory))
+
+    assert conn.status == 403
+    assert Repo.aggregate(InviteCode, :count) == 0
   end
 
   test "createInviteCodes needs a token", ctx do

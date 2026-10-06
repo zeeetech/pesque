@@ -14,11 +14,49 @@ defmodule Pesque.Lexicon.ValidateTest do
       assert :ok = Validate.validate(schema, %{"text" => "hi", "futureField" => 1})
     end
 
-    test "a closed object refuses a field it does not declare" do
+    # A field the lexicon does not declare is ignored rather than refused. The
+    # specification classes an unexpected field as at worst a warning, and a
+    # record type a newer lexicon added a field to has to keep validating
+    # against the older copy held here. The cost is that a client-side typo in
+    # a field name is stored unread rather than turned away.
+    test "a field the object does not declare is ignored" do
       schema = %{"type" => "object", "properties" => %{"text" => %{"type" => "string"}}}
 
-      assert {:error, [{["extra"], :unknown_field}]} =
-               Validate.validate(schema, %{"text" => "hi", "extra" => 1})
+      assert :ok = Validate.validate(schema, %{"text" => "hi", "extra" => 1, "typo" => nil})
+    end
+
+    test "a declared field is still checked on an object with no required" do
+      schema = %{"type" => "object", "properties" => %{"text" => %{"type" => "string"}}}
+
+      assert {:error, [{["text"], :expected_string}]} = Validate.validate(schema, %{"text" => 1})
+    end
+
+    # nullable is a list of property names on the object, not a flag on the
+    # property: the spec has no boolean form of it. A null there is a legal
+    # value, and a null anywhere else is still handed to the type check.
+    test "a nullable property takes null and a property outside the list does not" do
+      schema =
+        object(
+          %{
+            "note" => %{"type" => "string"},
+            "count" => %{"type" => "integer"},
+            "tag" => %{"type" => "string"}
+          },
+          []
+        )
+        |> Map.put("nullable", ["note", "count"])
+
+      assert :ok = Validate.validate(schema, %{"note" => nil, "count" => nil, "tag" => "x"})
+      assert :ok = Validate.validate(schema, %{"note" => "hi", "count" => 1})
+      assert {:error, [{["tag"], :expected_string}]} = Validate.validate(schema, %{"tag" => nil})
+    end
+
+    test "a nullable property that is absent is still absent, not an error" do
+      schema =
+        object(%{"note" => %{"type" => "string"}}, [])
+        |> Map.put("nullable", ["note"])
+
+      assert :ok = Validate.validate(schema, %{})
     end
 
     test "a required field that is missing or nil is refused" do
@@ -42,11 +80,11 @@ defmodule Pesque.Lexicon.ValidateTest do
                Validate.validate(schema, %{"embed" => %{}})
     end
 
-    # A closed object with nothing to check is only reachable by a record
-    # lexicon whose schema is empty, so what matters is that it does not crash
-    # and does not invent a rule. The $type requirement belongs to unions, which
-    # is tested there.
-    test "a closed object with no properties accepts anything" do
+    # An object with no properties is only reachable by a record lexicon whose
+    # schema is empty, so what matters is that it does not crash and does not
+    # invent a rule. The $type requirement belongs to unions, which is tested
+    # there.
+    test "an object with no properties accepts anything" do
       assert :ok = Validate.validate(%{"type" => "object", "properties" => %{}}, %{})
     end
 
@@ -73,11 +111,32 @@ defmodule Pesque.Lexicon.ValidateTest do
   end
 
   describe "strings" do
-    test "maxLength counts codepoints" do
+    # The spec counts maxLength in UTF-8 bytes, so a value made of two byte
+    # characters is over a limit of three even though a reader sees four
+    # characters and String.length/1 reports four.
+    test "maxLength counts UTF-8 bytes" do
       schema = %{"type" => "string", "maxLength" => 3}
 
       assert :ok = Validate.validate(schema, "abc")
       assert {:error, [{[], :too_long}]} = Validate.validate(schema, "abcd")
+
+      # Two bytes per character: four characters is eight bytes.
+      two_byte = String.duplicate("é", 4)
+      assert byte_size(two_byte) == 8
+      assert String.length(two_byte) == 4
+      assert {:error, [{[], :too_long}]} = Validate.validate(schema, two_byte)
+
+      # And the other way round: a four byte emoji fits under a limit of four.
+      assert :ok = Validate.validate(%{"type" => "string", "maxLength" => 4}, <<0x1F600::utf8>>)
+      assert {:error, [{[], :too_long}]} = Validate.validate(schema, <<0x1F600::utf8>>)
+    end
+
+    # The byte bound is decided first, so an oversized value is refused without
+    # the grapheme segmenter walking it.
+    test "an over-long string is refused without also being counted in graphemes" do
+      schema = %{"type" => "string", "maxLength" => 2, "maxGraphemes" => 1}
+
+      assert {:error, [{[], :too_long}]} = Validate.validate(schema, "abcdef")
     end
 
     # The reason the repo carries its own grapheme segmenter: a limit written
@@ -229,16 +288,21 @@ defmodule Pesque.Lexicon.ValidateTest do
       value = %{"ref" => %{"$type" => "#main"}}
       assert :ok = Validate.validate(schema, value)
 
-      # A $type naming no ref at all is refused: that is the union being closed,
-      # and it is what stops an AppView receiving a shape it cannot render.
+      # A $type naming no ref at all is refused once the union says closed,
+      # which is what stops an AppView receiving a shape it cannot render.
+      closed =
+        object(%{"ref" => %{"type" => "union", "closed" => true, "refs" => ["#main"]}})
+
       bad = %{"ref" => %{"$type" => "#missing"}}
-      assert {:error, [{["ref"], :unknown_type}]} = Validate.validate(schema, bad)
+      assert {:error, [{["ref"], :unknown_type}]} = Validate.validate(closed, bad)
 
       # A ref carrying a #def suffix matches on the part before it.
       def2 = %{
         "type" => "object",
         "defs" => %{"link" => %{"type" => "object", "required" => ["uri"], "properties" => %{}}},
-        "properties" => %{"ref" => %{"type" => "union", "refs" => ["app.bsky.richtext.facet"]}}
+        "properties" => %{
+          "ref" => %{"type" => "union", "closed" => true, "refs" => ["app.bsky.richtext.facet"]}
+        }
       }
 
       assert :ok =
@@ -248,13 +312,70 @@ defmodule Pesque.Lexicon.ValidateTest do
                Validate.validate(def2, %{"ref" => %{"$type" => "app.bsky.other.thing"}})
     end
 
-    test "a foreign ref is accepted on its name, since the registry is not read here" do
+    # A union is open unless it opts in, because the spec has implementations
+    # stay permissive in case they do not have the most recent lexicon. A union
+    # with no refs and closed false is the "similar to unknown" case: all it
+    # asks of a value is a $type.
+    test "an open union takes a $type it does not list and a closed one does not" do
+      open = object(%{"ref" => %{"type" => "union", "refs" => []}})
+      closed = object(%{"ref" => %{"type" => "union", "closed" => true, "refs" => ["#main"]}})
+
+      assert :ok = Validate.validate(open, %{"ref" => %{"$type" => "com.example.future"}})
+
+      assert :ok =
+               Validate.validate(open, %{"ref" => %{"$type" => "com.example.future", "x" => 1}})
+
+      assert {:error, [{["ref"], :unknown_type}]} =
+               Validate.validate(closed, %{"ref" => %{"$type" => "com.example.future"}})
+
+      # The $type requirement holds either way: it is what a consumer
+      # dispatches on, open or closed.
+      assert {:error, [{["ref"], :missing_type}]} = Validate.validate(open, %{"ref" => %{}})
+      assert {:error, [{["ref"], :missing_type}]} = Validate.validate(closed, %{"ref" => %{}})
+    end
+
+    # The member schema comes from the registry, keyed by the ref as the
+    # lexicon wrote it. Without it a union body was unchecked: the $type named
+    # an NSID and there was nothing to check the fields against.
+    test "a member is checked against the schema the registry resolved for it" do
       schema = %{
-        "type" => "object",
-        "properties" => %{"ref" => %{"type" => "union", "refs" => ["app.bsky.richtext.facet"]}}
+        "type" => "union",
+        "refs" => ["app.bsky.embed.images"],
+        "variants" => %{
+          "app.bsky.embed.images" => %{
+            "type" => "object",
+            "required" => ["images"],
+            "properties" => %{"images" => %{"type" => "array", "items" => %{"type" => "string"}}}
+          }
+        }
       }
 
-      assert :ok = Validate.validate(schema, %{"ref" => %{"$type" => "app.bsky.richtext.facet"}})
+      assert :ok =
+               Validate.validate(schema, %{
+                 "$type" => "app.bsky.embed.images",
+                 "images" => ["a"]
+               })
+
+      assert {:error, [{["images"], :expected_array}]} =
+               Validate.validate(schema, %{"$type" => "app.bsky.embed.images", "images" => "nope"})
+
+      assert {:error, [{["images"], :required}]} =
+               Validate.validate(schema, %{"$type" => "app.bsky.embed.images"})
+
+      assert {:error, [{["images", 0], :expected_string}]} =
+               Validate.validate(schema, %{"$type" => "app.bsky.embed.images", "images" => [1]})
+    end
+
+    # A member this server holds no schema for is accepted on its name, which is
+    # the same degradation an unresolvable ref gets anywhere else: a lexicon
+    # referring to something absent must not refuse writes.
+    test "a member with no resolved schema is accepted on its name" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{"ref" => %{"type" => "union", "refs" => ["com.nope.thing"]}}
+      }
+
+      assert :ok = Validate.validate(schema, %{"ref" => %{"$type" => "com.nope.thing"}})
     end
 
     test "a union without a $type is refused" do
@@ -274,11 +395,54 @@ defmodule Pesque.Lexicon.ValidateTest do
       assert :ok = Validate.validate(%{"type" => "ref", "ref" => "com.nope.thing"}, "anything")
     end
 
-    test "bytes, cid-link, blob, token and unknown accept their parsed form" do
-      for type <- ~w(bytes cid-link blob token unknown) do
+    test "cid-link, token and unknown accept their parsed form" do
+      for type <- ~w(cid-link token unknown) do
         assert :ok = Validate.validate(%{"type" => type}, "whatever")
         assert :ok = Validate.validate(%{"type" => type}, %Pesque.CID{})
       end
+    end
+
+    # $bytes arrives already decoded, so the length the lexicon states is
+    # measurable rather than skipped.
+    test "bytes is checked against maxLength" do
+      schema = %{"type" => "bytes", "maxLength" => 4}
+
+      assert :ok = Validate.validate(schema, "abcd")
+      assert {:error, [{[], :too_long}]} = Validate.validate(schema, String.duplicate("a", 5))
+
+      # And the raw form, which is what a record actually carries at validate
+      # time, is measured on what it decodes to rather than on the base64.
+      assert {:error, [{[], :too_long}]} =
+               Validate.validate(schema, %{"$bytes" => Base.encode64(String.duplicate("a", 5))})
+
+      assert :ok =
+               Validate.validate(schema, %{"$bytes" => Base.encode64("abcd")})
+    end
+
+    # The size on a blob is the client's own claim: the bytes went to
+    # uploadBlob and are not in the record to be measured. So this checks the
+    # claim against what the lexicon allows, and uploadBlob is where the real
+    # size is enforced.
+    test "a blob is checked against maxSize and accept" do
+      schema = %{"type" => "blob", "maxSize" => 10, "accept" => ["image/*"]}
+
+      assert :ok = Validate.validate(schema, %{"size" => 10, "mimeType" => "image/jpeg"})
+
+      assert {:error, [{[], :too_large}]} =
+               Validate.validate(schema, %{"size" => 999_999_999, "mimeType" => "image/jpeg"})
+
+      assert {:error, [{[], :bad_mime_type}]} =
+               Validate.validate(schema, %{"size" => 1, "mimeType" => "text/html"})
+
+      # An exact type and a wildcard subtype are both accepted, and a schema
+      # stating no accept takes whatever mimeType arrives.
+      exact = %{"type" => "blob", "accept" => ["image/png"]}
+      assert :ok = Validate.validate(exact, %{"mimeType" => "image/png"})
+
+      assert {:error, [{[], :bad_mime_type}]} =
+               Validate.validate(exact, %{"mimeType" => "image/jpeg"})
+
+      assert :ok = Validate.validate(%{"type" => "blob"}, %{"mimeType" => "text/html"})
     end
 
     test "boolean accepts both and refuses the rest" do
@@ -413,6 +577,160 @@ defmodule Pesque.Lexicon.ValidateTest do
              ] = errors
 
       errors
+    end
+
+    # The union body used to be unchecked: the $type named an NSID the validator
+    # had no schema for, so every field under it was accepted. The lexicon
+    # author and the submitter are independent parties, so this is the shape a
+    # client sends to store whatever it likes under a post.
+    test "a union body is checked against the member schema the registry resolved" do
+      schema = Registry.record("app.bsky.feed.post")
+
+      base = %{"text" => "hi", "createdAt" => "1985-04-12T23:20:50.123Z"}
+
+      assert {:error, [{["embed", "images"], :expected_array}]} =
+               Validate.validate(
+                 schema,
+                 Map.put(base, "embed", %{
+                   "$type" => "app.bsky.embed.images",
+                   "images" => "not an array at all"
+                 })
+               )
+
+      # images is required by the real embed lexicon, so an embed that names the
+      # type and carries nothing else is refused too.
+      assert {:error, [{["embed", "images"], :required}]} =
+               Validate.validate(
+                 schema,
+                 Map.put(base, "embed", %{"$type" => "app.bsky.embed.images"})
+               )
+
+      # And the labels union, which names a def of another lexicon: its values
+      # array is required and its elements carry val.
+      assert {:error, [{["labels", "values"], :expected_array}]} =
+               Validate.validate(
+                 schema,
+                 Map.put(base, "labels", %{
+                   "$type" => "com.atproto.label.defs#selfLabels",
+                   "values" => %{"nope" => true}
+                 })
+               )
+    end
+
+    # A content warning is what the labels union is for, and it is a ref
+    # carrying a fragment of someone else's lexicon: the declared ref is
+    # "com.atproto.label.defs#selfLabels" and the value's $type is that same
+    # string. Matching only the NSID before the "#" refused every one of them.
+    test "a self-label round trips through the post lexicon" do
+      schema = Registry.record("app.bsky.feed.post")
+
+      post = %{
+        "$type" => "app.bsky.feed.post",
+        "text" => "hello",
+        "createdAt" => "1985-04-12T23:20:50.123Z",
+        "labels" => %{
+          "$type" => "com.atproto.label.defs#selfLabels",
+          "values" => [%{"val" => "!warn"}, %{"val" => "!hide"}]
+        }
+      }
+
+      assert :ok = Validate.validate(schema, post)
+
+      # And it is still checked: val is required on each label.
+      assert {:error, [{["labels", "values", 0, "val"], :required}]} =
+               Validate.validate(
+                 schema,
+                 put_in(post, ["labels", "values"], [%{}])
+               )
+
+      # And the ten-label cap the lexicon states is enforced.
+      assert {:error, [{["labels", "values"], :too_long}]} =
+               Validate.validate(
+                 schema,
+                 put_in(post, ["labels", "values"], List.duplicate(%{"val" => "!warn"}, 11))
+               )
+    end
+
+    # The text the real post lexicon declares: 3000 bytes and 300 graphemes,
+    # which are two different units and both have to hold.
+    test "a post text over the byte cap is refused even when the grapheme count is fine" do
+      schema = Registry.record("app.bsky.feed.post")
+
+      base = %{"createdAt" => "1985-04-12T23:20:50.123Z"}
+
+      # 300 graphemes, 6,000,300 bytes: String.length/1 reports one number for
+      # all three units and byte_size/1 is the one the spec asks for.
+      text = String.duplicate("a" <> String.duplicate(<<0x0301::utf8>>, 10_000), 300)
+      assert byte_size(text) > 3000
+
+      assert {:error, [{["text"], :too_long}]} =
+               Validate.validate(schema, Map.put(base, "text", text))
+
+      # 3000 bytes of four byte characters is 750 graphemes, which is over the
+      # grapheme cap while under the byte one.
+      under_bytes = String.duplicate(<<0x1F600::utf8>>, 750)
+      assert byte_size(under_bytes) == 3000
+
+      assert {:error, [{["text"], :too_many_graphemes}]} =
+               Validate.validate(schema, Map.put(base, "text", under_bytes))
+    end
+
+    # site.standard.document declares its content union as closed false with no
+    # refs at all, which the spec calls "similar to unknown": all it asks of the
+    # value is a $type. Treating it as closed meant the collection could not
+    # carry a content block whatsoever.
+    test "an open union in a real lexicon takes a content block" do
+      schema = Registry.record("site.standard.document")
+
+      assert %{"closed" => false, "refs" => []} = schema["properties"]["content"]
+
+      doc = %{
+        "$type" => "site.standard.document",
+        "site" => "https://example.com",
+        "title" => "A post",
+        "publishedAt" => "1985-04-12T23:20:50.123Z"
+      }
+
+      assert :ok =
+               Validate.validate(
+                 schema,
+                 Map.put(doc, "content", %{"$type" => "app.bsky.richtext.richtextFacet"})
+               )
+
+      assert {:error, [{["content"], :missing_type}]} =
+               Validate.validate(schema, Map.put(doc, "content", %{"text" => "hi"}))
+    end
+
+    # The cover is a blob with a maxSize and an accept list, and both are what
+    # the lexicon states about it. The size is the client's claim, which is what
+    # a record carries; uploadBlob is where the real size is enforced.
+    test "a blob in a real lexicon is checked against its maxSize and accept" do
+      schema = Registry.record("site.standard.document")
+
+      doc = %{
+        "$type" => "site.standard.document",
+        "site" => "https://example.com",
+        "title" => "A post",
+        "publishedAt" => "1985-04-12T23:20:50.123Z",
+        "coverImage" => %{
+          "$type" => "blob",
+          "ref" => %{"$link" => "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"},
+          "mimeType" => "image/png",
+          "size" => 5_000
+        }
+      }
+
+      assert :ok = Validate.validate(schema, doc)
+
+      assert {:error, errors} =
+               Validate.validate(schema, put_in(doc, ["coverImage", "size"], 5_000_000))
+
+      assert {["coverImage"], :too_large} in errors
+
+      assert {:error, errors} =
+               Validate.validate(schema, put_in(doc, ["coverImage", "mimeType"], "text/html"))
+
+      assert {["coverImage"], :bad_mime_type} in errors
     end
 
     test "every vendored record lexicon is one this server can check" do

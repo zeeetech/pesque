@@ -16,6 +16,19 @@ defmodule Pesque.Lexicon.Registry do
   when someone edits a file, and a server that re-read 400 JSON files on every
   write would be paying for a schema check with a disk read. `reload/0` is for
   an operator with a running server; nothing on the request path calls it.
+
+  The resolved record schemas are cached alongside the documents they came
+  from, in the same term, for the same reason and one step further. Resolving
+  is a pure function of the documents: following refs and union members does
+  not read a clock, a database, or a file, so its answer cannot change until
+  the documents do. Walking that graph on every write is what it cost, and it
+  is on the path of every record: 16us before union members were resolved, 60us
+  after, because a post's resolved schema triples once every `embed` variant
+  is pulled in beside it.
+
+  One term rather than two, so a reader cannot see resolved schemas from one
+  generation of the documents beside documents from another. `reload/0` builds
+  both and swaps once.
   """
 
   require Logger
@@ -45,9 +58,20 @@ defmodule Pesque.Lexicon.Registry do
       |> Enum.uniq()
       |> Enum.reduce(%{}, &read(&1, &2))
 
-    :persistent_term.put(@table, entries)
+    # Every collection's schema is resolved here rather than on the write that
+    # needs it, so the cost lands once at boot instead of once per record. A
+    # collection that cannot be resolved is left out, and record/1 then answers
+    # nil for it, which the caller already treats as unknown_collection.
+    records =
+      Map.new(entries, fn {nsid, _document} -> {nsid, resolve_record(nsid, entries)} end)
 
-    Logger.info("lexicons loaded", count: map_size(entries))
+    :persistent_term.put(@table, %{entries: entries, records: records})
+
+    Logger.info("lexicons loaded",
+      count: map_size(entries),
+      records: map_size(Map.reject(records, fn {_nsid, schema} -> is_nil(schema) end))
+    )
+
     :ok
   end
 
@@ -70,31 +94,32 @@ defmodule Pesque.Lexicon.Registry do
   end
 
   @doc "Every loaded lexicon, as a map of NSID to parsed document."
-  def all, do: :persistent_term.get(@table, %{})
+  def all, do: cache().entries
 
   @doc "The document for an NSID, or nil."
   def get(nsid) when is_binary(nsid), do: Map.get(all(), nsid)
   def get(_nsid), do: nil
 
   @doc "The object schema a collection's records are checked against, or nil."
-  def record(collection) when is_binary(collection) do
-    with %{"defs" => defs} when is_map(defs) <- get(collection) do
-      # The schema is the `record` key of the def whose own type is "record".
-      # A collection's lexicon is named after the collection, not after the
-      # record type, so this looks the collection up directly. Among the
-      # vendored files exactly one names a def "record" rather than marking one
-      # as a record, and it is a defs.json of definitions about records rather
-      # than a collection, which is why the type is what is matched on.
-      defs
-      |> Enum.filter(fn {_name, def} -> def["type"] == "record" end)
-      |> List.first()
-      |> case do
-        {_name, %{"record" => schema}} when is_map(schema) ->
-          resolve(schema, get(collection), MapSet.new())
+  def record(collection) when is_binary(collection), do: Map.get(cache().records, collection)
 
-        _ ->
-          nil
-      end
+  defp cache, do: :persistent_term.get(@table, %{entries: %{}, records: %{}})
+
+  # The schema is the `record` key of the def whose own type is "record".
+  # A collection's lexicon is named after the collection, not after the record
+  # type, so this looks the collection up directly. Among the vendored files
+  # exactly one names a def "record" rather than marking one as a record, and it
+  # is a defs.json of definitions about records rather than a collection, which
+  # is why the type is what is matched on.
+  #
+  # A document that is not shaped the way that expects is not fatal here: it
+  # resolves to nil and the collection reads as unknown, the same answer it gave
+  # when this ran per call.
+  defp resolve_record(collection, entries) do
+    with %{"defs" => defs} when is_map(defs) <- Map.get(entries, collection),
+         {_name, %{"record" => schema}} when is_map(schema) <-
+           Enum.find(defs, fn {_name, def} -> def["type"] == "record" end) do
+      resolve(schema, Map.get(entries, collection), MapSet.new(), entries)
     else
       _ -> nil
     end
@@ -119,34 +144,70 @@ defmodule Pesque.Lexicon.Registry do
   # document does not have, is left as it is. The validator accepts a ref it
   # cannot follow, so a lexicon referring to something absent degrades to that
   # subtree being unchecked rather than to writes being refused.
-  defp resolve(%{"type" => "ref", "ref" => ref}, document, seen) when is_binary(ref) do
-    case lookup(ref, document, seen) do
-      {nil, _document} -> %{"type" => "ref", "ref" => ref}
-      {target, target_document} -> resolve(target, target_document, MapSet.put(seen, ref))
+  defp resolve(%{"type" => "ref", "ref" => ref}, document, seen, entries) when is_binary(ref) do
+    case lookup(ref, document, seen, entries) do
+      {nil, _document} ->
+        %{"type" => "ref", "ref" => ref}
+
+      {target, target_document} ->
+        resolve(target, target_document, MapSet.put(seen, ref), entries)
     end
   end
 
-  # A union is left as it is apart from the defs it needs to resolve its own
-  # local refs against, which is the one thing the validator cannot work out
-  # from the node alone.
-  defp resolve(%{"type" => "union"} = node, document, _seen),
-    do: Map.put(node, "defs", Map.get(document, "defs", %{}))
+  # A union keeps its own defs, which is the one thing the validator cannot
+  # work out from the node alone, and gains a resolved schema per member ref.
+  #
+  # Without the members a union body went unchecked entirely: the validator saw
+  # a $type naming an NSID, had no schema to hand, and accepted it on its name.
+  # So a post's embed, a labels block or a site.standard.document content took
+  # any shape at all, and the lexicon author and the submitter are independent
+  # parties.
+  #
+  # A ref is followed with itself added to `seen`, so a union whose members
+  # point back at the document holding it terminates instead of resolving
+  # forever.
+  defp resolve(%{"type" => "union"} = node, document, seen, entries) do
+    node
+    |> Map.put("defs", Map.get(document, "defs", %{}))
+    |> put_variants(document, seen, entries)
+  end
 
-  defp resolve(%{"properties" => properties} = node, document, seen) when is_map(properties) do
+  defp resolve(%{"properties" => properties} = node, document, seen, entries)
+       when is_map(properties) do
     Map.put(
       node,
       "properties",
       Map.new(properties, fn {key, child} ->
-        {key, resolve(child, document, seen)}
+        {key, resolve(child, document, seen, entries)}
       end)
     )
   end
 
-  defp resolve(%{"items" => items} = node, document, seen),
-    do: Map.put(node, "items", resolve(items, document, seen))
+  defp resolve(%{"items" => items} = node, document, seen, entries),
+    do: Map.put(node, "items", resolve(items, document, seen, entries))
 
   # Anything else has nothing inside it to follow.
-  defp resolve(node, _document, _seen), do: node
+  defp resolve(node, _document, _seen, _entries), do: node
+
+  # A ref naming a lexicon this server does not hold contributes no variant, so
+  # the validator finds nothing to check that member against and accepts it on
+  # its name. That is the same degradation a dangling ref gets anywhere else.
+  defp put_variants(node, document, seen, entries) do
+    variants =
+      [node["ref"] | Map.get(node, "refs", [])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(fn ref ->
+        case lookup(ref, document, seen, entries) do
+          {nil, _document} ->
+            []
+
+          {target, target_document} ->
+            [{ref, resolve(target, target_document, MapSet.put(seen, ref), entries)}]
+        end
+      end)
+
+    Map.put(node, "variants", Map.new(variants))
+  end
 
   # Each answer carries the document it came from, because that is the document
   # a "#def" inside it has to be looked up in.
@@ -155,20 +216,35 @@ defmodule Pesque.Lexicon.Registry do
   # each other terminate instead of resolving forever. The validator accepts a
   # ref it cannot follow, so stopping costs one unchecked subtree rather than a
   # hung boot.
-  defp lookup("#" <> name = ref, document, seen) do
+  defp lookup(ref, document, seen, entries) do
     if MapSet.member?(seen, ref) do
       {nil, document}
     else
-      {get_in(document, ["defs", name]), document}
+      foreign(ref, document, entries)
     end
   end
 
-  defp lookup(nsid, _document, seen) do
-    with false <- MapSet.member?(seen, nsid),
-         {:ok, document} <- Map.fetch(all(), nsid) do
-      {get_in(document, ["defs", "main"]), document}
-    else
-      _ -> {nil, nil}
+  # "#name" is a def of the document the ref came from; "nsid" is that
+  # lexicon's main; "nsid#name" is a def of another lexicon, which is how a post
+  # names "com.atproto.label.defs#selfLabels".
+  defp foreign("#" <> name, document, _entries),
+    do: {get_in(document, ["defs", name]), document}
+
+  defp foreign(ref, _document, entries) do
+    case String.split(ref, "#", parts: 2) do
+      [nsid] -> def_of(entries, nsid, "main")
+      [nsid, name] -> def_of(entries, nsid, name)
+    end
+  end
+
+  # Read from the entries being resolved rather than from the loaded index, so
+  # resolution is a function of one generation of the documents. Reading the
+  # index here would resolve a freshly reloaded lexicon against the generation
+  # before it, which is invisible until a lexicon refers to itself.
+  defp def_of(entries, nsid, def_name) do
+    case Map.fetch(entries, nsid) do
+      {:ok, document} -> {get_in(document, ["defs", def_name]), document}
+      :error -> {nil, nil}
     end
   end
 end
