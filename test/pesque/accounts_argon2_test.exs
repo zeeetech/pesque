@@ -67,6 +67,22 @@ defmodule Pesque.Accounts.Argon2Test do
     assert count(source, ~r/Argon2\.hash_pwd_salt\(\s*password, argon2_opts\(\)\s*\)/) == 1
   end
 
+  # The gate is a closure passed to with_hash_permit, so "is this call site
+  # inside the gate" has no runtime answer: a permit is an internal counter,
+  # and nothing a caller can see changes once it is taken. So this reads the
+  # source the same way the accessor test above does, and the assertion is the
+  # one that discriminates: cut every gated call out of the module and no
+  # Argon2 call may be left. That fails on an ungated verify such as the one
+  # delete_account/4 used to have, and on a second gate or a new semaphore
+  # built out of something other than with_hash_permit.
+  test "every argon2 call in accounts goes through the gate" do
+    source = File.read!(source_path())
+    ungated = Regex.replace(~r/with_hash_permit\(fn -> Argon2\.\w+\(.*?\s+end\)/s, source, "")
+
+    refute ungated =~ ~r/Argon2\.\w+/,
+           "an Argon2 call in accounts.ex is not the body of with_hash_permit"
+  end
+
   # Unbounded concurrency is the half of this that is about availability: one
   # address sending many logins at once is several GiB of RSS at the library
   # defaults. The gate is what stops that, so a test that only checked the
