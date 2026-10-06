@@ -16,11 +16,24 @@ defmodule Pesque.RateLimit do
 
   Windows are sized by the caller passing a limit and a length. This module
   knows nothing about which endpoint is which.
+
+  The table is bounded twice. The caller bounds key material before it gets
+  here, and the sweep drops the whole table if it grows past `@max_rows`, so a
+  flood of distinct keys cannot outrun the memory the node has.
   """
 
   use GenServer
 
   @table :pesque_rate_limit
+
+  # A backstop, not a budget: keys are already bounded and fixed width, so this
+  # only fires under a flood that puts enough distinct keys in one sweep
+  # interval. A homelab PDS legitimately holds a few hundred rows, and a
+  # hundred thousand of these is roughly ten megabytes, so the number is set
+  # where it can never be reached by a real reader and still leaves the node a
+  # long way from the ceiling. Configurable because the right number is a
+  # function of the box, not of the code.
+  @max_rows 100_000
 
   @doc false
   def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
@@ -47,8 +60,26 @@ defmodule Pesque.RateLimit do
       {{{:_, :"$1"}, :_, :"$2"}, [{:>=, {:const, now}, {:*, {:+, :"$1", 1}, :"$2"}}], [true]}
     ])
 
+    enforce_cap()
+
     Process.send_after(self(), :sweep, 60_000)
     {:noreply, state}
+  end
+
+  # Dropping the table is the right failure direction and the only cheap one.
+  # Bounded keys still leave an attacker free to send a distinct one per
+  # request, and every distinct key is a row the sweep cannot reclaim until its
+  # window closes. Clearing costs every caller up to one window of budget,
+  # which is a bounded and self-healing loss; the alternative is an OOM, which
+  # is neither. Checked here rather than per hit because :ets.info/2 on the
+  # size is O(1) and putting it on the request path would put it on every
+  # request.
+  defp enforce_cap do
+    cap = Application.get_env(:pesque, :rate_limit_max_rows, @max_rows)
+
+    if :ets.info(@table, :size) > cap do
+      :ets.delete_all_objects(@table)
+    end
   end
 
   @doc """
