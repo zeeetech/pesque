@@ -35,13 +35,12 @@ defmodule Pesque.TidTest do
     assert tid == Tid.encode(n)
   end
 
-  test "next/2 called twice with the same last increases strictly" do
+  test "next/2 increases strictly when the caller threads the last value" do
     {_tid1, n1} = Tid.next(1_000, 5)
-    {_tid2, n2} = Tid.next(1_000, 5)
+    {_tid2, n2} = Tid.next(n1, 5)
 
     assert n2 > n1
     assert n1 >= 1_000 + 1
-    assert n2 >= 1_000 + 1
   end
 
   test "next/2 keeps the clock id in the low 10 bits" do

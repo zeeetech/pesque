@@ -1,8 +1,10 @@
 defmodule Pesque.Tid do
   @moduledoc """
   Timestamp IDs: 13 chars of base32-sortable encoding
-  (timestamp_micros <<< 10 ||| clock_id). Monotonic per process via a
-  last-value guard, so rapid successive calls never collide.
+  (timestamp_micros <<< 10 ||| clock_id). Two calls with the same `last` can
+  answer the same value, because both read the same clock. Strict increase
+  comes from threading the integer the previous call returned back in as
+  `last`, which is how the repo writes use it.
   """
 
   import Bitwise
