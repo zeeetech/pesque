@@ -9,6 +9,7 @@ defmodule Pesque.Application do
     Pesque.Storage.init!()
     Pesque.Secret.load!()
     Pesque.Identity.load!()
+    Pesque.OAuth.Keys.load!()
     Pesque.Lexicon.Registry.reload()
     Pesque.Release.migrate()
 

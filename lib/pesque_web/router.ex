@@ -88,6 +88,36 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.repo.uploadBlob", RepoController, :upload_blob
   end
 
+  # OAuth. The metadata documents come first and are answered without a rate
+  # limit for the same reason describeServer is: a client that cannot learn
+  # where the authorization server is cannot get far enough to be worth
+  # limiting.
+  #
+  # The rest get their own bucket rather than sharing :session. A sign-in is
+  # several OAuth requests on top of the session request it replaces, so a
+  # shared budget would let one login attempt spend the allowance the session
+  # endpoints were given, and the two limits would stop meaning what their
+  # numbers say.
+  scope "/", PesqueWeb.OAuth do
+    get "/.well-known/oauth-authorization-server", MetadataController, :authorization_server
+    get "/.well-known/oauth-protected-resource", MetadataController, :protected_resource
+    get "/oauth/jwks.json", MetadataController, :jwks
+  end
+
+  pipeline :oauth_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :oauth, limit: 100, window: 3_600_000
+  end
+
+  scope "/oauth", PesqueWeb.OAuth do
+    pipe_through :oauth_limits
+
+    post "/par", AuthorizationController, :par
+    get "/authorize", AuthorizationController, :authorize
+    post "/authorize", AuthorizationController, :decide
+    post "/token", TokenController, :token
+    post "/revoke", TokenController, :revoke
+  end
+
   scope "/xrpc", PesqueWeb.Xrpc do
     match :*, "/*path", FallbackController, :not_implemented
   end

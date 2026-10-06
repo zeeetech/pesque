@@ -16,7 +16,7 @@ defmodule Pesque.MixProject do
   def application do
     [
       mod: {Pesque.Application, []},
-      extra_applications: [:logger, :crypto]
+      extra_applications: [:logger, :crypto, :inets, :ssl, :public_key]
     ]
   end
 
