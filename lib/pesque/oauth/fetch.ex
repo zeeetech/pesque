@@ -27,7 +27,6 @@ defmodule Pesque.OAuth.Fetch do
 
   @connect_timeout 5_000
   @timeout 5_000
-  @profile :httpc_pesque_oauth
 
   @doc """
   Fetches `uri` and decodes it as a JSON object, capped at `max_bytes`.
@@ -48,16 +47,15 @@ defmodule Pesque.OAuth.Fetch do
            :get,
            {URI.to_string(uri), [{~c"accept", ~c"application/json"}]},
            [
-             body_format: :binary,
              connect_timeout: @connect_timeout,
              timeout: @timeout,
              ssl: ssl_options(),
              autoredirect: false
            ],
-           httpc: profile()
+           []
          ) do
-      {:ok, {{_version, 200, _reason}, _headers, body}} when is_binary(body) ->
-        decode(body, max_bytes)
+      {:ok, {{_version, 200, _reason}, _headers, body}} ->
+        decode(IO.iodata_to_binary(body), max_bytes)
 
       {:ok, {{_version, status, _reason}, _headers, _body}} ->
         {:error, {:client_metadata_status, status}}
@@ -95,14 +93,12 @@ defmodule Pesque.OAuth.Fetch do
     end
   end
 
+  # `:inet_res.lookup/3` with `:a` answers address tuples directly. The four
+  # argument form with `:ipv4` is not a query type this OTP accepts: it raises
+  # `{:bad_generator, :ipv4}`, which an earlier rescue turned into an empty
+  # answer, so every name looked like NXDOMAIN.
   defp resolve(host) do
-    case :inet_res.lookup(String.to_charlist(host), :inet, :in, :ipv4) do
-      [] ->
-        []
-
-      addresses ->
-        Enum.map(addresses, fn {address, _type, _ttl, _payload} -> address end)
-    end
+    :inet_res.lookup(String.to_charlist(host), :in, :a)
   rescue
     _ -> []
   end
@@ -110,15 +106,8 @@ defmodule Pesque.OAuth.Fetch do
   # Anything not routable on the public internet. A client metadata document is
   # published on the public web by definition, so a private answer to the name
   # means the name was chosen to reach something else.
-  defp public_address?(address) do
-    tuple =
-      case :inet.parse_address(String.to_charlist(address)) do
-        {:ok, tuple} -> tuple
-        _ -> nil
-      end
-
-    is_tuple(tuple) and public?(tuple)
-  end
+  defp public_address?(tuple) when is_tuple(tuple), do: public?(tuple)
+  defp public_address?(_address), do: false
 
   defp public?({0, _, _, _}), do: false
   defp public?({10, _, _, _}), do: false
@@ -135,11 +124,6 @@ defmodule Pesque.OAuth.Fetch do
   defp public?({224, _, _, _}), do: false
   defp public?({240, _, _, _}), do: false
   defp public?({_, _, _, _}), do: true
-
-  defp profile do
-    _ = :inets.start(@profile, [:ssl])
-    @profile
-  end
 
   defp ssl_options do
     [
