@@ -141,6 +141,30 @@ defmodule Pesque.Accounts do
   def get_user(did), do: Repo.get_by(User, did: did)
 
   @doc """
+  Whether an account's repo is served here.
+
+  False for a DID this server does not host, because there is no account whose
+  state could be active. A repo that has never been written to is active: the
+  account exists and is not deactivated, which is a different thing from having
+  no repo behind it and is what the callers answer separately.
+  """
+  def repo_active?(did) when is_binary(did) do
+    match?(%User{active: true}, get_user(did))
+  end
+
+  def repo_active?(_did), do: false
+
+  @doc """
+  The DIDs of every hosted account that is deactivated, as a set.
+
+  One query rather than one per DID: listRepos enumerates the whole server, so
+  asking the users table per row would turn a single answer into a thousand.
+  """
+  def deactivated_dids do
+    Repo.all(from u in User, where: u.active == false, select: u.did) |> MapSet.new()
+  end
+
+  @doc """
   The DIDs of every hosted account, ordered, for a whole-server listing.
 
   Only the DID is selected: this enumerates accounts to anyone who asks, so it
@@ -225,11 +249,60 @@ defmodule Pesque.Accounts do
   of another account's repo can equal this one's. An unknown repo and another
   account's repo answer identically, so the write path cannot be used to ask
   which DIDs this server hosts.
+
+  A deactivated account owns nothing writable. The check lives here rather than
+  in the RepoServer because this is the one place every write already passes
+  through, so a write stopped by deactivation is stopped by the same gate that
+  decides who owns the repo, and not by a second rule kept somewhere else.
   """
-  def authorize_write(%User{did: did}, repo) do
+  def authorize_write(%User{active: true, did: did}, repo) do
     case repo_did(repo) do
       {:ok, ^did} -> :ok
       _ -> {:error, :wrong_repo}
+    end
+  end
+
+  def authorize_write(%User{}, _repo), do: {:error, :account_deactivated}
+
+  @doc """
+  Deactivates an account and announces it.
+
+  The repo's rows, blocks and key stay: a deactivated account is still an
+  account, getRepoStatus still answers for it, and activateAccount puts it back
+  without anything having to be rebuilt. What stops is the write path, through
+  authorize_write/2.
+
+  deleteAfter is a recommendation about how long to hold the deactivated
+  account, not an instruction: nothing here deletes anything on a schedule,
+  and delete_account/4 remains the only path that destroys an account.
+
+  The frame goes out after the row is updated, so a mirror that hears the
+  deactivation and immediately asks getRepoStatus already reads it as inactive.
+  """
+  def deactivate_account(%User{} = user) do
+    with {:ok, _user} <- set_active(user, false) do
+      Events.emit_account(user.did, :deactivated)
+      {:ok, user.did}
+    end
+  end
+
+  @doc """
+  Reactivates a deactivated account and announces it.
+
+  Reverses deactivate_account/1. The repo was never torn down, so this is the
+  row moving back and nothing else.
+  """
+  def activate_account(%User{} = user) do
+    with {:ok, _user} <- set_active(user, true) do
+      Events.emit_account(user.did, :activated)
+      {:ok, user.did}
+    end
+  end
+
+  defp set_active(%User{} = user, active) do
+    case User.active_changeset(user, active) |> Repo.update() do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:error, :account_not_updated}
     end
   end
 

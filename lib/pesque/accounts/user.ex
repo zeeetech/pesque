@@ -18,6 +18,11 @@ defmodule Pesque.Accounts.User do
     field :email, :string
     field :password_hash, :string
 
+    # Not cast by changeset/1: whether an account is deactivated is not
+    # something a create request decides, and the only way to move it is
+    # deactivate_account/activate_account.
+    field :active, :boolean, default: true
+
     timestamps(type: :utc_datetime)
   end
 
@@ -36,5 +41,9 @@ defmodule Pesque.Accounts.User do
     |> change(overrides)
     |> validate_required([:handle])
     |> unique_constraint(:handle)
+  end
+
+  def active_changeset(%__MODULE__{} = row, active) do
+    change(row, active: active)
   end
 end

@@ -82,6 +82,100 @@ defmodule Pesque.RepoStore do
     Repo.all(from b in Block, where: b.did == ^did)
   end
 
+  @doc """
+  Every block of `did`, keyed by CID string.
+
+  What the CAR endpoints and the sweep both need from the table, so the
+  keying is written once.
+  """
+  def blocks_map(did) do
+    Map.new(blocks_for(did), &{&1.cid, &1.data})
+  end
+
+  @doc """
+  The stored blocks `cid_strings` names, keyed by CID string.
+
+  A CID this repo does not hold is absent from the map rather than nil: a
+  block either exists or it does not, and the caller is the one that decides
+  what a missing one means. Chunked for the same reason existing_cids/2 is.
+  """
+  def blocks_by_cids(did, cid_strings) do
+    cid_strings
+    |> Enum.chunk_every(500)
+    |> Enum.flat_map(fn chunk ->
+      Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: {b.cid, b.data})
+    end)
+    |> Map.new()
+  end
+
+  @doc """
+  The blocks a consumer needs to place `cid_string` in this repo: the MST nodes
+  from the current root down to the one holding its entry, plus the block
+  itself.
+
+  The record block alone does not say where it lives. Reaching it from the root
+  is what turns a hash into a position, so the walk follows the same child
+  links sweep_blocks!/1 follows and a tree it cannot finish answers an error
+  rather than a partial path.
+
+  Answers {:error, :no_root} when the repo has no commit, {:error, :not_found}
+  when the tree does not name the block at all, and {:error, :corrupt} when a
+  block on the way is missing or does not decode.
+  """
+  def blocks_for_path(did, cid_string) do
+    case get_meta("root:" <> did) do
+      nil -> {:error, :no_root}
+      root -> walk_to(blocks_map(did), root, cid_string, [])
+    end
+  end
+
+  # acc is reversed: a node is prepended as the walk goes down and the list is
+  # reversed once at the top, which keeps the root first in what is answered.
+  defp walk_to(blocks, node, target, acc) do
+    case Map.fetch(blocks, node) do
+      {:ok, data} ->
+        case children(data) do
+          {:ok, children} ->
+            acc = [{node, data} | acc]
+
+            cond do
+              node == target ->
+                {:ok, Enum.reverse(acc)}
+
+              target in children ->
+                case Map.fetch(blocks, target) do
+                  {:ok, data} -> {:ok, Enum.reverse([{target, data} | acc])}
+                  :error -> {:error, :corrupt}
+                end
+
+              true ->
+                descend(blocks, children, target, acc)
+            end
+
+          :error ->
+            Logger.warning("block path gave up: #{node} does not decode")
+            {:error, :corrupt}
+        end
+
+      :error ->
+        Logger.warning("block path gave up: #{node} is named by the tree but not stored")
+        {:error, :corrupt}
+    end
+  end
+
+  # Every child is tried, not just the subtree ones: the walk does not know
+  # which subtree holds the target, and a child that is itself a record block
+  # simply answers :not_found on the way back out.
+  defp descend(_blocks, [], _target, _acc), do: {:error, :not_found}
+
+  defp descend(blocks, [child | rest], target, acc) do
+    case walk_to(blocks, child, target, acc) do
+      {:ok, path} -> {:ok, path}
+      {:error, :corrupt} = error -> error
+      {:error, :not_found} -> descend(blocks, rest, target, acc)
+    end
+  end
+
   # A count, not a length. blocks_for/1 selects the block bytes, and a status
   # endpoint that answered from it would pull a whole repo into memory to
   # report how big it is.
@@ -116,7 +210,7 @@ defmodule Pesque.RepoStore do
   Answers the number of rows deleted.
   """
   def sweep_blocks!(did) do
-    blocks = Map.new(blocks_for(did), &{&1.cid, &1.data})
+    blocks = blocks_map(did)
 
     case get_meta("root:" <> did) do
       nil ->
