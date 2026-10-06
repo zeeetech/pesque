@@ -35,7 +35,7 @@ defmodule Pesque.Did do
   def did_for_username(:path_multi, host, nil), do: "did:web:" <> host
 
   def did_for_username(:path_multi, host, username) do
-    "did:web:" <> host <> ":user:" <> normalized!(username)
+    "did:web:" <> host <> ":user:" <> normalize_username!(username)
   end
 
   @doc "The handle for a username, or the bare handle domain when the username is nil."
@@ -43,24 +43,24 @@ defmodule Pesque.Did do
   def handle_for_username(:path_multi, handle_domain, nil), do: handle_domain
 
   def handle_for_username(:path_multi, handle_domain, username) do
-    normalized!(username) <> "." <> handle_domain
+    normalize_username!(username) <> "." <> handle_domain
   end
 
-  @doc "The username a path DID carries, or :error when the DID is not a path DID of this mode."
+  @doc "The username a path DID carries, or {:error, :invalid_did} when the DID is not a path DID of this mode."
   def username_from_did(:path_multi, did) do
     case did_parts(did) do
       {_host, ["user", username]} -> {:ok, username}
-      _ -> :error
+      _ -> {:error, :invalid_did}
     end
   end
 
-  def username_from_did(:conformant_single, _did), do: :error
+  def username_from_did(:conformant_single, _did), do: {:error, :invalid_did}
 
   @doc "The path a DID document is served at, per the did:web resolution rules."
   def path_for_did(did) do
     case did_parts(did) do
       {_host, []} -> "/.well-known/did.json"
-      {:error, _} -> :error
+      {:error, _reason} -> {:error, :invalid_did}
       {_host, path} -> "/" <> Enum.join(path, "/") <> "/did.json"
     end
   end
@@ -235,7 +235,7 @@ defmodule Pesque.Did do
     end
   end
 
-  defp normalized!(username) do
+  defp normalize_username!(username) do
     case normalize_username(username) do
       {:ok, normalized} -> normalized
       {:error, reason} -> raise ArgumentError, "invalid username: #{inspect(reason)}"

@@ -93,7 +93,7 @@ defmodule PesqueWeb.AuthorizationTest do
   # caller on the server somebody else's identity.
   test "refreshSession answers for the account that owns the refresh token", ctx do
     for account <- [ctx.alice, ctx.bob] do
-      session = Accounts.issue_session(account.did)
+      {:ok, session} = Accounts.issue_session(account.did)
       conn = xrpc_post("/xrpc/com.atproto.server.refreshSession", %{}, session.refresh_jwt)
 
       assert conn.status == 200
@@ -128,7 +128,7 @@ defmodule PesqueWeb.AuthorizationTest do
     assert xrpc_post("/xrpc/com.atproto.server.refreshSession", %{}, mint_refresh(ghost)).status ==
              401
 
-    assert Accounts.repo_did(ghost) == :error
+    assert Accounts.repo_did(ghost) == {:error, :not_found}
   end
 
   # The token outlives the signature check: what stops it is that there is no
@@ -144,8 +144,8 @@ defmodule PesqueWeb.AuthorizationTest do
   end
 
   test "the bare server did and handle are not accounts under path_multi", ctx do
-    assert Accounts.repo_did(Pesque.Identity.did()) == :error
-    assert Accounts.repo_did(Pesque.Identity.handle()) == :error
+    assert Accounts.repo_did(Pesque.Identity.did()) == {:error, :not_found}
+    assert Accounts.repo_did(Pesque.Identity.handle()) == {:error, :not_found}
     assert create_record(Pesque.Identity.handle(), ctx.alice_token).status == 400
   end
 
@@ -253,15 +253,15 @@ defmodule PesqueWeb.AuthorizationTest do
     assert Accounts.repo_did(ctx.bob.handle) == {:ok, ctx.bob.did}
 
     # Syntactically ours, belongs to no account.
-    assert Accounts.repo_did(ghost_did()) == :error
-    assert Accounts.repo_did(ghost_handle()) == :error
+    assert Accounts.repo_did(ghost_did()) == {:error, :not_found}
+    assert Accounts.repo_did(ghost_handle()) == {:error, :not_found}
 
     # Not ours at all.
-    assert Accounts.repo_did("did:web:example.com:user:mallory") == :error
-    assert Accounts.repo_did("alice.evil.example") == :error
-    assert Accounts.repo_did("did:plc:abc123") == :error
-    assert Accounts.repo_did(nil) == :error
-    assert Accounts.repo_did("") == :error
+    assert Accounts.repo_did("did:web:example.com:user:mallory") == {:error, :not_found}
+    assert Accounts.repo_did("alice.evil.example") == {:error, :not_found}
+    assert Accounts.repo_did("did:plc:abc123") == {:error, :not_found}
+    assert Accounts.repo_did(nil) == {:error, :invalid_identifier}
+    assert Accounts.repo_did("") == {:error, :not_found}
 
     assert Accounts.authorize_write(ctx.alice, ctx.alice.did) == :ok
     assert Accounts.authorize_write(ctx.alice, ctx.alice.handle) == :ok

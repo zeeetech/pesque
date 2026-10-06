@@ -50,32 +50,32 @@ defmodule Pesque.BlobTest do
           "not a cid",
           "bafkrei"
         ] do
-      assert Blob.parse_cid(attempt) == :error, attempt
+      assert Blob.parse_cid(attempt) == {:error, :invalid_cid}, attempt
     end
 
-    assert Blob.parse_cid(nil) == :error
-    assert Blob.parse_cid(%{}) == :error
+    assert Blob.parse_cid(nil) == {:error, :invalid_cid}
+    assert Blob.parse_cid(%{}) == {:error, :invalid_cid}
   end
 
   test "parse_cid turns away a dag-cbor cid and a short digest" do
-    assert Blob.parse_cid(CID.to_string(CID.from_data("x"))) == :error
+    assert Blob.parse_cid(CID.to_string(CID.from_data("x"))) == {:error, :invalid_cid}
 
     assert Blob.parse_cid(%CID{
              version: 1,
              codec: 0x55,
              hash_algo: 0x12,
              digest: :crypto.strong_rand_bytes(16)
-           }) == :error
+           }) == {:error, :invalid_cid}
 
     assert Blob.parse_cid(%CID{
              version: 1,
              codec: 0x55,
              hash_algo: 0x13,
              digest: :crypto.strong_rand_bytes(32)
-           }) == :error
+           }) == {:error, :invalid_cid}
 
     assert Blob.parse_cid(%CID{version: 2, codec: 0x55, hash_algo: 0x12, digest: <<0::256>>}) ==
-             :error
+             {:error, :invalid_cid}
   end
 
   test "parse_cid accepts a real blob cid, and the accepted path stays inside the blob dir" do

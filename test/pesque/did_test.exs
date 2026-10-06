@@ -107,9 +107,13 @@ defmodule Pesque.DidTest do
 
   test "username_from_did reads the path did and rejects anything else" do
     assert Did.username_from_did(:path_multi, "did:web:example.com:user:alice") == {:ok, "alice"}
-    assert Did.username_from_did(:path_multi, "did:web:example.com") == :error
-    assert Did.username_from_did(:path_multi, "did:web:example.com:user") == :error
-    assert Did.username_from_did(:conformant_single, "did:web:example.com:user:alice") == :error
+    assert Did.username_from_did(:path_multi, "did:web:example.com") == {:error, :invalid_did}
+
+    assert Did.username_from_did(:path_multi, "did:web:example.com:user") ==
+             {:error, :invalid_did}
+
+    assert Did.username_from_did(:conformant_single, "did:web:example.com:user:alice") ==
+             {:error, :invalid_did}
   end
 
   test "path_for_did follows the did:web resolution rules" do
@@ -118,7 +122,7 @@ defmodule Pesque.DidTest do
     assert Did.path_for_did("did:web:example.com:user:alice") == "/user/alice/did.json"
 
     assert Did.path_for_did("did:web:localhost%3A4000:user:alice") == "/user/alice/did.json"
-    assert Did.path_for_did("did:plc:abc123") == :error
+    assert Did.path_for_did("did:plc:abc123") == {:error, :invalid_did}
   end
 
   test "the conformant_single document is the host-level identity" do

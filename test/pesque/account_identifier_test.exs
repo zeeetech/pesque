@@ -36,10 +36,10 @@ defmodule Pesque.AccountIdentifierTest do
   test "a did or handle belonging to another network still resolves to nothing" do
     insert_account("alice")
 
-    assert Accounts.repo_did("did:web:evil.example:user:alice") == :error
-    assert Accounts.repo_did("alice.bsky.social") == :error
-    assert Accounts.repo_did("nobody.localhost") == :error
-    assert Accounts.repo_did(nil) == :error
+    assert Accounts.repo_did("did:web:evil.example:user:alice") == {:error, :not_found}
+    assert Accounts.repo_did("alice.bsky.social") == {:error, :not_found}
+    assert Accounts.repo_did("nobody.localhost") == {:error, :not_found}
+    assert Accounts.repo_did(nil) == {:error, :invalid_identifier}
   end
 
   # The collision is reachable unauthenticated: the string names one account

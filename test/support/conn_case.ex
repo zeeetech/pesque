@@ -63,7 +63,10 @@ defmodule PesqueWeb.ConnCase do
   end
 
   @doc "An access token for an account."
-  def token(user), do: Accounts.issue_session(user.did).access_jwt
+  def token(user) do
+    {:ok, session} = Accounts.issue_session(user.did)
+    session.access_jwt
+  end
 
   @doc "A record that the post lexicon accepts."
   def post_record(text) do

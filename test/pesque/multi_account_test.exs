@@ -73,10 +73,10 @@ defmodule Pesque.MultiAccountTest do
     assert Accounts.resolve_handle(alice.handle) == {:ok, alice.did}
     assert Accounts.resolve_handle(bob.handle) == {:ok, bob.did}
 
-    assert Accounts.resolve_handle("carol.localhost") == :error
-    assert Accounts.resolve_handle("alice.notlocalhost") == :error
-    assert Accounts.resolve_handle("alice.localhost.evil.com") == :error
-    assert Accounts.resolve_handle("localhost") == :error
+    assert Accounts.resolve_handle("carol.localhost") == {:error, :not_found}
+    assert Accounts.resolve_handle("alice.notlocalhost") == {:error, :not_found}
+    assert Accounts.resolve_handle("alice.localhost.evil.com") == {:error, :not_found}
+    assert Accounts.resolve_handle("localhost") == {:error, :not_found}
   end
 
   test "a handle under a lookalike domain is rejected and claims no key file" do

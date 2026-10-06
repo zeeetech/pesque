@@ -58,16 +58,16 @@ defmodule Pesque.Accounts do
          %User{} = user <- Repo.get_by(User, username: username) do
       {:ok, document(user)}
     else
-      _ -> :error
+      _ -> {:error, :not_found}
     end
   end
 
   @doc """
-  The canonical DID of the local account named by an identifier, or :error.
+  The canonical DID of the local account named by an identifier, or {:error, reason}.
 
   Did.to_local_did/2 settles the syntax and whether the host is ours, and
   deliberately consults no database, so existence is settled here: a DID of
-  the right shape naming no account is :error, not an invitation.
+  the right shape naming no account is {:error, :not_found}, not an invitation.
 
   A DID is looked up by the string it is stored under, not by re-deriving it
   from the host and port the server currently runs on. An account's DID was
@@ -84,7 +84,7 @@ defmodule Pesque.Accounts do
         # uppercase, so folding turns %3A into %3a and matches nothing.
         case Repo.get_by(User, did: String.trim(identifier)) do
           %User{did: did} -> {:ok, did}
-          nil -> :error
+          nil -> {:error, :not_found}
         end
 
       _handle ->
@@ -92,15 +92,15 @@ defmodule Pesque.Accounts do
         # the live config and then looking that up means the port the server
         # runs on today decides whether an account created yesterday is
         # reachable at all. Only stored rows match, so a handle from another
-        # network still answers :error.
+        # network still answers {:error, :not_found}.
         case Repo.get_by(User, handle: String.downcase(String.trim(identifier))) do
           %User{did: did} -> {:ok, did}
-          nil -> :error
+          nil -> {:error, :not_found}
         end
     end
   end
 
-  def repo_did(_identifier), do: :error
+  def repo_did(_identifier), do: {:error, :invalid_identifier}
 
   @doc """
   Whether the authenticated account owns the repo an identifier names.
@@ -117,13 +117,15 @@ defmodule Pesque.Accounts do
     end
   end
 
-  @doc "The DID of the account owning a handle, or :error. Consults the users table."
-  def resolve_handle(handle) do
-    case Repo.get_by(User, handle: String.downcase(String.trim(handle || ""))) do
+  @doc "The DID of the account owning a handle, or {:error, reason}. Consults the users table."
+  def resolve_handle(handle) when is_binary(handle) do
+    case Repo.get_by(User, handle: String.downcase(String.trim(handle))) do
       %User{did: did} -> {:ok, did}
-      nil -> :error
+      nil -> {:error, :not_found}
     end
   end
+
+  def resolve_handle(_handle), do: {:error, :invalid_handle}
 
   @doc "Verifies a handle/email + password pair. Constant-ish time by construction."
   def verify_login(identifier, password) do
@@ -168,15 +170,23 @@ defmodule Pesque.Accounts do
         secret
       )
 
-    %{
-      jti_hash: RefreshToken.hash_jti(jti),
-      did: did,
-      expires_at: DateTime.truncate(expires_at, :second)
-    }
-    |> RefreshToken.changeset()
-    |> Repo.insert!()
+    case %{
+           jti_hash: RefreshToken.hash_jti(jti),
+           did: did,
+           expires_at: DateTime.truncate(expires_at, :second)
+         }
+         |> RefreshToken.changeset()
+         |> Repo.insert() do
+      {:ok, _row} ->
+        {:ok, %{access_jwt: access, refresh_jwt: refresh}}
 
-    %{access_jwt: access, refresh_jwt: refresh}
+      {:error, changeset} ->
+        if Keyword.get(changeset.errors, :jti_hash) do
+          {:error, :jti_taken}
+        else
+          {:error, :missing_fields}
+        end
+    end
   end
 
   @doc """
@@ -191,8 +201,9 @@ defmodule Pesque.Accounts do
            Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
          {:ok, row} <- fetch_live_refresh(claims["jti"]),
          %User{} = user <- get_user(claims["sub"]),
-         true <- revoke_live(row) do
-      {:ok, issue_session(user.did), user}
+         true <- revoke_live(row),
+         {:ok, session} <- issue_session(user.did) do
+      {:ok, session, user}
     else
       _ -> {:error, :invalid_token}
     end
@@ -338,7 +349,6 @@ defmodule Pesque.Accounts do
     |> case do
       {:ok, user} ->
         Logger.info("account created", did: user.did, handle: user.handle)
-        {:ok, _pid} = Pesque.RepoSupervisor.ensure_started(user.did)
         {:ok, user}
 
       {:error, changeset} ->

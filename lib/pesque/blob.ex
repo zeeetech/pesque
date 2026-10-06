@@ -76,14 +76,14 @@ defmodule Pesque.Blob do
         {:ok, cid}
 
       _ ->
-        :error
+        {:error, :invalid_cid}
     end
   end
 
   def parse_cid(cid) do
     case CID.safe_parse(cid) do
       {:ok, parsed} -> parse_cid(parsed)
-      :error -> :error
+      :error -> {:error, :invalid_cid}
     end
   end
 
