@@ -42,6 +42,45 @@ defmodule PesqueWeb.Xrpc.RepoController do
     end
   end
 
+  def apply_writes(conn, params) do
+    with {:ok, _did} <- with_owned_repo(conn, params),
+         {:ok, writes} <- require_writes(params["writes"]) do
+      {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
+
+      validate = validate?(params)
+
+      case Pesque.RepoServer.apply_writes(pid, writes,
+             validate: validate,
+             swap_commit: params["swapCommit"]
+           ) do
+        {:ok, result} ->
+          json(conn, %{
+            "commit" => result["commit"],
+            "results" => results(result["changes"], validate)
+          })
+
+        {:error, reason} ->
+          write_error(conn, reason)
+      end
+    else
+      {:error, reason} -> write_error(conn, reason)
+    end
+  end
+
+  # One result per write, in the order the client sent them, which is the order
+  # the commit changed them in. A delete carries no uri or cid, so it answers
+  # the empty object the lexicon declares rather than a null-filled one, and
+  # validationStatus says what createRecord says: nobody checked the record
+  # when validation was turned off, so nobody is claiming it is good.
+  defp results(changes, validate) do
+    status = if validate, do: "valid", else: "unknown"
+
+    Enum.map(changes, fn
+      %{"action" => "delete"} -> %{}
+      change -> %{"uri" => change["uri"], "cid" => change["cid"], "validationStatus" => status}
+    end)
+  end
+
   defp write(conn, params, action) do
     with {:ok, _did} <- with_owned_repo(conn, params),
          :ok <- require_params(params, ["collection"]),
@@ -358,8 +397,39 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp require_record(record) when is_map(record), do: :ok
   defp require_record(_), do: {:error, :missing_params}
 
+  defp require_writes(writes) when is_list(writes), do: {:ok, writes}
+  defp require_writes(_writes), do: {:error, :missing_params}
+
   defp write_error(conn, :missing_params),
     do: Xrpc.error(conn, 400, "InvalidRequest", "missing required params")
+
+  # One write of a batch failed and none of them landed, so the answer names
+  # which one rather than reporting a bare reason a client would have to match
+  # back to its own list. A malformed write is a request-level reason rather
+  # than a domain one, so it is named here instead of being handed to
+  # Errors.to_xrpc/1, which decides on domain reasons only.
+  defp write_error(conn, {:write_failed, index, {:invalid_record, errors}}) do
+    Xrpc.error(
+      conn,
+      400,
+      "InvalidRequest",
+      "write #{index} does not match its collection: #{describe(errors)}"
+    )
+  end
+
+  defp write_error(conn, {:write_failed, index, :missing_params}) do
+    Xrpc.error(
+      conn,
+      400,
+      "InvalidRequest",
+      "write #{index} is missing a required field"
+    )
+  end
+
+  defp write_error(conn, {:write_failed, index, reason}) do
+    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
+    Xrpc.error(conn, status, name, "write #{index}: #{message}")
+  end
 
   defp write_error(conn, reason) do
     {status, name, message} = Xrpc.Errors.to_xrpc(reason)

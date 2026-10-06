@@ -33,6 +33,26 @@ defmodule PesqueWeb.Xrpc.Errors do
 
   def to_xrpc(:record_not_found), do: {400, "RecordNotFound", "no record at that key"}
 
+  def to_xrpc(:invalid_swap),
+    do: {400, "InvalidSwap", "swapCommit does not match the current repo commit"}
+
+  def to_xrpc(:invalid_writes), do: {400, "InvalidRequest", "writes must be an array"}
+
+  def to_xrpc(:invalid_write),
+    do: {400, "InvalidRequest", "a write is not a create, update or delete"}
+
+  def to_xrpc({:unsupported_write, type}),
+    do: {400, "InvalidRequest", "write action #{type} is not supported"}
+
+  def to_xrpc(:invalid_audience),
+    do: {400, "InvalidRequest", "aud must be a DID or a did#serviceId reference"}
+
+  def to_xrpc(:invalid_lxm),
+    do: {400, "InvalidRequest", "lxm must be a valid NSID"}
+
+  def to_xrpc(:bad_expiration),
+    do: {400, "BadExpiration", "the requested expiration is in the past or too far ahead"}
+
   def to_xrpc(:account_exists),
     do: {400, "AccountExists", "this server already hosts its account"}
 
@@ -81,6 +101,13 @@ defmodule PesqueWeb.Xrpc.Errors do
 
   def to_xrpc(:missing_fields), do: {400, "InvalidRequest", "account could not be created"}
   def to_xrpc(:wrong_repo), do: {400, "InvalidRequest", "repo must be the authenticated account"}
+
+  def to_xrpc(:account_deactivated),
+    do: {400, "InvalidRequest", "the account is deactivated and must be activated first"}
+
+  def to_xrpc(:account_not_updated),
+    do: {500, "InternalServerError", "the account status could not be recorded"}
+
   def to_xrpc(:empty), do: {400, "InvalidRequest", "blob body is empty"}
 
   def to_xrpc(:too_large),

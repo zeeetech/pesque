@@ -53,9 +53,12 @@ defmodule PesqueWeb.Router do
     pipe_through :auth
 
     get "/com.atproto.server.getSession", SessionController, :get_session
+    get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
     post "/com.atproto.server.requestAccountDelete", SessionController, :request_account_delete
     post "/com.atproto.server.deleteAccount", SessionController, :delete_account
+    post "/com.atproto.server.deactivateAccount", SessionController, :deactivate_account
+    post "/com.atproto.server.activateAccount", SessionController, :activate_account
     post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
   end
 
@@ -69,6 +72,8 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.sync.getRepo", SyncController, :get_repo
     get "/com.atproto.sync.getLatestCommit", SyncController, :get_latest_commit
     get "/com.atproto.sync.getBlob", SyncController, :get_blob
+    get "/com.atproto.sync.getBlocks", SyncController, :get_blocks
+    get "/com.atproto.sync.getRecord", SyncController, :get_record
     get "/com.atproto.sync.getRepoStatus", SyncController, :get_repo_status
     get "/com.atproto.sync.listRepos", SyncController, :list_repos
   end
@@ -76,6 +81,7 @@ defmodule PesqueWeb.Router do
   scope "/xrpc", PesqueWeb.Xrpc do
     pipe_through :auth
 
+    post "/com.atproto.repo.applyWrites", RepoController, :apply_writes
     post "/com.atproto.repo.createRecord", RepoController, :create_record
     post "/com.atproto.repo.putRecord", RepoController, :put_record
     post "/com.atproto.repo.deleteRecord", RepoController, :delete_record

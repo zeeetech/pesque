@@ -38,6 +38,17 @@ defmodule Pesque.RepoServer do
   def delete_record(pid, collection, rkey),
     do: GenServer.call(pid, {:delete, collection, rkey}, 15_000)
 
+  @doc """
+  Applies a batch of writes as one commit, or none of them.
+
+  `writes` is the lexicon shape: a list of maps carrying `$type` of
+  applyWrites#create, #update or #delete. Every write is checked before any of
+  them is committed, so a bad one names its own index in the error and leaves
+  the repo exactly as it was.
+  """
+  def apply_writes(pid, writes, opts \\ []),
+    do: GenServer.call(pid, {:apply_writes, writes, opts}, 30_000)
+
   def entries(pid), do: GenServer.call(pid, :entries)
 
   @doc """
@@ -151,6 +162,132 @@ defmodule Pesque.RepoServer do
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  # A batch is one commit or none. The writes are prepared against a running
+  # view of the entry map rather than the live one, so a create and a later
+  # write to the same key inside one batch see each other the way the lexicon
+  # says they should, and the state is only replaced once every write has been
+  # checked.
+  #
+  # swapCommit is checked here, inside the same serialization the commit goes
+  # through, because comparing it outside the process would compare against a
+  # head that another write could move before this one committed.
+  def handle_call({:apply_writes, writes, opts}, _from, state) do
+    with :ok <- check_swap(state, Keyword.get(opts, :swap_commit)),
+         {:ok, next_state, changes} <- prepare(writes, state, opts) do
+      {state, result} = commit(next_state, changes)
+      {:reply, {:ok, result}, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp check_swap(_state, nil), do: :ok
+
+  defp check_swap(state, swap_commit) do
+    head = RepoStore.get_meta("commit:" <> state.did)
+
+    if head == swap_commit, do: :ok, else: {:error, :invalid_swap}
+  end
+
+  # Answers the state the batch would leave behind and the changes that get it
+  # there. Nothing here touches the database: a batch that fails halfway leaves
+  # the live state untouched because the running one was never it.
+  defp prepare(writes, state, opts) when is_list(writes) do
+    opts = [validate: Keyword.get(opts, :validate, true)]
+
+    writes
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, [], state}, fn {write, index}, {:ok, acc, state} ->
+      case prepare_write(write, state, opts) do
+        {:ok, change, state} -> {:cont, {:ok, [change | acc], state}}
+        {:error, reason} -> {:halt, {:error, {:write_failed, index, reason}}}
+      end
+    end)
+    |> case do
+      {:ok, acc, state} -> {:ok, state, Enum.reverse(acc)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prepare(_writes, _state, _opts), do: {:error, :invalid_writes}
+
+  # rkey generation draws on the same TID counter createRecord does, so a
+  # create without one here cannot collide with a key or rev this process has
+  # already issued.
+  defp prepare_write(
+         %{"$type" => "com.atproto.repo.applyWrites#create"} = write,
+         state,
+         opts
+       ) do
+    with :ok <- validate_collection(write["collection"]),
+         {:ok, record} <- checked(write["collection"], write["value"], opts),
+         {:ok, rkey, state} <- ensure_rkey(write["rkey"], state) do
+      key = write["collection"] <> "/" <> rkey
+
+      if Map.has_key?(state.entries, key) do
+        {:error, :record_exists}
+      else
+        encode(:create, key, record, state)
+      end
+    end
+  end
+
+  defp prepare_write(
+         %{"$type" => "com.atproto.repo.applyWrites#update"} = write,
+         state,
+         opts
+       ) do
+    with :ok <- validate_collection(write["collection"]),
+         :ok <- validate_rkey_present(write["rkey"]),
+         {:ok, record} <- checked(write["collection"], write["value"], opts) do
+      key = write["collection"] <> "/" <> write["rkey"]
+
+      if Map.has_key?(state.entries, key) do
+        encode(:put, key, record, state)
+      else
+        {:error, :record_not_found}
+      end
+    end
+  end
+
+  defp prepare_write(
+         %{"$type" => "com.atproto.repo.applyWrites#delete"} = write,
+         state,
+         _opts
+       ) do
+    with :ok <- validate_collection(write["collection"]),
+         :ok <- validate_rkey_present(write["rkey"]) do
+      key = write["collection"] <> "/" <> write["rkey"]
+
+      if Map.has_key?(state.entries, key) do
+        change = %{action: "delete", key: key, cid: nil, data: nil}
+        {:ok, change, %{state | entries: Map.delete(state.entries, key)}}
+      else
+        {:error, :record_not_found}
+      end
+    end
+  end
+
+  defp prepare_write(%{"$type" => type}, _state, _opts),
+    do: {:error, {:unsupported_write, type}}
+
+  defp prepare_write(_write, _state, _opts), do: {:error, :invalid_write}
+
+  defp encode(action, key, record, state) do
+    case Commit.encode_write(state.entries, action, key, record) do
+      {:ok, change} ->
+        {:ok, change, %{state | entries: Map.put(state.entries, key, change.cid)}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp checked(_collection, record, _opts) when not is_map(record),
+    do: {:error, :missing_params}
+
+  defp checked(collection, record, opts), do: Record.check(collection, record, opts)
 
   # Split out of the write clause so the record check is the last thing that
   # clause reads as before the encoding starts.

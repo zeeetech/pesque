@@ -12,6 +12,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   alias Pesque.Accounts
   alias Pesque.Identity
   alias Pesque.RepoStore
+  alias Pesque.ServiceAuth
   alias PesqueWeb.Xrpc
 
   # The first thing every client asks. A server that does not answer it cannot
@@ -66,15 +67,19 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
   # A repo with no commit is a repo nobody has written to, which is not the
   # same as a repo that is not there. `repoCommit` is null in that case and the
-  # rest follows from it.
+  # rest follows from it. `activated` is the account's own state, so a
+  # deactivated repo answers false here and in sync.getRepoStatus rather than
+  # one saying active and the other not.
   defp account_status(did) do
+    active = Accounts.repo_active?(did)
+
     %{
-      "activated" => true,
+      "activated" => active,
       "validDid" => true,
       "repoCommit" => RepoStore.get_meta("commit:" <> did),
       "repoRev" => RepoStore.get_meta("rev:" <> did),
       "repoBlocks" => RepoStore.block_count(did),
-      "indexable" => true,
+      "indexable" => active,
       "cdns" => [],
       "blobDiverged" => false
     }
@@ -223,6 +228,59 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def delete_account(conn, _params) do
     Xrpc.error(conn, 400, "InvalidRequest", "did, password and token are required")
   end
+
+  # Deactivation stops writes and announces itself; the repo itself stays, so
+  # activateAccount can bring it back and a mirror can still ask what happened.
+  #
+  # deleteAfter is a recommendation about how long to hold the account, and
+  # nothing here acts on it. Scheduling a deletion from it would be a second
+  # way to destroy an account, next to the two-step flow deleteAccount already
+  # is, and the wrong one to get wrong.
+  def deactivate_account(conn, _params) do
+    case Accounts.deactivate_account(conn.assigns.current_user) do
+      {:ok, _did} -> json(conn, %{})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  def activate_account(conn, _params) do
+    case Accounts.activate_account(conn.assigns.current_user) do
+      {:ok, _did} -> json(conn, %{})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  # A token for another service to accept, proving this account to it. The
+  # account is the authenticated one and its key does the signing, so the
+  # token says nothing the account's DID document does not already say.
+  #
+  # The token itself is never logged, and neither is the failure: a rejected
+  # audience is a caller mistake and the reason is already in the body.
+  def get_service_auth(conn, params) do
+    case ServiceAuth.mint(conn.assigns.did, params["aud"], opts(params)) do
+      {:ok, token} -> json(conn, %{"token" => token})
+      {:error, reason} -> fail(conn, reason)
+    end
+  end
+
+  # exp is an integer in the lexicon and arrives as query-string text. Only a
+  # string that is entirely digits becomes one; anything else is passed through
+  # untouched so ServiceAuth answers BadExpiration for it rather than this
+  # module deciding what a number is.
+  defp opts(params) do
+    [exp: parse_exp(params["exp"]), lxm: params["lxm"]]
+  end
+
+  defp parse_exp(nil), do: nil
+
+  defp parse_exp(exp) when is_binary(exp) do
+    case Integer.parse(exp) do
+      {n, ""} -> n
+      _other -> exp
+    end
+  end
+
+  defp parse_exp(exp), do: exp
 
   def get_session(conn, _params) do
     user = conn.assigns.current_user
