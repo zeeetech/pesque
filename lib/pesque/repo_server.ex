@@ -10,16 +10,13 @@ defmodule Pesque.RepoServer do
 
   use GenServer
 
-  alias Pesque.CBOR
   alias Pesque.CID
+  alias Pesque.Commit
   # API
   alias Pesque.Keys
-  alias Pesque.Lexicon
-  alias Pesque.Mst
   alias Pesque.Record
   alias Pesque.Repo
   alias Pesque.RepoStore
-  alias Pesque.Secp256k1
   alias Pesque.Tid
 
   @nsid_regex ~r/^[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
@@ -117,23 +114,10 @@ defmodule Pesque.RepoServer do
   end
 
   # Split out of the write clause so the record check is the last thing that
-  # clause reads as before the encoding starts. from_json/1 is what turns a
-  # client's $link and $bytes into the structures CBOR understands, and it is
-  # the last point at which a bad value can be turned away: past it the
-  # encoder raises rather than answering a tuple.
+  # clause reads as before the encoding starts.
   defp encode_write(state, action, key, record) do
-    case Lexicon.from_json(record) do
-      {:ok, internal} ->
-        data = CBOR.encode(internal)
-        cid = CID.from_data(data)
-
-        change = %{
-          action: write_action(action, state.entries, key),
-          key: key,
-          cid: cid,
-          data: data
-        }
-
+    case Commit.encode_write(state.entries, action, key, record) do
+      {:ok, change} ->
         {state, result} = commit(state, [change])
         {:reply, {:ok, result}, state}
 
@@ -142,38 +126,8 @@ defmodule Pesque.RepoServer do
     end
   end
 
-  defp write_action(:create, _entries, _key), do: "create"
-
-  defp write_action(:put, entries, key),
-    do: if(Map.has_key?(entries, key), do: "update", else: "create")
-
   defp commit(state, changes) do
-    entries2 =
-      Enum.reduce(changes, state.entries, fn
-        %{action: "delete", key: key}, acc -> Map.delete(acc, key)
-        %{key: key, cid: cid}, acc -> Map.put(acc, key, cid)
-      end)
-
-    {root_cid, node_blocks} = Mst.build(entries2)
-    {rev, tid_int} = Tid.next(state.tid_int, state.clock_id)
-
-    unsigned = %{
-      "did" => state.did,
-      "version" => 3,
-      "data" => root_cid,
-      "rev" => rev,
-      "prev" => nil
-    }
-
-    sig = Secp256k1.sign(state.priv, CBOR.encode(unsigned))
-    commit_obj = Map.put(unsigned, "sig", %CBOR.Bytes{data: sig})
-    commit_bytes = CBOR.encode(commit_obj)
-    commit_cid = CID.from_data(commit_bytes)
-
-    all_blocks =
-      node_blocks
-      |> Map.merge(Map.new(for %{cid: cid, data: data} <- changes, data != nil, do: {cid, data}))
-      |> Map.put(commit_cid, commit_bytes)
+    {:ok, prepared} = Commit.commit(state, changes)
 
     {:ok, frame} =
       Repo.transaction(fn ->
@@ -183,11 +137,11 @@ defmodule Pesque.RepoServer do
         # the same seq lose on the primary key and roll back whole.
         seq = RepoStore.claim_event_seq()
 
-        cid_strings = Enum.map(Map.keys(all_blocks), &CID.to_string/1)
+        cid_strings = Enum.map(Map.keys(prepared.all_blocks), &CID.to_string/1)
         existing = RepoStore.existing_cids(state.did, cid_strings)
 
         new_blocks =
-          for {cid, bytes} <- all_blocks,
+          for {cid, bytes} <- prepared.all_blocks,
               not MapSet.member?(existing, CID.to_string(cid)),
               into: %{},
               do: {CID.to_string(cid), bytes}
@@ -204,12 +158,12 @@ defmodule Pesque.RepoServer do
             RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
         end)
 
-        RepoStore.put_meta!("root:" <> state.did, CID.to_string(root_cid))
-        RepoStore.put_meta!("rev:" <> state.did, rev)
-        RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(tid_int))
-        RepoStore.put_meta!("commit:" <> state.did, CID.to_string(commit_cid))
+        RepoStore.put_meta!("root:" <> state.did, CID.to_string(prepared.root_cid))
+        RepoStore.put_meta!("rev:" <> state.did, prepared.rev)
+        RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(prepared.tid_int))
+        RepoStore.put_meta!("commit:" <> state.did, CID.to_string(prepared.commit_cid))
 
-        frame = build_frame(state, seq, commit_cid, rev, new_blocks, changes)
+        frame = Commit.frame(prepared, seq, new_blocks, changes)
         RepoStore.insert_event!(state.did, seq, frame)
         frame
       end)
@@ -218,53 +172,8 @@ defmodule Pesque.RepoServer do
       for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
     end)
 
-    new_state = %{state | entries: entries2, tid_int: tid_int, rev: rev}
-
-    result = %{
-      "commit" => %{"cid" => CID.to_string(commit_cid), "rev" => rev},
-      "changes" =>
-        Enum.map(changes, fn c ->
-          %{
-            "uri" => "at://" <> state.did <> "/" <> c.key,
-            "cid" => if(c.cid, do: CID.to_string(c.cid)),
-            "action" => c.action
-          }
-        end)
-    }
-
-    {new_state, result}
-  end
-
-  defp build_frame(state, seq, commit_cid, rev, new_blocks, changes) do
-    car =
-      Pesque.Car.encode(
-        [commit_cid],
-        Map.new(new_blocks, fn {cid_string, bytes} -> {CID.parse(cid_string), bytes} end)
-      )
-
-    ops =
-      Enum.map(changes, fn c ->
-        %{"action" => c.action, "path" => c.key, "cid" => c.cid}
-      end)
-
-    header = CBOR.encode(%{"op" => 1, "t" => "#commit"})
-
-    body =
-      CBOR.encode(%{
-        "seq" => seq,
-        "rebase" => false,
-        "tooBig" => false,
-        "repo" => state.did,
-        "commit" => commit_cid,
-        "rev" => rev,
-        "since" => state.rev,
-        "blocks" => %CBOR.Bytes{data: car},
-        "ops" => ops,
-        "blobs" => [],
-        "time" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-      })
-
-    header <> body
+    {%{state | entries: prepared.entries, tid_int: prepared.tid_int, rev: prepared.rev},
+     prepared.result}
   end
 
   # validation
