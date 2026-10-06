@@ -40,8 +40,13 @@ defmodule Pesque.Storage do
       {:error, _reason} ->
         secret = Base.encode16(:crypto.strong_rand_bytes(64), case: :lower)
         File.mkdir_p!(data_dir)
-        File.write!(path, secret)
-        File.chmod!(path, 0o600)
+        {:ok, device} = :file.open(path, [:write])
+        # chmod before the secret bytes land in the file: open(2) creates
+        # it with the default mode, so writing first would leave the
+        # secret world-readable until the chmod.
+        :ok = File.chmod(path, 0o600)
+        :ok = :file.write(device, secret)
+        :ok = :file.close(device)
         secret
     end
   end

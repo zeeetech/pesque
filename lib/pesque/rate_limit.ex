@@ -10,8 +10,9 @@ defmodule Pesque.RateLimit do
   Fixed window, not sliding: the counters reset on a boundary rather than
   decaying, so a caller can spend a full window's budget at the end of one and
   a full window's at the start of the next. That is twice the limit across the
-  seam. It buys having no timer per key and no cleanup pass, which for a
-  homelab PDS is the trade worth making. `pesque: rate limit a caller at the
+  seam. It buys having no timer per key; the only cleanup is one periodic
+  sweep of windows that have already reset, which for a homelab PDS is the
+  trade worth making. `pesque: rate limit a caller at the
   window boundary` if a deployment ever needs it.
 
   Windows are sized by the caller passing a limit and a length. This module
@@ -35,7 +36,20 @@ defmodule Pesque.RateLimit do
       write_concurrency: true
     ])
 
+    Process.send_after(self(), :sweep, 60_000)
     {:ok, nil}
+  end
+
+  @impl true
+  def handle_info(:sweep, state) do
+    now = System.monotonic_time(:millisecond)
+
+    :ets.select_delete(@table, [
+      {{{:_, :"$1"}, :_, :"$2"}, [{:>=, {:const, now}, {:*, {:+, :"$1", 1}, :"$2"}}], [true]}
+    ])
+
+    Process.send_after(self(), :sweep, 60_000)
+    {:noreply, state}
   end
 
   @doc """
@@ -52,7 +66,7 @@ defmodule Pesque.RateLimit do
     window = Integer.floor_div(now, window_ms)
     key = {key, window}
 
-    count = :ets.update_counter(@table, key, {2, 1}, {{key, window}, 0, nil})
+    count = :ets.update_counter(@table, key, {2, 1}, {{key, window}, 0, window_ms})
 
     if count > limit do
       # Integer.mod/2, not rem/2. The monotonic clock is negative before the

@@ -96,7 +96,7 @@ defmodule Pesque.MultiAccountTest do
 
     other = insert_user()
 
-    assert {:error, :handle_not_available} =
+    assert {:error, :email_taken} =
              Accounts.create_account(username <> ".localhost", other.email, @password)
 
     refute File.exists?(Keys.path(did)), "key file left behind by the failed insert"

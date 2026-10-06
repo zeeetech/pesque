@@ -126,7 +126,7 @@ defmodule Pesque.Lexicon.Validate do
   # Accepted for what it is: from_json/1 has already parsed the CID or decoded
   # the bytes, and a value that failed to parse never got this far.
   defp errors(%{"type" => type}, _value, _path)
-       when type in ["bytes", "cid-link", "blob", "token", "unknown"],
+       when type in ["bytes", "cid-link", "blob", "token"],
        do: []
 
   defp errors(_def, _value, path), do: [{path, :unrecognized_definition}]

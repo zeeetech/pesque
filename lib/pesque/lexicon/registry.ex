@@ -155,7 +155,13 @@ defmodule Pesque.Lexicon.Registry do
   # each other terminate instead of resolving forever. The validator accepts a
   # ref it cannot follow, so stopping costs one unchecked subtree rather than a
   # hung boot.
-  defp lookup("#" <> name, document, _seen), do: {get_in(document, ["defs", name]), document}
+  defp lookup("#" <> name = ref, document, seen) do
+    if MapSet.member?(seen, ref) do
+      {nil, document}
+    else
+      {get_in(document, ["defs", name]), document}
+    end
+  end
 
   defp lookup(nsid, _document, seen) do
     with false <- MapSet.member?(seen, nsid),

@@ -190,8 +190,8 @@ defmodule Pesque.Accounts do
     with {:ok, claims} <-
            Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
          {:ok, row} <- fetch_live_refresh(claims["jti"]),
-         %User{} = user <- get_user(claims["sub"]) do
-      revoke!(row)
+         %User{} = user <- get_user(claims["sub"]),
+         true <- revoke_live(row) do
       {:ok, issue_session(user.did), user}
     else
       _ -> {:error, :invalid_token}
@@ -202,8 +202,8 @@ defmodule Pesque.Accounts do
   def revoke_session(refresh_jwt) do
     with {:ok, claims} <-
            Pesque.Token.verify(refresh_jwt, Pesque.Secret.get(), "com.atproto.refresh"),
-         {:ok, row} <- fetch_live_refresh(claims["jti"]) do
-      revoke!(row)
+         {:ok, row} <- fetch_live_refresh(claims["jti"]),
+         true <- revoke_live(row) do
       :ok
     else
       _ -> {:error, :invalid_token}
@@ -292,9 +292,9 @@ defmodule Pesque.Accounts do
   end
 
   # A cross-column collision check: one account's handle must not become
-  # another's email. Both sides can be nil (an open registration may carry no
-  # email, and the conformant_single account has no handle), and Ecto refuses
-  # to build `== nil` from a pin, so each side is only compared when present.
+  # another's email. Ecto refuses to build `== nil` from a pin, and the
+  # conformant_single account has no handle, so each side is only compared
+  # when present. Email itself is NOT NULL on the users table.
   defp check_identifier(identity, email) do
     cond do
       email != nil and Repo.exists?(from u in User, where: u.handle == ^email) ->
@@ -341,9 +341,21 @@ defmodule Pesque.Accounts do
         {:ok, _pid} = Pesque.RepoSupervisor.ensure_started(user.did)
         {:ok, user}
 
-      {:error, _changeset} ->
+      {:error, changeset} ->
         Keys.delete(identity.did)
-        {:error, :handle_not_available}
+
+        if email_taken?(changeset) do
+          {:error, :email_taken}
+        else
+          {:error, :missing_fields}
+        end
+    end
+  end
+
+  defp email_taken?(changeset) do
+    case Keyword.get(changeset.errors, :email) do
+      {_msg, opts} when is_list(opts) -> opts[:constraint] == :unique
+      _ -> false
     end
   end
 
@@ -371,9 +383,13 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp revoke!(row) do
-    row
-    |> RefreshToken.changeset(%{revoked: true})
-    |> Repo.update!()
+  # Atomic revoke: a concurrent refresh of the same token loses the race
+  # instead of both pairs being issued.
+  defp revoke_live(row) do
+    {count, _} =
+      from(t in RefreshToken, where: t.id == ^row.id and t.revoked == false)
+      |> Repo.update_all(set: [revoked: true])
+
+    count == 1
   end
 end

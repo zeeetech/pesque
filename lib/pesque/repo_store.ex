@@ -124,25 +124,21 @@ defmodule Pesque.RepoStore do
     Repo.one(from e in Event, select: max(e.seq)) || 0
   end
 
-  @doc "Claims the next event sequence number, assigning it in the database."
-  def insert_event!(did, payload) do
+  @doc "The next event sequence number: one past the current maximum."
+  def claim_event_seq, do: max_seq() + 1
+
+  @doc "Inserts one event row with its payload already encoded."
+  def insert_event!(did, seq, payload) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     {1, [event]} =
       Repo.insert_all(
         Event,
-        [%{seq: nil, did: did, payload: payload, inserted_at: now}],
+        [%{seq: seq, did: did, payload: payload, inserted_at: now}],
         returning: [:seq]
       )
 
     event.seq
-  end
-
-  def put_event_payload!(seq, payload) do
-    query = from e in Event, where: e.seq == ^seq, update: [set: [payload: ^payload]]
-    {1, _} = Repo.update_all(query, [])
-
-    :ok
   end
 
   def events_after(cursor, limit \\ 10_000) do

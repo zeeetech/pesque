@@ -177,11 +177,11 @@ defmodule Pesque.RepoServer do
 
     {:ok, frame} =
       Repo.transaction(fn ->
-        # First statement in the transaction: the database assigns the
-        # sequence number here, and the write takes SQLite's lock before
-        # anything below reads. The payload lands in put_event_payload!/2,
-        # because the frame that carries it needs this seq.
-        seq = RepoStore.insert_event!(state.did, <<>>)
+        # The seq comes first because the frame carries it; the event row
+        # is inserted with its payload already encoded, so a crash can
+        # never leave an empty-payload row behind. Two writers racing on
+        # the same seq lose on the primary key and roll back whole.
+        seq = RepoStore.claim_event_seq()
 
         cid_strings = Enum.map(Map.keys(all_blocks), &CID.to_string/1)
         existing = RepoStore.existing_cids(state.did, cid_strings)
@@ -210,7 +210,7 @@ defmodule Pesque.RepoServer do
         RepoStore.put_meta!("commit:" <> state.did, CID.to_string(commit_cid))
 
         frame = build_frame(state, seq, commit_cid, rev, new_blocks, changes)
-        RepoStore.put_event_payload!(seq, frame)
+        RepoStore.insert_event!(state.did, seq, frame)
         frame
       end)
 
