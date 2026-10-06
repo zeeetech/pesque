@@ -81,6 +81,17 @@ defmodule PesqueWeb.RecordValidationTest do
     assert JSON.decode!(conn.resp_body)["message"] =~ "app.bsky.feed.like"
   end
 
+  # A null $type is not an absent one, and the difference is visible from
+  # outside: the request is refused instead of being stored as a record whose
+  # type is nothing.
+  test "a $type of null is a 400 and stores nothing", ctx do
+    conn = create_record(ctx, Map.put(@post, "$type", nil))
+
+    assert conn.status == 400
+    assert JSON.decode!(conn.resp_body)["message"] =~ "$type"
+    assert RepoServer.entries(repo_pid(ctx)) == %{}
+  end
+
   test "validate false stores a record the lexicon would refuse and says unknown", ctx do
     conn = create(ctx, %{"record" => %{"text" => 42}, "validate" => false})
 

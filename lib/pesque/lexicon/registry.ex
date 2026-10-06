@@ -126,11 +126,23 @@ defmodule Pesque.Lexicon.Registry do
     end
   end
 
-  # A union is left as it is apart from the defs it needs to resolve its own
-  # local refs against, which is the one thing the validator cannot work out
-  # from the node alone.
-  defp resolve(%{"type" => "union"} = node, document, _seen),
-    do: Map.put(node, "defs", Map.get(document, "defs", %{}))
+  # A union keeps its own defs, which is the one thing the validator cannot
+  # work out from the node alone, and gains a resolved schema per member ref.
+  #
+  # Without the members a union body went unchecked entirely: the validator saw
+  # a $type naming an NSID, had no schema to hand, and accepted it on its name.
+  # So a post's embed, a labels block or a site.standard.document content took
+  # any shape at all, and the lexicon author and the submitter are independent
+  # parties.
+  #
+  # A ref is followed with itself added to `seen`, so a union whose members
+  # point back at the document holding it terminates instead of resolving
+  # forever.
+  defp resolve(%{"type" => "union"} = node, document, seen) do
+    node
+    |> Map.put("defs", Map.get(document, "defs", %{}))
+    |> put_variants(document, seen)
+  end
 
   defp resolve(%{"properties" => properties} = node, document, seen) when is_map(properties) do
     Map.put(
@@ -148,6 +160,26 @@ defmodule Pesque.Lexicon.Registry do
   # Anything else has nothing inside it to follow.
   defp resolve(node, _document, _seen), do: node
 
+  # A ref naming a lexicon this server does not hold contributes no variant, so
+  # the validator finds nothing to check that member against and accepts it on
+  # its name. That is the same degradation a dangling ref gets anywhere else.
+  defp put_variants(node, document, seen) do
+    variants =
+      [node["ref"] | Map.get(node, "refs", [])]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(fn ref ->
+        case lookup(ref, document, seen) do
+          {nil, _document} ->
+            []
+
+          {target, target_document} ->
+            [{ref, resolve(target, target_document, MapSet.put(seen, ref))}]
+        end
+      end)
+
+    Map.put(node, "variants", Map.new(variants))
+  end
+
   # Each answer carries the document it came from, because that is the document
   # a "#def" inside it has to be looked up in.
   #
@@ -155,20 +187,31 @@ defmodule Pesque.Lexicon.Registry do
   # each other terminate instead of resolving forever. The validator accepts a
   # ref it cannot follow, so stopping costs one unchecked subtree rather than a
   # hung boot.
-  defp lookup("#" <> name = ref, document, seen) do
+  defp lookup(ref, document, seen) do
     if MapSet.member?(seen, ref) do
       {nil, document}
     else
-      {get_in(document, ["defs", name]), document}
+      foreign(ref, document)
     end
   end
 
-  defp lookup(nsid, _document, seen) do
-    with false <- MapSet.member?(seen, nsid),
-         {:ok, document} <- Map.fetch(all(), nsid) do
-      {get_in(document, ["defs", "main"]), document}
-    else
-      _ -> {nil, nil}
+  # "#name" is a def of the document the ref came from; "nsid" is that
+  # lexicon's main; "nsid#name" is a def of another lexicon, which is how a post
+  # names "com.atproto.label.defs#selfLabels".
+  defp foreign("#" <> name, document),
+    do: {get_in(document, ["defs", name]), document}
+
+  defp foreign(ref, _document) do
+    case String.split(ref, "#", parts: 2) do
+      [nsid] -> def_of(nsid, "main")
+      [nsid, name] -> def_of(nsid, name)
+    end
+  end
+
+  defp def_of(nsid, def_name) do
+    case Map.fetch(all(), nsid) do
+      {:ok, document} -> {get_in(document, ["defs", def_name]), document}
+      :error -> {nil, nil}
     end
   end
 end
