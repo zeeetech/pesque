@@ -17,3 +17,7 @@ config :pesque, PesqueWeb.Endpoint,
 config :pesque, ecto_repos: [Pesque.Repo]
 
 config :phoenix, :json_library, JSON
+
+# The same library for the adapter, which defaults to Jason to store its array
+# and map columns as JSON. Jason is not a dependency here.
+config :ecto_sqlite3, :json_library, JSON

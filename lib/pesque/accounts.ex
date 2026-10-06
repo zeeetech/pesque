@@ -3,9 +3,12 @@ defmodule Pesque.Accounts do
 
   import Ecto.Query
 
+  alias Pesque.Accounts.InviteCode
   alias Pesque.Accounts.RefreshToken
   alias Pesque.Accounts.User
+  alias Pesque.Base32
   alias Pesque.Did
+  alias Pesque.Events
   alias Pesque.Identity
   alias Pesque.Keys
   alias Pesque.Repo
@@ -20,6 +23,10 @@ defmodule Pesque.Accounts do
   path_multi the domain must equal the handle domain exactly, so a lookalike
   domain is rejected rather than normalized into acceptance.
 
+  :invite_code, when given, is claimed for the new account's DID in the same
+  transaction that inserts the account, so a code spent on an account that
+  then fails to insert is spendable again.
+
   The order below is load-bearing. RepoServer.init/1 loads the key for the
   DID it is given, so the key file has to be claimed before the repo starts
   and the user row has to be committed before that. A failed insert leaves a
@@ -27,15 +34,97 @@ defmodule Pesque.Accounts do
   same handle fail on the exclusive create, so it is removed before
   returning.
   """
-  def create_account(handle, email, password) do
+  def create_account(handle, email, password, opts \\ []) do
     with {:ok, identity} <- identity_for(handle),
          :ok <- check_password(password),
          :ok <- check_email(email),
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity) do
-      insert(identity, email, password, key.pub_multibase)
+      insert(identity, email, password, key.pub_multibase, Keyword.get(opts, :invite_code))
     end
   end
+
+  @doc """
+  Creates `code_count` invite codes, each good for `use_count` accounts, and
+  answers them grouped by the account they were made for.
+
+  A server whose registration is closed has no public way in, so this is how
+  an operator hands accounts out. The codes are random base32, short enough to
+  read over a voice call, and the unique index is what makes a guess against
+  one of them fail rather than collide.
+
+  `for_accounts` restricts the codes to those DIDs and answers one group per
+  DID. A code made for nobody is spendable by any account, and its group names
+  no account, because a code belonging to nobody cannot name one.
+  """
+  def create_invite_codes(code_count, use_count, for_accounts \\ [])
+
+  def create_invite_codes(code_count, use_count, for_accounts)
+      when is_integer(code_count) and code_count > 0 and
+             is_integer(use_count) and use_count > 0 and is_list(for_accounts) do
+    accounts = if for_accounts == [], do: [nil], else: for_accounts
+    restricted = if for_accounts == [], do: nil, else: for_accounts
+
+    groups =
+      for account <- accounts do
+        %{account: account, codes: insert_codes(code_count, use_count, restricted)}
+      end
+
+    {:ok, groups}
+  end
+
+  def create_invite_codes(code_count, _use_count, for_accounts)
+      when is_integer(code_count) and code_count > 0 and is_list(for_accounts) do
+    {:error, :invalid_use_count}
+  end
+
+  def create_invite_codes(code_count, _use_count, for_accounts)
+      when is_integer(code_count) and is_list(for_accounts) do
+    {:error, :invalid_code_count}
+  end
+
+  def create_invite_codes(_code_count, _use_count, _for_accounts),
+    do: {:error, :invalid_code_count}
+
+  defp insert_codes(code_count, use_count, restricted) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    rows =
+      for _ <- 1..code_count do
+        row = %{code: random_code(), use_count: use_count, uses: 0, inserted_at: now}
+
+        # Left out rather than written as nil, because the adapter dumps a nil
+        # array as the JSON string "null" and the claim query asks IS NULL.
+        if restricted, do: Map.put(row, :for_accounts, restricted), else: row
+      end
+
+    {_count, inserted} =
+      Repo.insert_all(InviteCode, rows, on_conflict: :nothing, returning: [:code])
+
+    Enum.map(inserted, & &1.code)
+  end
+
+  @doc """
+  Claims one use of an invite code for `did`. A code with no uses left, one no
+  row names, and one restricted to other DIDs all answer
+  {:error, :invalid_invite_code}; the conditional update is what makes two
+  callers racing for the last use of a code produce one account rather than
+  two, and what makes the restriction and the count one statement.
+  """
+  def consume_invite_code(code, did) when is_binary(code) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    {count, _} =
+      from(i in InviteCode,
+        where: i.code == ^code and i.uses < i.use_count,
+        where: is_nil(i.for_accounts) or ^did in i.for_accounts
+      )
+      |> Repo.update_all(inc: [uses: 1], set: [used_at: now, used_by: did])
+
+    if count == 1, do: :ok, else: {:error, :invalid_invite_code}
+  end
+
+  def consume_invite_code(_code, _did), do: {:error, :invalid_invite_code}
 
   # Checked before anything else is touched, because the changeset would
   # otherwise reject it after a key file had already been claimed.
@@ -44,6 +133,27 @@ defmodule Pesque.Accounts do
 
   @doc "The account with a DID, or nil."
   def get_user(did), do: Repo.get_by(User, did: did)
+
+  @doc """
+  The DIDs of every hosted account, ordered, for a whole-server listing.
+
+  Only the DID is selected: this enumerates accounts to anyone who asks, so it
+  must not be able to hand back a row carrying an email or a password hash.
+  """
+  def hosted_dids(limit, offset) do
+    Repo.all(
+      from u in User,
+        order_by: [asc: u.did],
+        limit: ^limit,
+        offset: ^offset,
+        select: u.did
+    )
+  end
+
+  @doc "Every hosted DID, ordered. The whole set, for a maintenance sweep."
+  def hosted_dids do
+    Repo.all(from u in User, order_by: [asc: u.did], select: u.did)
+  end
 
   @doc """
   The DID document of the account named by a username, or of the account itself.
@@ -334,22 +444,30 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp insert(identity, email, password, pub_multibase) do
-    %{
-      did: identity.did,
-      handle: identity.handle,
-      username: identity.username,
-      pubkey_multibase: pub_multibase,
-      email: email,
-      password_hash:
-        Argon2.hash_pwd_salt(password, Application.get_env(:pesque, :argon2_opts, []))
-    }
-    |> User.changeset()
-    |> Repo.insert()
-    |> case do
+  # The invite code is claimed inside the transaction that inserts the
+  # account, so a code spent on an insert that then failed goes back to being
+  # spendable. The frame is announced after that transaction commits: a frame
+  # for an account nobody can log into is worse than a late one.
+  defp insert(identity, email, password, pub_multibase, invite_code) do
+    result =
+      Repo.transaction(fn ->
+        with :ok <- consume_invite(invite_code, identity.did),
+             {:ok, user} <- insert_user(identity, email, password, pub_multibase) do
+          user
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    case result do
       {:ok, user} ->
         Logger.info("account created", did: user.did, handle: user.handle)
+        Events.emit_account(user.did, :activated)
         {:ok, user}
+
+      {:error, :invalid_invite_code} ->
+        Keys.delete(identity.did)
+        {:error, :invalid_invite_code}
 
       {:error, changeset} ->
         Keys.delete(identity.did)
@@ -361,6 +479,25 @@ defmodule Pesque.Accounts do
         end
     end
   end
+
+  defp insert_user(identity, email, password, pub_multibase) do
+    %{
+      did: identity.did,
+      handle: identity.handle,
+      username: identity.username,
+      pubkey_multibase: pub_multibase,
+      email: email,
+      password_hash:
+        Argon2.hash_pwd_salt(password, Application.get_env(:pesque, :argon2_opts, []))
+    }
+    |> User.changeset()
+    |> Repo.insert()
+  end
+
+  defp consume_invite(nil, _did), do: :ok
+  defp consume_invite(code, did), do: consume_invite_code(code, did)
+
+  defp random_code, do: Base32.encode(:crypto.strong_rand_bytes(5))
 
   defp email_taken?(changeset) do
     case Keyword.get(changeset.errors, :email) do

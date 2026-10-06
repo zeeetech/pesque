@@ -47,6 +47,21 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:email_taken),
     do: {400, "InvalidRequest", "email is already used as a handle on this server"}
 
+  def to_xrpc(:invalid_invite_code),
+    do:
+      {400, "InvalidInviteCode",
+       "the invitation code is invalid, exhausted, or for another account"}
+
+  def to_xrpc(:invite_code_required),
+    do:
+      {400, "InvalidInviteCode", "this server is invite only, so an invitation code is required"}
+
+  def to_xrpc(:invalid_code_count),
+    do: {400, "InvalidRequest", "codeCount must be a positive integer"}
+
+  def to_xrpc(:invalid_use_count),
+    do: {400, "InvalidRequest", "useCount must be a positive integer"}
+
   def to_xrpc(:missing_fields), do: {400, "InvalidRequest", "account could not be created"}
   def to_xrpc(:wrong_repo), do: {400, "InvalidRequest", "repo must be the authenticated account"}
   def to_xrpc(:empty), do: {400, "InvalidRequest", "blob body is empty"}

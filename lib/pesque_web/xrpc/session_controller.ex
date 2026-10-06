@@ -96,7 +96,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
         {:ok, []}
 
       :closed ->
-        case params["invitationCode"] do
+        case params["inviteCode"] do
           code when is_binary(code) -> {:ok, [invite_code: code]}
           _ -> {:error, :invite_code_required}
         end
@@ -182,14 +182,23 @@ defmodule PesqueWeb.Xrpc.SessionController do
   end
 
   def create_invite_codes(conn, params) do
-    case Accounts.create_invite_code(code_count(params)) do
-      {:ok, codes} -> json(conn, %{"codes" => codes})
+    case Accounts.create_invite_codes(code_count(params), use_count(params), for_accounts(params)) do
+      {:ok, groups} -> json(conn, %{"codes" => Enum.map(groups, &group/1)})
       {:error, reason} -> fail(conn, reason)
     end
   end
 
-  defp code_count(%{"codeCount" => count}) when is_integer(count), do: count
+  defp group(%{account: account, codes: codes}),
+    do: %{"account" => account, "codes" => codes}
+
+  defp code_count(%{"codeCount" => count}), do: count
   defp code_count(_params), do: 1
+
+  defp use_count(%{"useCount" => count}), do: count
+  defp use_count(_params), do: nil
+
+  defp for_accounts(%{"forAccounts" => [did | _] = dids}) when is_binary(did), do: dids
+  defp for_accounts(_params), do: []
 
   def get_session(conn, _params) do
     user = conn.assigns.current_user
