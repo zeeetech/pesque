@@ -3,6 +3,7 @@ defmodule Pesque.Varint do
 
   import Bitwise
 
+  @doc "Encodes one unsigned integer. Raises FunctionClauseError on a negative one."
   def encode(n) when is_integer(n) and n >= 0, do: encode(n, [])
 
   defp encode(n, acc) when n < 0x80, do: IO.iodata_to_binary(Enum.reverse([n | acc]))

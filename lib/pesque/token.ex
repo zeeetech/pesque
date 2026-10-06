@@ -8,9 +8,13 @@ defmodule Pesque.Token do
   @access_ttl_seconds 2 * 60 * 60
   @refresh_ttl_seconds 90 * 24 * 60 * 60
 
+  @doc "Lifetime of an access token, in seconds."
   def access_ttl_seconds, do: @access_ttl_seconds
+
+  @doc "Lifetime of a refresh token, in seconds."
   def refresh_ttl_seconds, do: @refresh_ttl_seconds
 
+  @doc "Signs `claims` into a compact JWT. `secret` is the HMAC key."
   def sign(claims, secret) do
     header = JSON.encode!(%{"alg" => "HS256", "typ" => "JWT"})
     payload = JSON.encode!(claims)
@@ -18,9 +22,9 @@ defmodule Pesque.Token do
     input <> "." <> b64(:crypto.mac(:hmac, :sha256, secret, input))
   end
 
-  @doc "Verifies signature, expiry, and scope. Returns {:ok, claims} | {:error, reason}."
+  @doc "Verifies signature, expiry, and scope. Returns {:ok, claims} | {:error, :invalid_token}."
   def verify(token, secret, expected_scope) do
-    with [header, payload, sig64] <- String.split(token, "."),
+    with {:ok, header, payload, sig64} <- split(token),
          {:ok, sig} <- Base.url_decode64(sig64, padding: false),
          :ok <- verify_mac(header <> "." <> payload, sig, secret),
          {:ok, decoded} <- Base.url_decode64(payload, padding: false),
@@ -29,6 +33,13 @@ defmodule Pesque.Token do
       {:ok, claims}
     else
       _ -> {:error, :invalid_token}
+    end
+  end
+
+  defp split(token) do
+    case String.split(token, ".", parts: 3) do
+      [header, payload, sig64] -> {:ok, header, payload, sig64}
+      _other -> :error
     end
   end
 

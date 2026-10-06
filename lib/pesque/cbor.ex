@@ -20,6 +20,7 @@ defmodule Pesque.CBOR do
     defstruct [:data]
   end
 
+  @doc "Encodes one term as DAG-CBOR. Raises ArgumentError on anything the data model does not cover."
   def encode(term), do: IO.iodata_to_binary(enc(term))
 
   defp enc(nil), do: <<0xF6>>

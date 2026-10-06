@@ -27,6 +27,7 @@ defmodule PesqueWeb.Plugs.RateLimit do
   import Plug.Conn
 
   alias Pesque.RateLimit
+  alias PesqueWeb.Xrpc
 
   @doc """
   Options: `:bucket` names the limit class, `:limit` and `:window` size it.
@@ -121,7 +122,7 @@ defmodule PesqueWeb.Plugs.RateLimit do
     # Before the error is built, because Xrpc.error/4 puts a response and
     # anything set afterwards lands on a conn nobody reads.
     |> put_resp_header("retry-after", Integer.to_string(seconds))
-    |> PesqueWeb.Xrpc.error(
+    |> Xrpc.error(
       429,
       "RateLimitExceeded",
       "too many requests; retry in #{seconds}s"

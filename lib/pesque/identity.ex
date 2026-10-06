@@ -18,15 +18,26 @@ defmodule Pesque.Identity do
 
   @doc "Loads the server's signing key. Called once, before the endpoint starts."
   def load! do
-    {:ok, key} = Keys.ensure(did())
-    :persistent_term.put(@pub_multibase, key.pub_multibase)
+    case Keys.ensure(did()) do
+      {:ok, key} ->
+        :persistent_term.put(@pub_multibase, key.pub_multibase)
+
+      {:error, reason} ->
+        raise "the server signing key could not be loaded: #{inspect(reason)}"
+    end
   end
 
+  @doc "The server's own DID, derived from mode, hostname and port."
   def did,
     do: Did.did_for_username(Pesque.mode(), Did.did_host(Pesque.hostname(), Pesque.port()), nil)
 
+  @doc "The handle the server publishes for itself."
   def handle, do: Did.handle_for_username(Pesque.mode(), Pesque.handle_domain(), nil)
+
+  @doc "The DID document this server serves for its own DID."
   def did_document, do: Did.did_document(Pesque.mode(), identity())
+
+  @doc "The server signing key in multibase form, as published in that document."
   def public_key_multibase, do: :persistent_term.get(@pub_multibase)
 
   defp identity do

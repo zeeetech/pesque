@@ -12,8 +12,7 @@ defmodule Pesque.RateLimit do
   a full window's at the start of the next. That is twice the limit across the
   seam. It buys having no timer per key; the only cleanup is one periodic
   sweep of windows that have already reset, which for a homelab PDS is the
-  trade worth making. `pesque: rate limit a caller at the
-  window boundary` if a deployment ever needs it.
+  trade worth making.
 
   Windows are sized by the caller passing a limit and a length. This module
   knows nothing about which endpoint is which.

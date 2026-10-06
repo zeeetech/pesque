@@ -1,6 +1,7 @@
 defmodule Pesque do
   @moduledoc "Top-level accessors for server-wide configuration."
 
+  @doc "The application version, or \"dev\" when it is not loaded from a release."
   def version do
     case Application.spec(:pesque, :vsn) do
       nil -> "dev"
@@ -26,11 +27,24 @@ defmodule Pesque do
     "#{scheme}://#{authority}"
   end
 
+  @doc "Where the repo store, keys and database live. A relative path is relative to the cwd."
   def data_dir, do: Application.get_env(:pesque, :data_dir, "data")
+
+  @doc "The DID mode: :conformant_single or :path_multi."
   def mode, do: Application.get_env(:pesque, :mode, :conformant_single)
+
+  @doc "The host this server is reached at, without scheme or port."
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
+
+  @doc "The domain accounts get handles under. Defaults to the hostname."
   def handle_domain, do: Application.get_env(:pesque, :handle_domain, hostname())
+
+  @doc "The port this process listens on. The advertised one is base_url/0's business."
   def port, do: Application.get_env(:pesque, :port, 4000)
+
+  @doc "The handle the server publishes for itself under :conformant_single."
   def handle, do: Application.get_env(:pesque, :handle, hostname())
+
+  @doc "Whether self-service account creation is open or requires an invite."
   def registration, do: Application.get_env(:pesque, :registration, :closed)
 end

@@ -9,7 +9,9 @@ defmodule Pesque.Secret do
 
   @key {__MODULE__, :secret}
 
+  @doc "Reads the secret off disk and publishes it. Raises if it is not there yet."
   def load!, do: :persistent_term.put(@key, Pesque.Storage.server_secret!())
 
+  @doc "The loaded secret. Raises if load!/0 has not run."
   def get, do: :persistent_term.get(@key)
 end

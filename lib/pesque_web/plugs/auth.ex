@@ -5,6 +5,9 @@ defmodule PesqueWeb.Plugs.Auth do
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Secret
+  alias Pesque.Token
+  alias PesqueWeb.Xrpc
 
   require Logger
 
@@ -22,8 +25,7 @@ defmodule PesqueWeb.Plugs.Auth do
   # no further. The token itself is never logged.
   def call(conn, _opts) do
     with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
-         {:ok, claims} <-
-           Pesque.Token.verify(token, Pesque.Secret.get(), "com.atproto.access"),
+         {:ok, claims} <- Token.verify(token, Secret.get(), "com.atproto.access"),
          %User{} = user <- Accounts.get_user(claims["sub"]) do
       conn
       |> assign(:did, user.did)
@@ -32,7 +34,7 @@ defmodule PesqueWeb.Plugs.Auth do
       reason ->
         Logger.warning("rejected request: #{describe(reason)}", route: conn.request_path)
 
-        PesqueWeb.Xrpc.error(
+        Xrpc.error(
           conn,
           401,
           "AuthenticationRequired",

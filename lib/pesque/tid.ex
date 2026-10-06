@@ -16,6 +16,7 @@ defmodule Pesque.Tid do
     {encode(n), n}
   end
 
+  @doc "Encodes an integer as the 13-char sortable form. The encoding is only defined up to 64 bits."
   def encode(n) when is_integer(n) and n >= 0 do
     for i <- 0..12, into: "" do
       <<Enum.fetch!(@alphabet, n >>> (60 - i * 5) &&& 0x1F)>>
