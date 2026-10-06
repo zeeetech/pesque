@@ -22,7 +22,7 @@ defmodule Pesque.MstIncrementalTest do
   # 2: a handful of attempts finds either.
   defp keys_at_depth(depth) do
     Stream.iterate(0, &(&1 + 1))
-    |> Stream.map(&"app.bsky.feed.post/" <> Integer.to_string(&1, 36))
+    |> Stream.map(&("app.bsky.feed.post/" <> Integer.to_string(&1, 36)))
     |> Stream.filter(&(Mst.depth(&1) == depth))
     |> Enum.take(6)
   end
@@ -104,7 +104,11 @@ defmodule Pesque.MstIncrementalTest do
     store = store(%{})
 
     for i <- 0..79 do
-      put(store, "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"), value(i))
+      put(
+        store,
+        "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"),
+        value(i)
+      )
     end
   end
 
@@ -118,7 +122,7 @@ defmodule Pesque.MstIncrementalTest do
   test "keys mined for depth land on separate layers and survive a rewrite" do
     store =
       Enum.reduce(keys_at_depth(2) ++ keys_at_depth(1) ++ keys_at_depth(0), store(%{}), fn key,
-                                                                          store ->
+                                                                                           store ->
         put(store, key, value(1))
       end)
 
@@ -132,7 +136,11 @@ defmodule Pesque.MstIncrementalTest do
   test "writing a key's existing value back leaves the tree byte-identical" do
     store =
       Enum.reduce(0..9, store(%{}), fn i, store ->
-        put(store, "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"), value(i))
+        put(
+          store,
+          "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"),
+          value(i)
+        )
       end)
 
     for {key, value} <- store.entries do
@@ -155,7 +163,11 @@ defmodule Pesque.MstIncrementalTest do
     before = store.root
 
     assert {:error, {:key_not_found, "com.example.record/absent"}} =
-             Mst.update_tree(store.root, [{:delete, "com.example.record/absent"}], fetch(store.blocks))
+             Mst.update_tree(
+               store.root,
+               [{:delete, "com.example.record/absent"}],
+               fetch(store.blocks)
+             )
 
     assert store.root == before
   end
@@ -163,7 +175,11 @@ defmodule Pesque.MstIncrementalTest do
   test "a batch applies in order and matches a rebuild" do
     store =
       Enum.reduce(0..4, store(%{}), fn i, store ->
-        put(store, "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"), value(i))
+        put(
+          store,
+          "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"),
+          value(i)
+        )
       end)
 
     ops = [
@@ -192,7 +208,11 @@ defmodule Pesque.MstIncrementalTest do
   test "deleting every key leaves the empty tree the empty repository builds" do
     store =
       Enum.reduce(0..3, store(%{}), fn i, store ->
-        put(store, "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"), value(i))
+        put(
+          store,
+          "com.example.record/" <> String.pad_leading(Integer.to_string(i), 4, "0"),
+          value(i)
+        )
       end)
 
     store = Enum.reduce(Map.keys(store.entries), store, &delete(&2, &1))
@@ -203,7 +223,11 @@ defmodule Pesque.MstIncrementalTest do
   test "a node missing from storage is an error rather than a tree that lost keys" do
     store =
       Enum.reduce(0..39, store(%{}), fn i, store ->
-        put(store, "com.example.record/#{String.pad_leading(Integer.to_string(i), 4, "0")}", value(i))
+        put(
+          store,
+          "com.example.record/#{String.pad_leading(Integer.to_string(i), 4, "0")}",
+          value(i)
+        )
       end)
 
     assert {:error, {:missing_block, _cid}} =

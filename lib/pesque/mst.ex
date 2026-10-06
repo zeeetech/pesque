@@ -158,7 +158,8 @@ defmodule Pesque.Mst do
   answer that serves a correct tree.
   """
   def update_tree(root_cid, ops, fetch) when is_function(fetch, 1) do
-    with {:ok, node} <- Enum.reduce_while(ops, {:ok, %Node{cid: root_cid}}, &apply_op(&1, &2, fetch)) do
+    with {:ok, node} <-
+           Enum.reduce_while(ops, {:ok, %Node{cid: root_cid}}, &apply_op(&1, &2, fetch)) do
       {root, blocks} = flush(node, %{})
       {:ok, {root, blocks}}
     end
@@ -438,7 +439,8 @@ defmodule Pesque.Mst do
       {{:node, left}, {:node, right}} ->
         with {:ok, merged} <- append_merge(left, right, fetch) do
           entries =
-            Enum.take(node.entries, index - 1) ++ [{:node, merged}] ++
+            Enum.take(node.entries, index - 1) ++
+              [{:node, merged}] ++
               Enum.drop(node.entries, index + 2)
 
           {:ok, new_tree(node, entries)}
