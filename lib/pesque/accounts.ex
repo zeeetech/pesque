@@ -656,11 +656,13 @@ defmodule Pesque.Accounts do
   defp check_did(%User{did: did}, did), do: :ok
   defp check_did(_user, _did), do: {:error, :wrong_account_did}
 
-  defp check_account_password(%User{password_hash: hash}, password) when is_binary(password) do
-    if Argon2.verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
+  # Through verify_pass/2, so a delete is a gated hash like every other one on a
+  # request path: deleteAccount carries no rate limit, and an ungated verify
+  # here is 64 MiB per request bought with nothing. The non-binary password is
+  # answered there too, so no second clause is needed.
+  defp check_account_password(%User{password_hash: hash}, password) do
+    if verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
   end
-
-  defp check_account_password(_user, _password), do: {:error, :invalid_password}
 
   # Expiry is answered separately from validity: the lexicon names both, and a
   # client told ExpiredToken can ask for a new one instead of guessing whether
