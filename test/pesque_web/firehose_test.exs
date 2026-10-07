@@ -97,7 +97,7 @@ defmodule PesqueWeb.FirehoseTest do
     # No #info in any of them, which is the point: oldest - 1 is still
     # serviceable and must not be told to resync.
     for {_kind, frame} <- frames do
-      refute match?(%{"t" => "#info"}, decode(frame))
+      refute match?({%{"t" => "#info"}, _body}, decode(frame))
     end
   end
 
