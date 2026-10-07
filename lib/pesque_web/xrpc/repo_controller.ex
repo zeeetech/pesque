@@ -72,16 +72,34 @@ defmodule PesqueWeb.Xrpc.RepoController do
   end
 
   # One result per write, in the order the client sent them, which is the order
-  # the commit changed them in. A delete carries no uri or cid, so it answers
-  # the empty object the lexicon declares rather than a null-filled one, and
-  # validationStatus says what createRecord says: nobody checked the record
-  # when validation was turned off, so nobody is claiming it is good.
+  # the commit changed them in. Each names the union member it is, because
+  # `results` is a closed union in the lexicon and a client that validates the
+  # answer refuses an entry it cannot dispatch on. A delete carries no uri or
+  # cid, so its result is the type alone, and validationStatus says what
+  # createRecord says: nobody checked the record when validation was turned off,
+  # so nobody is claiming it is good.
   defp results(changes, validate) do
     status = if validate, do: "valid", else: "unknown"
 
     Enum.map(changes, fn
-      %{"action" => "delete"} -> %{}
-      change -> %{"uri" => change["uri"], "cid" => change["cid"], "validationStatus" => status}
+      %{"action" => "delete"} ->
+        %{"$type" => "com.atproto.repo.applyWrites#deleteResult"}
+
+      %{"action" => "create"} = change ->
+        %{
+          "$type" => "com.atproto.repo.applyWrites#createResult",
+          "uri" => change["uri"],
+          "cid" => change["cid"],
+          "validationStatus" => status
+        }
+
+      %{"action" => "update"} = change ->
+        %{
+          "$type" => "com.atproto.repo.applyWrites#updateResult",
+          "uri" => change["uri"],
+          "cid" => change["cid"],
+          "validationStatus" => status
+        }
     end)
   end
 

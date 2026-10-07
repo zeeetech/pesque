@@ -43,18 +43,38 @@ defmodule PesqueWeb.ApplyWritesTest do
     # wrote.
     assert [created, generated, updated, deleted] = body["results"]
 
-    assert %{"uri" => created_uri, "cid" => _, "validationStatus" => "valid"} = created
+    # `results` is a closed union, so every entry names its member; a client
+    # that validates the answer refuses one it cannot dispatch on.
+    assert %{
+             "$type" => "com.atproto.repo.applyWrites#createResult",
+             "uri" => created_uri,
+             "cid" => _,
+             "validationStatus" => "valid"
+           } = created
+
     assert created_uri == "at://#{ctx.alice.did}/#{collection()}/one"
 
     # A create with no rkey gets a generated one and answers with its uri.
-    assert %{"uri" => generated_uri, "cid" => _, "validationStatus" => "valid"} = generated
+    assert %{
+             "$type" => "com.atproto.repo.applyWrites#createResult",
+             "uri" => generated_uri,
+             "cid" => _,
+             "validationStatus" => "valid"
+           } = generated
+
     assert String.starts_with?(generated_uri, "at://#{ctx.alice.did}/#{collection()}/")
     refute generated_uri == created_uri
 
-    assert %{"uri" => updated_uri, "cid" => _, "validationStatus" => "valid"} = updated
+    assert %{
+             "$type" => "com.atproto.repo.applyWrites#updateResult",
+             "uri" => updated_uri,
+             "cid" => _,
+             "validationStatus" => "valid"
+           } = updated
+
     assert updated_uri == "at://#{ctx.alice.did}/#{collection()}/one"
 
-    assert deleted == %{}
+    assert deleted == %{"$type" => "com.atproto.repo.applyWrites#deleteResult"}
 
     assert stored(ctx, "one")["text"] == "first updated"
     assert stored(ctx, "two")["text"] == "second"
