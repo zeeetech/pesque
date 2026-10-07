@@ -2,6 +2,7 @@ defmodule PesqueWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :pesque
 
   plug Plug.RequestId
+  plug Plug.Logger
   plug PesqueWeb.Plugs.SecurityHeaders
   plug PesqueWeb.Plugs.Cors
 
