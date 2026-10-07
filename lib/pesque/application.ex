@@ -24,15 +24,15 @@ defmodule Pesque.Application do
       Keyword.put(endpoint, :secret_key_base, Pesque.Secret.get())
     )
 
-    children = [
-      Pesque.Repo,
-      Pesque.RateLimit,
-      {Registry, keys: :duplicate, name: Pesque.EventRegistry},
-      {Registry, keys: :unique, name: Pesque.RepoRegistry},
-      Pesque.RepoSupervisor,
-      Pesque.EventReaper,
-      PesqueWeb.Endpoint
-    ]
+    children =
+      [
+        Pesque.Repo,
+        Pesque.RateLimit,
+        {Registry, keys: :duplicate, name: Pesque.EventRegistry},
+        {Registry, keys: :unique, name: Pesque.RepoRegistry},
+        Pesque.RepoSupervisor,
+        Pesque.EventReaper
+      ] ++ endpoint()
 
     with {:ok, pid} <-
            Supervisor.start_link(children, strategy: :one_for_one, name: Pesque.Supervisor) do
@@ -40,6 +40,13 @@ defmodule Pesque.Application do
       announce_to_relays()
       {:ok, pid}
     end
+  end
+
+  # A mix task that only talks to the database and the domain (create_account)
+  # sets :serve to false, so it does not stand up an HTTP endpoint it never
+  # answers a request on.
+  defp endpoint do
+    if Application.get_env(:pesque, :serve, true), do: [PesqueWeb.Endpoint], else: []
   end
 
   # A relay that is slow or down must not delay or fail this boot, so the crawl

@@ -43,13 +43,9 @@ defmodule Mix.Tasks.Pesque.CreateAccount do
   def run(argv) do
     Mix.Task.run("app.config")
 
-    endpoint = Application.get_env(:pesque, PesqueWeb.Endpoint, [])
-
-    Application.put_env(
-      :pesque,
-      PesqueWeb.Endpoint,
-      Keyword.put(endpoint, :server, false)
-    )
+    # No endpoint: this task writes a row and a key file, it never answers a
+    # request, so it does not stand one up.
+    Application.put_env(:pesque, :serve, false)
 
     Mix.Task.run("app.start")
 
@@ -68,6 +64,9 @@ defmodule Mix.Tasks.Pesque.CreateAccount do
 
       {:error, :handle_not_available} ->
         Mix.raise(handle_not_available(handle))
+
+      {:error, :password_too_short} ->
+        Mix.raise("could not create account: the password must be at least 8 characters")
 
       {:error, reason} ->
         Mix.raise("could not create account: #{inspect(reason)}")
