@@ -33,11 +33,17 @@ defmodule Pesque.Lexicon.Registry do
 
   require Logger
 
-  @vendored Path.join(:code.priv_dir(:pesque), "lexicons")
   @table __MODULE__
 
-  @doc "The directory of lexicons shipped with the release."
-  def vendored_dir, do: @vendored
+  @doc """
+  The directory of lexicons shipped with the release.
+
+  Resolved on every call, not into a module attribute: a release runs from a
+  directory other than the one it was built in, so a path baked in at compile
+  time points at a build tree the image does not carry, the wildcard below
+  matches nothing, and every collection reads as unknown.
+  """
+  def vendored_dir, do: Path.join(:code.priv_dir(:pesque), "lexicons")
 
   @doc "The directory of lexicons the operator added."
   def user_dir, do: Path.join(Pesque.data_dir(), "lexicons")
@@ -53,7 +59,7 @@ defmodule Pesque.Lexicon.Registry do
   """
   def reload do
     entries =
-      [@vendored, user_dir()]
+      [vendored_dir(), user_dir()]
       |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.json")))
       |> Enum.uniq()
       |> Enum.reduce(%{}, &read(&1, &2))
@@ -71,6 +77,14 @@ defmodule Pesque.Lexicon.Registry do
       count: map_size(entries),
       records: map_size(Map.reject(records, fn {_nsid, schema} -> is_nil(schema) end))
     )
+
+    if entries == %{} do
+      Logger.warning(
+        "no lexicons loaded: every record write will be refused as an unknown collection",
+        vendored_dir: vendored_dir(),
+        user_dir: user_dir()
+      )
+    end
 
     :ok
   end
