@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/zeeetech/pesque/compare/pesque-v1.1.1...pesque-v1.1.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deploy:** correct the GHCR image path ([a15b46f](https://github.com/zeeetech/pesque/commit/a15b46f1af4681db61f017cb203411c0af610d3b))
+* **repo:** add $type to applyWrites results ([a3f2e88](https://github.com/zeeetech/pesque/commit/a3f2e881d85ba506774f17b93780f6dfc3419b60))
+
 ## [1.1.1](https://github.com/zeeetech/pesque/compare/pesque-v1.1.0...pesque-v1.1.1) (2026-10-07)
 
 
