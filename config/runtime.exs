@@ -134,7 +134,7 @@ config :pesque, PesqueWeb.Endpoint,
     # attack surface: an unauthenticated socket would pay an inflate plus a
     # CBOR validate per frame before the handler refused it. 1 MB is generous
     # for a protocol where the client never speaks.
-    websocket: [max_frame_size: 1_048_576, max_fragmented_message_size: 1_048_576]
+    websocket_options: [max_frame_size: 1_048_576, max_fragmented_message_size: 1_048_576]
   ],
   url: [host: hostname, scheme: url_scheme, port: url_port],
   server: true
