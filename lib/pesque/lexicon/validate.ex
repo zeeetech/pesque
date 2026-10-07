@@ -28,8 +28,8 @@ defmodule Pesque.Lexicon.Validate do
 
   A string's `maxLength` is counted in UTF-8 bytes, which is the unit the
   specification uses, so the check is `byte_size/1` and a value already over it
-  is refused without the grapheme segmenter running at all. `maxGraphemes` is
-  the separate rule for what a reader sees.
+  is refused before its grapheme count is taken. `maxGraphemes` is the separate
+  rule for what a reader sees.
 
   `bytes`, `cid-link`, `blob` and `token` are accepted on their shape rather
   than parsed: a `$link` that is not a CID and a `$bytes` that is not base64 are
@@ -45,8 +45,6 @@ defmodule Pesque.Lexicon.Validate do
   one, is skipped rather than failed. A broken cross-reference in someone's
   lexicon should not make their server refuse every write.
   """
-
-  alias Pesque.Grapheme
 
   @doc "Validates a value against a lexicon definition."
   @spec validate(map() | nil, term()) :: :ok | {:error, [{[term()], atom() | tuple()}]}
@@ -296,10 +294,9 @@ defmodule Pesque.Lexicon.Validate do
   # string would never fire.
   #
   # The byte count is the spec's unit and the only one of the three that is
-  # O(1). An over-long value is refused on it before the grapheme segmenter
-  # runs, which matters because that segmenter costs about a second on a
-  # multi-megabyte body and the body cap is 8MB: without the short circuit an
-  # oversized post was segmented in full inside the writer process only to be
+  # O(1). An over-long value is refused on it before its grapheme count is
+  # taken, which matters on a multi-megabyte body: without the short circuit an
+  # oversized post was walked in full inside the writer process only to be
   # turned away.
   defp string_length_errors(schema, value, path) do
     case bounds(schema, path, byte_size(value)) do
@@ -369,11 +366,12 @@ defmodule Pesque.Lexicon.Validate do
 
   # maxGraphemes counts what a reader sees, not code points or bytes: a family
   # emoji is one character however many scalars it is made of, and a limit
-  # meant as a 300 character post should not count it as seven.
+  # meant as a 300 character post should not count it as seven. `String.length/1`
+  # counts grapheme clusters, which is that unit.
   defp grapheme_errors(nil, _value, _path), do: []
 
   defp grapheme_errors(max, value, path) do
-    if Grapheme.count(value) > max, do: [{path, :too_many_graphemes}], else: []
+    if String.length(value) > max, do: [{path, :too_many_graphemes}], else: []
   end
 
   defp range_errors(schema, value, path) do
