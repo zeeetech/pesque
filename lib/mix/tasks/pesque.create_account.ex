@@ -32,10 +32,45 @@ defmodule Mix.Tasks.Pesque.CreateAccount do
         end
 
       true ->
-        case :io.get_password(~c"password: ") do
-          {:error, reason} -> Mix.raise("could not read the password: #{inspect(reason)}")
-          answer -> answer |> to_string() |> String.trim()
+        read_password()
+    end
+  end
+
+  # :io.get_password/1 takes an io device, not a prompt, so the prompt is
+  # written first and the read asks the group leader. The no-echo primitive is
+  # OTP 28 and up and needs a terminal, so an older runtime or a non-terminal
+  # stdin falls back to an echoed prompt rather than failing.
+  defp read_password do
+    case no_echo_read("password: ") do
+      {:ok, value} -> String.trim(value)
+      :fallback -> read_line()
+    end
+  end
+
+  # The prompt was already written; read a line without printing another.
+  defp read_line do
+    case IO.gets("") do
+      :eof -> Mix.raise("no password was read")
+      line -> String.trim(line)
+    end
+  end
+
+  defp no_echo_read(prompt) do
+    if function_exported?(:io, :get_password, 0) do
+      IO.write(prompt)
+
+      try do
+        case :io.get_password() do
+          answer when is_list(answer) or is_binary(answer) -> {:ok, to_string(answer)}
+          _no_data -> :fallback
         end
+      rescue
+        _ -> :fallback
+      catch
+        _kind, _reason -> :fallback
+      end
+    else
+      :fallback
     end
   end
 
