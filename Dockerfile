@@ -31,9 +31,13 @@ RUN adduser -D pesque && mkdir -p /data && chown pesque:pesque /data
 USER pesque
 
 COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque ./
+COPY --chown=pesque:pesque pesque.conf.example /app/pesque.conf.example
 
 ENV PDS_DATA_DIR=/data
 ENV PDS_PORT=4000
+# The config file lives on the volume, so mounting one file configures the
+# container. Missing is fine: everything can come from the environment.
+ENV PDS_CONFIG=/data/pesque.conf
 
 VOLUME /data
 

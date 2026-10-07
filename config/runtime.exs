@@ -1,54 +1,59 @@
 import Config
 
-data_dir = System.get_env("PDS_DATA_DIR", if(config_env() == :test, do: "tmp/test", else: "data"))
-hostname = System.get_env("PDS_HOSTNAME", "localhost")
-handle = System.get_env("PDS_HANDLE", hostname)
+# Settings come from the environment first, then pesque.conf, then the defaults
+# here. Pesque.Config.get/3 is the one place that order lives.
+file = Pesque.Config.load!()
+get = fn key, default -> Pesque.Config.get(file, key, default) end
+
+data_dir = get.("data_dir", if(config_env() == :test, do: "tmp/test", else: "data"))
+hostname = get.("hostname", "localhost")
+handle = get.("handle", hostname)
 
 port =
-  case Integer.parse(System.get_env("PDS_PORT", "4000")) do
+  case Integer.parse(get.("port", "4000")) do
     {n, ""} when n > 0 and n <= 65_535 ->
       n
 
     _ ->
-      raise "PDS_PORT must be an integer between 1 and 65535, got: #{System.get_env("PDS_PORT")}"
+      raise "port must be an integer between 1 and 65535, got: #{get.("port", "4000")}"
   end
 
 # The advertised URL defaults to https on 443 because the container speaks
 # plain HTTP and is meant to sit behind a TLS proxy. For a local prod-like
-# run with no proxy, set PDS_URL_SCHEME=http (port then defaults to PDS_PORT).
+# run with no proxy, set url_scheme = http (the port then defaults to port).
 url_scheme =
-  case System.get_env("PDS_URL_SCHEME", "https") do
+  case get.("url_scheme", "https") do
     "https" -> "https"
     "http" -> "http"
-    other -> raise "PDS_URL_SCHEME must be http or https, got: #{other}"
+    other -> raise "url_scheme must be http or https, got: #{other}"
   end
 
 url_port =
-  case System.get_env("PDS_URL_PORT") do
+  case get.("url_port", nil) do
     nil ->
       if url_scheme == "https", do: 443, else: port
 
     raw ->
       case Integer.parse(raw) do
         {n, ""} when n > 0 and n <= 65_535 -> n
-        _ -> raise "PDS_URL_PORT must be an integer between 1 and 65535, got: #{raw}"
+        _ -> raise "url_port must be an integer between 1 and 65535, got: #{raw}"
       end
   end
 
 mode =
-  case System.get_env("PDS_MODE", "conformant_single") do
+  case get.("mode", "conformant_single") do
     "conformant_single" -> :conformant_single
     "path_multi" -> :path_multi
-    other -> raise "PDS_MODE must be conformant_single or path_multi, got: #{other}"
+    other -> raise "mode must be conformant_single or path_multi, got: #{other}"
   end
 
 # The DID method accounts are minted with. web is the default and the whole
 # existing behaviour; plc mints through the directory instead.
 identity =
-  case System.get_env("PDS_IDENTITY", "web") do
+  case get.("identity", "web") do
     "web" -> :web
     "plc" -> :plc
-    other -> raise "PDS_IDENTITY must be web or plc, got: #{other}"
+    other -> raise "identity must be web or plc, got: #{other}"
   end
 
 # conformant_single serves the one account as the server itself, so the account
@@ -56,62 +61,60 @@ identity =
 # from the hostname. plc accounts are minted per account instead, so the two
 # modes cannot be combined until the server identity is minted through PLC too.
 if identity == :plc and mode == :conformant_single do
-  raise "PDS_IDENTITY=plc requires PDS_MODE=path_multi: conformant_single serves the account as the server, and the server's own DID is did:web"
+  raise "identity = plc requires mode = path_multi: conformant_single serves the account as the server, and the server's own DID is did:web"
 end
 
-# Only read when PDS_IDENTITY=plc. A directory the operator points at is a
+# Only read when identity = plc. A directory the operator points at is a
 # deployment choice, so it is configuration rather than a constant.
-plc_directory = System.get_env("PDS_PLC_DIRECTORY", "https://plc.directory")
+plc_directory = get.("plc_directory", "https://plc.directory")
 
 # Relays to announce this server to at boot. Comma separated, empty by default:
 # a relay also discovers PDS instances other ways, so an operator who names none
 # still works.
 crawlers =
-  "PDS_CRAWLER"
-  |> System.get_env("")
+  "crawler"
+  |> then(&get.(&1, ""))
   |> String.split(",", trim: true)
   |> Enum.map(&String.trim/1)
   |> Enum.reject(&(&1 == ""))
 
-# PDS_HANDLE goes away with multi-account, so until then it is what
+# handle goes away with multi-account, so until then it is what
 # conformant_single publishes, and path_multi ignores it.
-handle_domain =
-  System.get_env("PDS_HANDLE_DOMAIN", if(mode == :path_multi, do: hostname, else: handle))
+handle_domain = get.("handle_domain", if(mode == :path_multi, do: hostname, else: handle))
 
 admin_dids =
-  "PDS_ADMIN_DIDS"
-  |> System.get_env("")
+  "admin_dids"
+  |> then(&get.(&1, ""))
   |> String.split(",", trim: true)
   |> Enum.map(&String.trim/1)
   |> Enum.reject(&(&1 == ""))
 
 registration =
-  case System.get_env("PDS_REGISTRATION", "closed") do
+  case get.("registration", "closed") do
     "open" -> :open
     "closed" -> :closed
-    other -> raise "PDS_REGISTRATION must be open or closed, got: #{other}"
+    other -> raise "registration must be open or closed, got: #{other}"
   end
 
-# Raising rather than falling back, like PDS_PORT above: a blob limit that
-# silently reads as something other than what was configured is a limit nobody
-# chose.
+# Raising rather than falling back, like port above: a blob limit that silently
+# reads as something other than what was configured is a limit nobody chose.
 blob_max_bytes =
-  case System.get_env("PDS_BLOB_UPLOAD_LIMIT", "5242880") do
+  case get.("blob_upload_limit", "5242880") do
     raw ->
       case Integer.parse(raw) do
         {n, ""} when n > 0 -> n
-        _ -> raise "PDS_BLOB_UPLOAD_LIMIT must be a positive integer, got: #{raw}"
+        _ -> raise "blob_upload_limit must be a positive integer, got: #{raw}"
       end
   end
 
 # Same rule as the blob limit: a cap that silently reads as something other
 # than what was configured is a limit nobody chose.
 repo_import_max_bytes =
-  case System.get_env("PDS_REPO_IMPORT_LIMIT", "104857600") do
+  case get.("repo_import_limit", "104857600") do
     raw ->
       case Integer.parse(raw) do
         {n, ""} when n > 0 -> n
-        _ -> raise "PDS_REPO_IMPORT_LIMIT must be a positive integer, got: #{raw}"
+        _ -> raise "repo_import_limit must be a positive integer, got: #{raw}"
       end
   end
 

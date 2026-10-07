@@ -31,3 +31,6 @@ pesque-*.tar
 
 # Server state: SQLite database, signing key, server secret
 /data/
+
+# Local configuration; the example beside it is what gets committed
+/pesque.conf

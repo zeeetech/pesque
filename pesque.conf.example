@@ -1,0 +1,41 @@
+# pesque configuration.
+#
+# Every setting here can also come from the environment, and the environment
+# wins. The variable is this key uppercased with a PDS_ prefix, so `hostname`
+# is `PDS_HOSTNAME` and `port` is `PDS_PORT`.
+#
+# Point the server at this file with PDS_CONFIG, or leave it as `pesque.conf`
+# in the working directory. In the container the path is /data/pesque.conf, on
+# the volume, so mounting one file is enough.
+
+# The host this server is reached at.
+hostname = pds.example.com
+
+# conformant_single serves one account as the server itself. path_multi gives
+# every account its own handle and DID.
+mode = path_multi
+
+# web mints did:web accounts from the hostname. plc mints did:plc through the
+# PLC directory, and requires mode = path_multi.
+identity = plc
+
+# The domain accounts get handles under.
+handle_domain = example.com
+
+# open lets anyone create an account; closed needs an invite code.
+registration = closed
+
+# Relays to announce this server to at boot, comma separated.
+# crawler = https://bsky.network
+
+# The rest, with their defaults:
+#
+# data_dir = data
+# handle = pds.example.com
+# port = 4000
+# url_scheme = https
+# url_port = 443
+# plc_directory = https://plc.directory
+# blob_upload_limit = 5242880
+# repo_import_limit = 104857600
+# admin_dids = did:plc:...,did:web:...
