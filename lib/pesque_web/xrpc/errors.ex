@@ -172,6 +172,9 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:deletion_token_failed),
     do: {500, "InternalServerError", "a deletion token could not be issued"}
 
+  def to_xrpc(:session_not_issued),
+    do: {500, "InternalServerError", "the session could not be issued"}
+
   def to_xrpc(:password_too_short),
     do: {400, "InvalidRequest", "password must be at least 8 characters"}
 

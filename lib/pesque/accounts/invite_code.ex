@@ -17,8 +17,6 @@ defmodule Pesque.Accounts.InviteCode do
 
   use Ecto.Schema
 
-  import Ecto.Changeset
-
   schema "invite_codes" do
     field :code, :string
     field :use_count, :integer, default: 1
@@ -28,13 +26,5 @@ defmodule Pesque.Accounts.InviteCode do
     field :used_at, :utc_datetime
 
     timestamps(type: :utc_datetime, updated_at: false)
-  end
-
-  def changeset(attrs) do
-    %__MODULE__{}
-    |> cast(attrs, [:code, :use_count, :uses, :for_accounts, :used_by, :used_at])
-    |> validate_required([:code, :use_count, :uses])
-    |> validate_number(:use_count, greater_than: 0)
-    |> unique_constraint(:code)
   end
 end

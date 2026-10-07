@@ -245,14 +245,12 @@ defmodule Pesque.Accounts do
     Enum.map(inserted, & &1.code)
   end
 
-  @doc """
-  Claims one use of an invite code for `did`. A code with no uses left, one no
-  row names, and one restricted to other DIDs all answer
-  {:error, :invalid_invite_code}; the conditional update is what makes two
-  callers racing for the last use of a code produce one account rather than
-  two, and what makes the restriction and the count one statement.
-  """
-  def consume_invite_code(code, did) when is_binary(code) do
+  # Claims one use of an invite code for `did`. A code with no uses left, one
+  # no row names, and one restricted to other DIDs all answer
+  # {:error, :invalid_invite_code}; the conditional update is what makes two
+  # callers racing for the last use of a code produce one account rather than
+  # two, and what makes the restriction and the count one statement.
+  defp consume_invite_code(code, did) when is_binary(code) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     {count, _} =
@@ -265,7 +263,7 @@ defmodule Pesque.Accounts do
     if count == 1, do: :ok, else: {:error, :invalid_invite_code}
   end
 
-  def consume_invite_code(_code, _did), do: {:error, :invalid_invite_code}
+  defp consume_invite_code(_code, _did), do: {:error, :invalid_invite_code}
 
   # Checked before anything else is touched, because the changeset would
   # otherwise reject it after a key file had already been claimed.
@@ -340,9 +338,9 @@ defmodule Pesque.Accounts do
   @doc """
   The canonical DID of the local account named by an identifier, or {:error, reason}.
 
-  Did.to_local_did/2 settles the syntax and whether the host is ours, and
-  deliberately consults no database, so existence is settled here: a DID of
-  the right shape naming no account is {:error, :not_found}, not an invitation.
+  The identifier's syntax and whether its host is ours are settled without a
+  database, so existence is settled here: a DID of the right shape naming no
+  account is {:error, :not_found}, not an invitation.
 
   A DID is looked up by the string it is stored under, not by re-deriving it
   from the host and port the server currently runs on. An account's DID was
@@ -355,25 +353,26 @@ defmodule Pesque.Accounts do
   def repo_did(identifier) when is_binary(identifier) do
     identifier = String.trim(identifier)
 
-    if String.starts_with?(identifier, "did:") do
-      # Matched exactly, not case-folded: a DID is case-sensitive and did:web
-      # percent-encodes as uppercase, so folding turns %3A into %3a and matches
-      # nothing. did:plc is minted by the directory and matched the same way,
-      # because re-deriving either from the live config is what this avoids.
-      case Repo.get_by(User, did: identifier) do
-        %User{did: did} -> {:ok, did}
-        nil -> {:error, :not_found}
+    # Matched exactly, not case-folded: a DID is case-sensitive and did:web
+    # percent-encodes as uppercase, so folding turns %3A into %3a and matches
+    # nothing. did:plc is minted by the directory and matched the same way,
+    # because re-deriving either from the live config is what this avoids.
+    #
+    # Matched the same way, for the same reason. Deriving the DID from
+    # the live config and then looking that up means the port the server
+    # runs on today decides whether an account created yesterday is
+    # reachable at all. Only stored rows match, so a handle from another
+    # network still answers {:error, :not_found}.
+    lookup =
+      if String.starts_with?(identifier, "did:") do
+        [did: identifier]
+      else
+        [handle: String.downcase(identifier)]
       end
-    else
-      # Matched the same way, for the same reason. Deriving the DID from
-      # the live config and then looking that up means the port the server
-      # runs on today decides whether an account created yesterday is
-      # reachable at all. Only stored rows match, so a handle from another
-      # network still answers {:error, :not_found}.
-      case Repo.get_by(User, handle: String.downcase(identifier)) do
-        %User{did: did} -> {:ok, did}
-        nil -> {:error, :not_found}
-      end
+
+    case Repo.get_by(User, lookup) do
+      %User{did: did} -> {:ok, did}
+      nil -> {:error, :not_found}
     end
   end
 
@@ -714,12 +713,8 @@ defmodule Pesque.Accounts do
       {:ok, _row} ->
         {:ok, %{access_jwt: access, refresh_jwt: refresh}}
 
-      {:error, changeset} ->
-        if Keyword.get(changeset.errors, :jti_hash) do
-          {:error, :jti_taken}
-        else
-          {:error, :missing_fields}
-        end
+      {:error, _changeset} ->
+        {:error, :session_not_issued}
     end
   end
 

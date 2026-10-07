@@ -14,8 +14,6 @@ defmodule Pesque.Accounts.RefreshToken do
     timestamps(type: :utc_datetime, updated_at: false)
   end
 
-  def changeset(%__MODULE__{} = row, overrides), do: change(row, overrides)
-
   def changeset(attrs) do
     %__MODULE__{}
     |> cast(attrs, [:jti_hash, :did, :expires_at, :revoked])
