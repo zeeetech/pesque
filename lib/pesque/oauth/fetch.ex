@@ -17,6 +17,14 @@ defmodule Pesque.OAuth.Fetch do
   with a resolver hook would. Treat a resolvable client_id as a name this
   server will look up, not one it will refuse to look up twice.
 
+  Three more gaps matter now that the entryway relies on this guard for a
+  second caller. The lookup asks for A records only, so a host that publishes
+  only an AAAA answer resolves to nothing here and is refused as unreachable.
+  Response headers have no size cap: `max_header_size` is not available before
+  OTP 29.0.6, and this server pins 28.1. And a response that declares no length
+  is delimited by the connection closing, so the byte cap is the only bound on
+  how much is read rather than a length the transport stops at.
+
   The rest of the hardening is ordinary: TLS verified, no redirect followed
   (a redirect is a second URL the attacker chose, and would skip the address
   check entirely), a short timeout, and a byte cap on the response.
@@ -27,6 +35,10 @@ defmodule Pesque.OAuth.Fetch do
 
   @connect_timeout 5_000
   @timeout 5_000
+
+  # The default cap for request/5. Callers that know their own bound pass one;
+  # this is what a request with none gets.
+  @default_max_bytes 10 * 1024 * 1024
 
   @doc """
   Fetches `uri` and decodes it as a JSON object, capped at `max_bytes`.
@@ -68,6 +80,68 @@ defmodule Pesque.OAuth.Fetch do
          :ok <- check_address(uri.host) do
       raw_get(uri, max_bytes)
     end
+  end
+
+  @doc """
+  Makes one HTTP request with the same hardening as json/2 and answers the raw
+  response.
+
+  Answers `{:ok, status, headers, body}` or `{:error, reason}`. Like get/2, a
+  status outside 2xx is a successful answer: the caller decides what a status
+  means. `opts` carries `:max_bytes` (also handed to `:httpc` as
+  `max_body_size`), `:connect_timeout` and `:timeout`. The body is capped both
+  by `:httpc` and by a post-hoc byte-size check, so an answer that slips past
+  the transport cap is still refused.
+  """
+  @spec request(URI.t(), :get | :post, [{String.t(), String.t()}], binary() | nil, keyword()) ::
+          {:ok, non_neg_integer(), [{String.t(), String.t()}], binary()} | {:error, term()}
+  def request(%URI{} = uri, method, headers, body, opts \\ []) do
+    with :ok <- check_scheme(uri),
+         :ok <- check_address(uri.host) do
+      send(uri, method, headers, body, Keyword.get(opts, :max_bytes, @default_max_bytes), opts)
+    end
+  end
+
+  defp send(uri, method, headers, body, max_bytes, opts) do
+    {content_type, headers} = split_content_type(headers)
+
+    request =
+      case method do
+        :get -> {URI.to_string(uri), charlist_headers(headers)}
+        :post -> {URI.to_string(uri), charlist_headers(headers), to_charlist(content_type), body}
+      end
+
+    options = httpc_options(opts) |> Keyword.put(:max_body_size, max_bytes)
+
+    case :httpc.request(method, request, options, []) do
+      {:ok, {{_v, status, _r}, resp_headers, resp_body}} ->
+        body = IO.iodata_to_binary(resp_body)
+
+        if byte_size(body) > max_bytes,
+          do: {:error, :body_too_large},
+          else: {:ok, status, normalize_headers(resp_headers), body}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # The content-type is a header like any other to :httpc's tuple form, which
+  # takes it as the third element of a POST. It is pulled out here rather than
+  # added by the caller so one header list works for both verbs.
+  defp split_content_type(headers) do
+    case List.keyfind(headers, "content-type", 0) do
+      {_name, value} -> {value, List.keydelete(headers, "content-type", 0)}
+      nil -> {"application/json", headers}
+    end
+  end
+
+  defp charlist_headers(headers) do
+    Enum.map(headers, fn {name, value} -> {to_charlist(name), to_charlist(value)} end)
+  end
+
+  defp normalize_headers(headers) do
+    Enum.map(headers, fn {name, value} -> {to_string(name), to_string(value)} end)
   end
 
   defp hardened(uri) do
@@ -138,11 +212,12 @@ defmodule Pesque.OAuth.Fetch do
 
   # The one request shape every outbound call uses: TLS verified, no redirect
   # followed (a redirect is a second URL the attacker chose, and would skip the
-  # address check entirely), and a short timeout.
-  defp httpc_options do
+  # address check entirely), and a short timeout. `opts` widens the two
+  # timeouts for a caller that needs to; the zero-arity form is the default.
+  defp httpc_options(opts \\ []) do
     [
-      connect_timeout: @connect_timeout,
-      timeout: @timeout,
+      connect_timeout: Keyword.get(opts, :connect_timeout, @connect_timeout),
+      timeout: Keyword.get(opts, :timeout, @timeout),
       ssl: ssl_options(),
       autoredirect: false
     ]

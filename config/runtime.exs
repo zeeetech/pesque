@@ -125,6 +125,29 @@ repo_import_max_bytes =
       end
   end
 
+# The entryway's two bounds. The timeout is how long a proxied call may take
+# before it is answered 504; the response limit is the largest body the target
+# may send back before it is refused. Both raise on an invalid value, like the
+# blob and import caps, so a misconfigured bound fails boot rather than
+# silently reading as something nobody chose.
+proxy_timeout =
+  case get.("proxy_timeout", "15000") do
+    raw ->
+      case Integer.parse(raw) do
+        {n, ""} when n > 0 -> n
+        _ -> raise "proxy_timeout must be a positive integer, got: #{raw}"
+      end
+  end
+
+proxy_response_limit =
+  case get.("proxy_response_limit", "10485760") do
+    raw ->
+      case Integer.parse(raw) do
+        {n, ""} when n > 0 -> n
+        _ -> raise "proxy_response_limit must be a positive integer, got: #{raw}"
+      end
+  end
+
 # The operator's own policy documents, advertised by describeServer. Empty by
 # default: this server has no policy of its own, so it publishes none rather
 # than linking a placeholder a client would show to users.
@@ -164,6 +187,8 @@ config :pesque,
   registration: registration,
   blob_max_bytes: blob_max_bytes,
   repo_import_max_bytes: repo_import_max_bytes,
+  proxy_timeout: proxy_timeout,
+  proxy_response_limit: proxy_response_limit,
   privacy_policy_url: privacy_policy_url,
   terms_of_service_url: terms_of_service_url,
   # Whether to start the HTTP endpoint. A one-off task container

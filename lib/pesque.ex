@@ -103,4 +103,11 @@ defmodule Pesque do
 
   @doc "The operator's terms of service URL, or \"\" when none is configured."
   def terms_of_service_url, do: Application.get_env(:pesque, :terms_of_service_url, "")
+
+  @doc "Request timeout for a proxied call, in milliseconds."
+  def proxy_timeout, do: Application.get_env(:pesque, :proxy_timeout, 15_000)
+
+  @doc "Largest proxied response body accepted, in bytes."
+  def proxy_response_limit,
+    do: Application.get_env(:pesque, :proxy_response_limit, 10 * 1024 * 1024)
 end

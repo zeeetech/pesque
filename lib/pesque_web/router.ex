@@ -42,6 +42,12 @@ defmodule PesqueWeb.Router do
     plug PesqueWeb.Plugs.RateLimit, bucket: :write, limit: 600, window: 300_000
   end
 
+  # A proxied call is a read the entryway makes on the account's behalf, so it
+  # gets the read budget. It runs before the auth plug like every other limit.
+  pipeline :proxy_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :proxy, limit: 3_000, window: 300_000
+  end
+
   # Minting invite codes is what decides who gets an account on a closed
   # server, so it is not an account-scoped call: it takes the server's own
   # identity, not any account's. Under :path_multi there is no server identity
@@ -199,7 +205,28 @@ defmodule PesqueWeb.Router do
     post "/revoke", TokenController, :revoke
   end
 
+  # Preferences are local: the PDS owns the account's private document, and an
+  # atproto-proxy header on either method is ignored. getPreferences unblocks
+  # the official app at login.
   scope "/xrpc", PesqueWeb.Xrpc do
-    match :*, "/*path", FallbackController, :not_implemented
+    pipe_through [:read_limits, :auth_read]
+
+    get "/app.bsky.actor.getPreferences", PreferencesController, :get_preferences
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_write]
+
+    post "/app.bsky.actor.putPreferences", PreferencesController, :put_preferences
+  end
+
+  # Everything else: a method this server does not implement. A call naming a
+  # target with atproto-proxy is forwarded to it; a call naming none is 501.
+  # This runs behind auth, so an unauthenticated unknown method answers 401 and
+  # an authenticated one with no header answers 501. It must stay last.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:proxy_limits, :auth_read]
+
+    match :*, "/*path", ProxyController, :forward
   end
 end

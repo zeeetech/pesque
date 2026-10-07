@@ -245,6 +245,48 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(reason) when reason in @dpop_proof_failures,
     do: {401, "AuthenticationRequired", "a valid DPoP proof is required for this request"}
 
+  # The entryway. An unknown method with no proxy header is the same 501 the
+  # catch-all always answered; a named target that cannot be reached or is not
+  # usable is the caller's to fix, except for a failure to mint the service
+  # token, which is this server's. The target's own status is never mapped
+  # here: a non-2xx from the upstream is passed through untouched.
+  def to_xrpc(:missing_proxy), do: {501, "MethodNotImplemented", "unknown XRPC method"}
+
+  def to_xrpc(:invalid_proxy),
+    do: {400, "InvalidRequest", "atproto-proxy must be a did#serviceId reference"}
+
+  def to_xrpc(:invalid_nsid), do: {400, "InvalidRequest", "not a valid XRPC method name"}
+
+  def to_xrpc(:proxy_target_unresolved),
+    do: {400, "InvalidRequest", "the proxy target DID could not be resolved"}
+
+  def to_xrpc(:service_not_found),
+    do: {400, "InvalidRequest", "the proxy target names no such service"}
+
+  def to_xrpc(:invalid_service_endpoint),
+    do: {400, "InvalidRequest", "the proxy target's service endpoint is not usable"}
+
+  def to_xrpc(:proxy_forbidden_address),
+    do: {400, "InvalidRequest", "the proxy target is not a permitted address"}
+
+  def to_xrpc(:proxy_unreachable),
+    do: {502, "UpstreamFailure", "the proxy target could not be reached"}
+
+  def to_xrpc(:proxy_timeout),
+    do: {504, "UpstreamTimeout", "the proxy target did not answer in time"}
+
+  def to_xrpc(:proxy_response_too_large),
+    do: {502, "UpstreamFailure", "the proxy target's response was too large"}
+
+  def to_xrpc(:service_auth_failed),
+    do: {500, "InternalServerError", "a service token could not be minted"}
+
+  def to_xrpc(:preferences_too_large),
+    do: {400, "InvalidRequest", "preferences are larger than the limit"}
+
+  def to_xrpc(:preferences_not_stored),
+    do: {500, "InternalServerError", "preferences could not be stored"}
+
   # The WWW-Authenticate header RFC 9449 and the atproto profile require on a
   # refused request. It is what a client reads to tell the three failures
   # apart, so it is decided here next to the status rather than in the plug

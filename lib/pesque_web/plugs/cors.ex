@@ -21,7 +21,10 @@ defmodule PesqueWeb.Plugs.Cors do
     conn
     |> put_resp_header("access-control-allow-origin", "*")
     |> put_resp_header("access-control-allow-methods", "GET, POST, OPTIONS")
-    |> put_resp_header("access-control-allow-headers", "authorization, content-type")
+    |> put_resp_header(
+      "access-control-allow-headers",
+      "authorization, content-type, atproto-proxy, atproto-accept-labelers"
+    )
     |> put_resp_header("access-control-max-age", "86400")
     # vary: origin even though the origin is always "*": caches must not serve
     # a response that priced in one origin to a request bearing another.
