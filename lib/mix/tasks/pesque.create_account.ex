@@ -66,8 +66,27 @@ defmodule Mix.Tasks.Pesque.CreateAccount do
       {:ok, user} ->
         Mix.shell().info("created #{user.handle} (#{user.did})")
 
+      {:error, :handle_not_available} ->
+        Mix.raise(handle_not_available(handle))
+
       {:error, reason} ->
         Mix.raise("could not create account: #{inspect(reason)}")
+    end
+  end
+
+  # conformant_single serves exactly one account and its handle is the server's
+  # own, so a named handle is refused rather than silently ignored. Name the
+  # handle that works, and how to host a named account instead.
+  defp handle_not_available(handle) do
+    case Pesque.mode() do
+      :conformant_single ->
+        "could not create account: :handle_not_available\n" <>
+          "conformant_single serves one account whose handle is the server's own " <>
+          "(#{Pesque.Identity.handle()}).\n" <>
+          "Pass --handle #{Pesque.Identity.handle()}, or set mode = path_multi to host #{handle}."
+
+      _ ->
+        "could not create account: :handle_not_available"
     end
   end
 end

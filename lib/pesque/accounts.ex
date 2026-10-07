@@ -646,13 +646,14 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # put_new rather than put, so two processes racing here cannot install two
-  # counters and hand out permits against two independent budgets.
+  # A plain put plus a re-read rather than put_new/2, which is OTP 28 and up.
+  # Two processes racing install equivalent counters and the value read back is
+  # the one that won, so every later caller converges on a single budget.
   defp hash_permits do
     case :persistent_term.get(@argon2_permits, nil) do
       nil ->
-        :persistent_term.put_new(@argon2_permits, :atomics.new(1, signed: false))
-        hash_permits()
+        :persistent_term.put(@argon2_permits, :atomics.new(1, signed: false))
+        :persistent_term.get(@argon2_permits)
 
       permits ->
         permits
