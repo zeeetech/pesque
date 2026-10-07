@@ -1,0 +1,177 @@
+# Installation
+
+How to run a Pesque server, and how to check that it works.
+
+## Requirements
+
+Elixir 1.18+ and a C toolchain, for the SQLite driver. Docker or a release needs
+a Docker daemon or a machine with `sh`, `nc` and a writable directory. Anything
+beyond `localhost` also needs a real hostname and TLS: `did:web` resolution is an
+HTTPS fetch on your domain, so a server reachable only over plain HTTP has an
+identity nothing can resolve. See [Identity](identity.md).
+
+## Run it locally
+
+```bash
+mix deps.get
+mix phx.server
+```
+
+Migrations run on boot and the data directory is created if missing. There is no
+`mix ecto.create`, no seed step and no secret to invent: Pesque generates
+`data/server.secret` on first boot. The one setting to decide before starting is
+`PDS_HOSTNAME`. By default the server advertises `https://$PDS_HOSTNAME`; with no
+proxy in front, say so:
+
+```bash
+PDS_HOSTNAME=localhost PDS_URL_SCHEME=http mix phx.server
+```
+
+## Docker
+
+```bash
+docker build -t pesque .
+
+docker run -d --name pesque -p 4000:4000 \
+  -v pesque-data:/data \
+  -e PDS_HOSTNAME=pds.example.com \
+  -e PDS_MODE=path_multi \
+  -e PDS_HANDLE_DOMAIN=example.com \
+  pesque
+```
+
+`PDS_HOSTNAME` is where your DID and every advertised URL come from;
+`PDS_HANDLE_DOMAIN` decides what handles your accounts get. The container speaks
+plain HTTP and expects a proxy.
+
+## Release
+
+```bash
+MIX_ENV=prod mix release
+_build/prod/rel/pesque/bin/pesque start
+```
+
+`bin/pesque stop` is a clean `SIGTERM`: the endpoint drains and the in-flight
+commit finishes. Copy the release directory wherever you want it and run
+`bin/pesque` from there. Under systemd, set `PDS_DATA_DIR`, `PDS_HOSTNAME` and
+`PDS_HANDLE_DOMAIN`, then `ExecStart=/opt/pesque/bin/pesque start` and
+`ExecStop=/opt/pesque/bin/pesque stop`.
+
+## Behind a TLS proxy
+
+Required for federation, and required for the rate limits to mean anything
+(see [Operations](operations.md#rate-limits-and-the-proxy)).
+
+```caddyfile
+pds.example.com {
+	reverse_proxy 127.0.0.1:4000
+}
+```
+
+nginx needs the same proxy, plus `proxy_http_version 1.1`, the `Upgrade` and
+`Connection` headers, `proxy_read_timeout 3600s` and `proxy_buffering off`,
+because the firehose stays open indefinitely. `Connection` needs a
+`map $http_upgrade $connection_upgrade { default upgrade; '' close; }` at the
+`http` level.
+
+## Configuration
+
+Every knob can be set as an environment variable or in a `pesque.conf` file. The
+environment wins, then the file, then the default; an invalid value fails at boot
+instead of falling back silently. `config/runtime.exs` is the reference for names,
+defaults and validation.
+
+The file is plain `key = value`, one per line, `#` for comments. The key is the
+variable without the `PDS_` prefix, lowercased: `hostname = pds.example.com` is
+`PDS_HOSTNAME`. A key the server does not know is an error, so a typo fails boot
+instead of being ignored. `pesque.conf.example` is the starting point.
+
+The server reads `PDS_CONFIG`, or `pesque.conf` in the working directory. In the
+container the path is `/data/pesque.conf`, on the volume, so one mount configures
+it:
+
+```bash
+docker run -d --name pesque -p 4000:4000 \
+  -v pesque-data:/data \
+  -v "$PWD/pesque.conf:/data/pesque.conf" \
+  pesque
+```
+
+| Variable | Key in the file | Default | Purpose |
+| --- | --- | --- | --- |
+| `PDS_DATA_DIR` | `data_dir` | `data` | Directory holding the entire server state |
+| `PDS_HOSTNAME` | `hostname` | `localhost` | Public hostname. Drives the DID, the DID document and every advertised URL |
+| `PDS_MODE` | `mode` | `conformant_single` | `conformant_single` or `path_multi`. See [Identity](identity.md) |
+| `PDS_IDENTITY` | `identity` | `web` | `web` or `plc`. `plc` requires `mode = path_multi` |
+| `PDS_HANDLE_DOMAIN` | `handle_domain` | hostname | The domain accounts get handles under |
+| `PDS_HANDLE` | `handle` | hostname | The handle the server publishes under `conformant_single` |
+| `PDS_PORT` | `port` | `4000` | Port the process binds |
+| `PDS_URL_SCHEME` | `url_scheme` | `https` | What the server tells the world to fetch |
+| `PDS_URL_PORT` | `url_port` | `443` (`port` for http) | The advertised port |
+| `PDS_REGISTRATION` | `registration` | `closed` | `open`, or invite codes |
+| `PDS_PLC_DIRECTORY` | `plc_directory` | `https://plc.directory` | PLC directory, read only when `identity = plc` |
+| `PDS_CRAWLER` | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
+| `PDS_BLOB_UPLOAD_LIMIT` | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
+| `PDS_REPO_IMPORT_LIMIT` | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
+| `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `path_multi` |
+
+`port` is where the process binds; `url_scheme` and `url_port` are what it
+advertises. Behind a proxy, listening on 4000 and advertising 443 is correct.
+`hostname` and `handle_domain` are often the same and rarely should be: a server
+at `pds.example.com` can hand out `alice.example.com` handles.
+
+## Create an account
+
+Registration is closed by default, so the first account comes from the mix task,
+which skips the invite requirement:
+
+```bash
+export PESQUE_PASSWORD=secret123
+
+mix pesque.create_account \
+  --handle alice.example.com \
+  --email alice@example.com \
+  --password-env PESQUE_PASSWORD
+```
+
+`--password secret123` works but lands in your shell history and in `ps`. Give
+neither and the task prompts with echo off. Later accounts need an invite code,
+minted through `com.atproto.server.createInviteCodes` and spent once, in the same
+transaction that inserts the account. `PDS_REGISTRATION=open` drops the
+requirement. On a `path_multi` server, minting codes also needs `PDS_ADMIN_DIDS`
+(see [Operations](operations.md#security-notes)).
+
+## Verify
+
+Run these in order. Each one narrows down where a later failure is.
+
+```bash
+# 1. process up, database migrated. 200 = ok, 503 = migrations did not run
+curl -s http://localhost:4000/xrpc/_health
+
+# 2. the server's own identity. did must match PDS_HOSTNAME
+curl -s http://localhost:4000/xrpc/com.atproto.server.describeServer
+
+# 3. a session, then a write. Writes need the token, reads do not
+curl -s -X POST https://pds.example.com/xrpc/com.atproto.server.createSession \
+  -H "content-type: application/json" \
+  -d '{"identifier":"alice.example.com","password":"secret123"}'
+
+curl -s -X POST https://pds.example.com/xrpc/com.atproto.repo.createRecord \
+  -H "authorization: Bearer $ACCESS_JWT" -H "content-type: application/json" \
+  -d '{"repo":"did:web:example.com","collection":"app.bsky.feed.post","record":{"$type":"app.bsky.feed.post","text":"hello from pesque","createdAt":"2026-01-01T00:00:00Z"}}'
+
+# 4. the firehose. Write another record and a #commit frame appears
+websocat "wss://pds.example.com/xrpc/com.atproto.sync.subscribeRepos?cursor=0"
+
+# 5. identity resolves from outside
+curl -s https://pds.example.com/.well-known/did.json
+curl -s "https://pds.example.com/xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com"
+```
+
+If `did` says `localhost`, `PDS_HOSTNAME` was not set for this process. The
+`links` it advertises ship as placeholders in `priv/static/`, so replace them
+before pointing a real domain at the server
+([Operations](operations.md#replace-the-legal-pages)). A firehose that connects
+and stays silent while writes succeed is proxy buffering; identity that works
+from your machine but not elsewhere is a proxy or firewall.
