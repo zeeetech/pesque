@@ -21,7 +21,7 @@ defmodule Pesque.Config do
   @keys ~w(
     data_dir hostname handle port url_scheme url_port mode identity
     plc_directory crawler handle_domain registration blob_upload_limit
-    repo_import_limit admin_dids privacy_policy_url terms_of_service_url
+    repo_import_limit admin_dids privacy_policy_url terms_of_service_url serve
   )
 
   @doc "The config file path: `PDS_CONFIG`, or `pesque.conf` in the working directory."

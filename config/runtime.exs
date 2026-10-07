@@ -47,21 +47,27 @@ mode =
     other -> raise "mode must be conformant_single or path_multi, got: #{other}"
   end
 
-# The DID method accounts are minted with. web is the default and the whole
-# existing behaviour; plc mints through the directory instead.
+# The DID method. Derived from the mode by default: a multi-account server
+# mints did:plc because the official client expects it, and the single-account
+# server is did:web of its own hostname. Set identity explicitly to override.
 identity =
-  case get.("identity", "web") do
+  case get.("identity", if(mode == :path_multi, do: "plc", else: "web")) do
     "web" -> :web
     "plc" -> :plc
     other -> raise "identity must be web or plc, got: #{other}"
   end
 
-# conformant_single serves the one account as the server itself, so the account
-# DID has to be the server's DID, and the server's identity is minted at boot
-# from the hostname. plc accounts are minted per account instead, so the two
-# modes cannot be combined until the server identity is minted through PLC too.
+# path_multi hands handles to real clients, and the official client expects a
+# did:plc account, so web there would mint accounts it cannot use.
+if mode == :path_multi and identity == :web do
+  raise "mode = path_multi requires identity = plc: the official client expects did:plc accounts"
+end
+
+# conformant_single serves one account as the server, so the account's DID is
+# the server's own; making that did:plc needs the server identity minted
+# through the directory at boot, which is not built yet.
 if identity == :plc and mode == :conformant_single do
-  raise "identity = plc requires mode = path_multi: conformant_single serves the account as the server, and the server's own DID is did:web"
+  raise "identity = plc with conformant_single is not supported yet: the single account is the server, whose DID is did:web"
 end
 
 # Only read when identity = plc. A directory the operator points at is a
@@ -159,6 +165,10 @@ config :pesque,
   repo_import_max_bytes: repo_import_max_bytes,
   privacy_policy_url: privacy_policy_url,
   terms_of_service_url: terms_of_service_url,
+  # Whether to start the HTTP endpoint. A one-off task container
+  # (create_account, doctor) sets this false so it does not fight the running
+  # server for the port.
+  serve: get.("serve", "true") != "false",
   # argon2's m_cost is an exponent of KiB, so the library default of 16 is 64
   # MiB of memory per hash. That is a defensible number on a box with room and
   # a fast way to OOM a small one: Accounts caps how many hashes run at once,
