@@ -13,7 +13,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   pesque:
-    image: ghcr.io/zeetech/pesque:${PESQUE_TAG:-latest}
+    image: ghcr.io/zeeetech/pesque:${PESQUE_TAG:-latest}
     restart: unless-stopped
     environment:
       PDS_CONFIG: /data/pesque.conf

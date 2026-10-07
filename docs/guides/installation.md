@@ -33,14 +33,14 @@ PDS_HOSTNAME=localhost PDS_URL_SCHEME=http mix phx.server
 A prebuilt image is published to GHCR, so a deploy needs no toolchain:
 
 ```bash
-docker pull ghcr.io/zeetech/pesque:latest
+docker pull ghcr.io/zeeetech/pesque:latest
 
 docker run -d --name pesque -p 4000:4000 \
   -v pesque-data:/data \
   -e PDS_HOSTNAME=pds.example.com \
   -e PDS_MODE=path_multi \
   -e PDS_HANDLE_DOMAIN=example.com \
-  ghcr.io/zeetech/pesque:latest
+  ghcr.io/zeeetech/pesque:latest
 ```
 
 To build it yourself instead, `docker build -t pesque .` and use `pesque` as the
