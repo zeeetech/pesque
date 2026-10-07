@@ -96,7 +96,7 @@ defmodule Pesque.MstIncrementalTest do
     store = Enum.reduce(deep, store, &put(&2, &1, value(1)))
 
     for key <- deep do
-      store = delete(store, key)
+      _ = delete(store, key)
     end
   end
 

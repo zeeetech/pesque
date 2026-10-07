@@ -91,7 +91,7 @@ defmodule PesqueWeb.PlcAccountTest do
     user = create_account("alice")
     {:ok, _} = Accounts.deactivate_account(user)
 
-    endpoint = Pesque.Did.service_endpoint(Pesque.hostname())
+    endpoint = Pesque.service_endpoint()
     Process.put(:plc_resolve_result, {:ok, document(endpoint)})
 
     assert {:ok, did} = Accounts.activate_account(Accounts.get_user(user.did))
