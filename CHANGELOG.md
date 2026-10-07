@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.1](https://github.com/zeeetech/pesque/compare/pesque-v1.1.0...pesque-v1.1.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* **cors:** echo the preflight's requested headers ([0e4eaff](https://github.com/zeeetech/pesque/commit/0e4eaff9e259748d404dd9acd355d3ac84cf7d81))
+* **lexicon:** resolve the vendored directory at runtime ([1753796](https://github.com/zeeetech/pesque/commit/17537965cc64d3770c60fe2ca643b6f74c45ebe5))
+* **oauth:** pass max_body_size as a request option ([e77af45](https://github.com/zeeetech/pesque/commit/e77af4594cd9ce7933eb30d8c98ba726200b2553))
+
 ## [1.1.0](https://github.com/zeeetech/pesque/compare/pesque-v1.0.0...pesque-v1.1.0) (2026-10-07)
 
 
