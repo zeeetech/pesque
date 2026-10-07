@@ -51,6 +51,7 @@ For the common case, one droplet with TLS handled for you, there is a
 ```bash
 scripts/pesque setup     # asks for the hostname, starts the stack, checks it
 PASSWORD=... scripts/pesque account --handle alice.example.com --email alice@example.com
+PASSWORD=... scripts/pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
 scripts/pesque doctor    # the preflight below, run for you
 scripts/pesque update    # pull the new image and restart
 ```

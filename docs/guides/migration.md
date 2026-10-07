@@ -21,6 +21,16 @@ PASSWORD='...' mix pesque.migrate \
   --password-env PASSWORD
 ```
 
+In the container the mix task does not exist, so the wrapper runs the release
+equivalent (with stdin attached for the code prompt):
+
+```bash
+PASSWORD='...' scripts/pesque migrate \
+  --old-pds https://bsky.social \
+  --handle zoedsoupe.zeetech.io \
+  --email zoedsoupe@example.com
+```
+
 It opens a session on the old PDS, creates the account here (deactivated),
 imports the repo and every blob, fetches the recommended credentials, then asks
 the old PDS for a PLC operation signature. On `bsky.social` that emails a code:

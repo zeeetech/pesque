@@ -5,6 +5,7 @@
 #   scripts/pesque setup     configure, start, and check the server
 #   scripts/pesque update    pull the new image and restart
 #   scripts/pesque account   create an account
+#   scripts/pesque migrate   move an existing account onto this server
 #   scripts/pesque doctor    run the federation preflight
 #   scripts/pesque logs      follow the server logs
 #
@@ -68,12 +69,40 @@ EOF
     run_task 'Pesque.Doctor.run()'
     ;;
 
+  migrate)
+    shift
+    old_pds="" handle="" email=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --old-pds) old_pds="$2"; shift 2 ;;
+        --handle) handle="$2"; shift 2 ;;
+        --email) email="$2"; shift 2 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    : "${old_pds:?--old-pds is required}"
+    : "${handle:?--handle is required}"
+    : "${email:?--email is required}"
+    : "${PASSWORD:?set PASSWORD in the environment}"
+
+    # -i keeps stdin attached: the identity step prompts for the code the old
+    # PDS emails.
+    docker compose run --rm -i --no-deps \
+      -e PDS_SERVE=false \
+      -e MIGRATE_OLD_PDS="$old_pds" \
+      -e MIGRATE_HANDLE="$handle" \
+      -e MIGRATE_EMAIL="$email" \
+      -e MIGRATE_PASSWORD="$PASSWORD" \
+      pesque /app/bin/pesque eval \
+      'case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: #{inspect(reason)}"); System.halt(1) end'
+    ;;
+
   logs)
     docker compose logs -f pesque
     ;;
 
   *)
-    echo "usage: scripts/pesque {setup|update|account|doctor|logs}" >&2
+    echo "usage: scripts/pesque {setup|update|account|migrate|doctor|logs}" >&2
     exit 2
     ;;
 esac
