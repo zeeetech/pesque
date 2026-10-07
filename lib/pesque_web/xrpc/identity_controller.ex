@@ -59,7 +59,7 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   def update_handle(conn, %{"handle" => handle}) do
     case Accounts.update_handle(conn.assigns.current_user, handle) do
       {:ok, _user} -> json(conn, %{})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -73,7 +73,7 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   def get_recommended_did_credentials(conn, _params) do
     case Plc.recommended_credentials(conn.assigns.current_user) do
       {:ok, credentials} -> json(conn, credentials)
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -83,17 +83,12 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   def submit_plc_operation(conn, %{"operation" => operation}) do
     case Plc.submit_operation(conn.assigns.current_user, operation) do
       {:ok, _did} -> json(conn, %{})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
   def submit_plc_operation(conn, _params) do
     Xrpc.error(conn, 400, "InvalidRequest", "missing required param: operation")
-  end
-
-  defp fail(conn, reason) do
-    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
-    Xrpc.error(conn, status, name, message)
   end
 
   # The server's own names answer with the server's own DID, which is not the
@@ -111,7 +106,6 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   # answer is only for the names this server actually serves.
   defp served_names do
     [Pesque.hostname(), Pesque.handle_domain()]
-    |> Enum.map(&String.downcase/1)
     |> Enum.map(&strip_port/1)
   end
 

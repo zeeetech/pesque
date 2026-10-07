@@ -3,6 +3,8 @@ defmodule PesqueWeb.Xrpc.FirehoseController do
 
   require Logger
 
+  alias PesqueWeb.Xrpc.Params
+
   def upgrade(conn, _params) do
     cursor =
       case conn.params["cursor"] do
@@ -10,8 +12,8 @@ defmodule PesqueWeb.Xrpc.FirehoseController do
           nil
 
         value ->
-          case Integer.parse(value) do
-            {n, ""} when n >= 0 ->
+          case Params.int(value) do
+            n when is_integer(n) and n >= 0 ->
               n
 
             _ ->

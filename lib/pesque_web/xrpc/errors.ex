@@ -107,11 +107,10 @@ defmodule PesqueWeb.Xrpc.Errors do
 
   # The PLC directory. A refused or unreachable submission is a server-side
   # failure: the account was not created, and a retry is the client's move.
-  def to_xrpc(:plc_unreachable),
-    do: {500, "InternalServerError", "the PLC directory could not be reached"}
-
-  def to_xrpc({:plc_unreachable, _reason}),
-    do: {500, "InternalServerError", "the PLC directory could not be reached"}
+  def to_xrpc(reason)
+      when reason == :plc_unreachable or
+             (is_tuple(reason) and elem(reason, 0) == :plc_unreachable),
+      do: {500, "InternalServerError", "the PLC directory could not be reached"}
 
   def to_xrpc({:plc_status, _status}),
     do: {500, "InternalServerError", "the PLC directory refused the operation"}

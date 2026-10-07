@@ -9,13 +9,11 @@ defmodule PesqueWeb.Xrpc.RepoController do
   alias Pesque.Car
   alias Pesque.CBOR
   alias Pesque.CID
-  alias Pesque.Commit
-  alias Pesque.Keys
   alias Pesque.Lexicon
-  alias Pesque.Repo
-  alias Pesque.RepoServer
+  alias Pesque.RepoImport
   alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
+  alias PesqueWeb.Xrpc.Params
 
   # Claimed by Plug.Parsers before the router runs, so the body is already
   # gone by the time a controller could read it.
@@ -93,14 +91,30 @@ defmodule PesqueWeb.Xrpc.RepoController do
          :ok <- require_record(params["record"]) do
       {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
 
-      fun =
-        if action == :create,
-          do: &Pesque.RepoServer.create_record/5,
-          else: &Pesque.RepoServer.put_record/5
-
       validate = validate?(params)
 
-      case fun.(pid, params["collection"], params["rkey"], params["record"], validate: validate) do
+      result =
+        case action do
+          :create ->
+            Pesque.RepoServer.create_record(
+              pid,
+              params["collection"],
+              params["rkey"],
+              params["record"],
+              validate: validate
+            )
+
+          :put ->
+            Pesque.RepoServer.put_record(
+              pid,
+              params["collection"],
+              params["rkey"],
+              params["record"],
+              validate: validate
+            )
+        end
+
+      case result do
         {:ok, result} ->
           [change] = result["changes"]
 
@@ -158,7 +172,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # after it stopped being one.
   def upload_blob(conn, _params) do
     with {:ok, media_type} <- blob_media_type(conn),
-         {:ok, bytes, conn} <- read_blob_body(conn),
+         {:ok, bytes, conn} <- read_capped_body(conn, Blob.max_bytes(), blob_too_large()),
          :ok <- content_length_matches(conn, bytes),
          {:ok, blob} <- Blob.upload(conn.assigns.did, bytes, media_type) do
       json(conn, %{
@@ -203,13 +217,13 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # Plug.Parsers: it claims only json and urlencoded, which blob_media_type/1
   # turns away before a byte is read, so the two media types a blob cannot
   # arrive as are the only ones the endpoint's length option ever sees.
-  defp read_blob_body(conn) do
-    case read_body(conn, length: Blob.max_bytes()) do
+  defp read_capped_body(conn, max, too_large) do
+    case read_body(conn, length: max) do
       {:ok, bytes, conn} ->
         {:ok, bytes, conn}
 
       {:more, _partial, _conn} ->
-        {:error, blob_too_large()}
+        {:error, too_large}
 
       {:error, reason} ->
         {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
@@ -245,20 +259,15 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # 400 and not a half-imported repo, and the body is capped like a blob's
   # before a byte of it is held. The lexicon names the Content-Length header as
   # required, so its absence is refused rather than treated as an unknown
-  # length.
-  #
-  # The commit the CAR carried cannot keep its signature: this is a did:web
-  # server and the key for the DID is the one this server holds, not the one
-  # the exporting PDS signed with. So the import signs a new commit over the
-  # imported tree with this server's key for the account, and that commit's
-  # `prev` is the imported commit's CID, which continues the chain instead of
-  # starting a second one.
+  # length. What the decoded repo becomes is RepoImport's to decide.
   def import_repo(conn, _params) do
     with {:ok, declared} <- import_content_length(conn),
-         {:ok, bytes} <- read_import_body(conn, declared),
+         :ok <- import_length_ok(declared),
+         {:ok, bytes, _conn} <-
+           read_capped_body(conn, Pesque.repo_import_max_bytes(), import_too_large()),
          {:ok, imported} <- Car.decode_repo(bytes),
          :ok <- check_import_did(imported.commit, conn.assigns.did),
-         {:ok, _did} <- persist_import(conn.assigns.did, imported) do
+         {:ok, _did} <- RepoImport.persist_import(conn.assigns.did, imported) do
       json(conn, %{})
     else
       {:error, {status, name, message}} -> Xrpc.error(conn, status, name, message)
@@ -286,21 +295,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # refused on the header alone, and the read is capped so a length that lies
   # low is still bounded. Both turn into the same 413 the blob path answers,
   # which is the one status a client can tell from a malformed request.
-  defp read_import_body(conn, declared) do
-    if declared > Pesque.repo_import_max_bytes() do
-      {:error, import_too_large()}
-    else
-      case read_body(conn, length: Pesque.repo_import_max_bytes()) do
-        {:ok, bytes, _conn} ->
-          {:ok, bytes}
-
-        {:more, _partial, _conn} ->
-          {:error, import_too_large()}
-
-        {:error, reason} ->
-          {:error, {400, "InvalidRequest", "could not read the request body: #{reason}"}}
-      end
-    end
+  defp import_length_ok(declared) do
+    if declared > Pesque.repo_import_max_bytes(), do: {:error, import_too_large()}, else: :ok
   end
 
   defp import_too_large do
@@ -312,65 +308,6 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp check_import_did(%{"did" => did}, did), do: :ok
   defp check_import_did(_commit, _did), do: {:error, :invalid_car}
 
-  # The new commit is built and signed before the store is touched, so a key
-  # this server cannot load leaves the existing repo exactly as it was. The
-  # process is stopped before the rows are replaced, because it caches the
-  # entries and head those rows hold; it starts again, from the rows this
-  # wrote, on the next request.
-  defp persist_import(did, imported) do
-    case Keys.ensure(did) do
-      {:ok, key} ->
-        state = %{
-          did: did,
-          clock_id: :rand.uniform(1024) - 1,
-          priv: key.priv,
-          entries: imported.entries,
-          rev: nil,
-          tid_int: 0,
-          commit_cid: imported.commit_cid,
-          root_cid: nil
-        }
-
-        {:ok, prepared} = Commit.commit(state, [])
-        RepoServer.stop(did)
-        write_import(did, imported, prepared)
-
-      {:error, _reason} ->
-        {:error, :key_unavailable}
-    end
-  end
-
-  defp write_import(did, imported, prepared) do
-    new_blocks =
-      Map.new(prepared.all_blocks, fn {cid, bytes} -> {CID.to_string(cid), bytes} end)
-
-    result =
-      Repo.transaction(
-        fn ->
-          RepoStore.delete_records!(did)
-          RepoStore.delete_blocks!(did)
-          RepoStore.insert_blocks!(did, Map.merge(imported.blocks, new_blocks))
-
-          Enum.each(imported.records, fn {key, {cid, data}} ->
-            [collection, rkey] = String.split(key, "/", parts: 2)
-            RepoStore.put_record!(did, collection, rkey, CID.to_string(cid), data)
-          end)
-
-          RepoStore.put_meta!("root:" <> did, CID.to_string(prepared.root_cid))
-          RepoStore.put_meta!("rev:" <> did, prepared.rev)
-          RepoStore.put_meta!("tid_int:" <> did, Integer.to_string(prepared.tid_int))
-          RepoStore.put_meta!("commit:" <> did, CID.to_string(prepared.commit_cid))
-          :ok
-        end,
-        mode: :immediate
-      )
-
-    case result do
-      {:ok, :ok} -> {:ok, did}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   # authenticated reads
 
   # The blobs the account's records name but this server does not hold, which is
@@ -379,19 +316,13 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # with a row is not. The cursor is an offset over the flattened list, matching
   # listRecords and listRepos so one paging shape is one thing to learn.
   def list_missing_blobs(conn, params) do
-    did = conn.assigns.did
-    limit = params |> Map.get("limit", "500") |> parse_int() |> max(1) |> min(1000)
-    offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+    {limit, offset} = Params.page(params, 500, 1000)
 
-    missing = missing_blobs(did)
-    more = offset + limit < length(missing)
-
-    reply = %{"blobs" => Enum.slice(missing, offset, limit)}
+    rest = conn.assigns.did |> missing_blobs() |> Enum.drop(offset)
 
     reply =
-      if more,
-        do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
-        else: reply
+      %{"blobs" => Enum.take(rest, limit)}
+      |> Params.put_cursor(rest, limit, offset)
 
     json(conn, reply)
   end
@@ -502,12 +433,10 @@ defmodule PesqueWeb.Xrpc.RepoController do
   def list_records(conn, %{"repo" => repo, "collection" => collection} = params) do
     case resolve_repo(repo) do
       {:ok, did} ->
-        limit = params |> Map.get("limit", "50") |> parse_int() |> max(1) |> min(100)
-        offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+        {limit, offset} = Params.page(params, 50, 100)
         reverse = params["reverse"] == "true"
 
         rows = RepoStore.list_records(did, collection, limit + 1, offset, reverse)
-        more = length(rows) > limit
 
         records =
           rows
@@ -533,12 +462,9 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
         case records do
           {:ok, records} ->
-            reply = %{"records" => Enum.reverse(records)}
-
             reply =
-              if more,
-                do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
-                else: reply
+              %{"records" => Enum.reverse(records)}
+              |> Params.put_cursor(rows, limit, offset)
 
             json(conn, reply)
 
@@ -653,15 +579,5 @@ defmodule PesqueWeb.Xrpc.RepoController do
     Xrpc.error(conn, status, name, "write #{index}: #{message}")
   end
 
-  defp write_error(conn, reason) do
-    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
-    Xrpc.error(conn, status, name, message)
-  end
-
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, ""} -> n
-      _ -> 0
-    end
-  end
+  defp write_error(conn, reason), do: Xrpc.error(conn, reason)
 end

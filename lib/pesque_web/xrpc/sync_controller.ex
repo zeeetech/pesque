@@ -9,6 +9,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
   alias Pesque.CID
   alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
+  alias PesqueWeb.Xrpc.Params
 
   def get_repo(conn, %{"did" => did}) do
     case Accounts.repo_did(did) do
@@ -167,11 +168,9 @@ defmodule PesqueWeb.Xrpc.SyncController do
   # The whole-server enumeration. cursor is an offset the caller sends back
   # verbatim, matching listRecords, so one paging shape is one thing to learn.
   def list_repos(conn, params) do
-    limit = params |> Map.get("limit", "500") |> parse_int() |> max(1) |> min(1000)
-    offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+    {limit, offset} = Params.page(params, 500, 1000)
 
     dids = Accounts.hosted_dids(limit + 1, offset)
-    more = length(dids) > limit
     heads = RepoStore.all_repo_heads()
     deactivated = Accounts.deactivated_dids()
 
@@ -180,12 +179,9 @@ defmodule PesqueWeb.Xrpc.SyncController do
       |> Enum.take(limit)
       |> Enum.map(&repo_entry(&1, heads, deactivated))
 
-    reply = %{"repos" => repos}
-
     reply =
-      if more,
-        do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
-        else: reply
+      %{"repos" => repos}
+      |> Params.put_cursor(dids, limit, offset)
 
     json(conn, reply)
   end
@@ -212,18 +208,13 @@ defmodule PesqueWeb.Xrpc.SyncController do
   def list_blobs(conn, %{"did" => did} = params) do
     case served_repo(did) do
       {:ok, did} ->
-        limit = params |> Map.get("limit", "500") |> parse_int() |> max(1) |> min(1000)
-        offset = params |> Map.get("cursor", "0") |> parse_int() |> max(0)
+        {limit, offset} = Params.page(params, 500, 1000)
 
         cids = RepoStore.blob_cids(did, limit + 1, offset)
-        more = length(cids) > limit
-
-        reply = %{"cids" => Enum.take(cids, limit)}
 
         reply =
-          if more,
-            do: Map.put(reply, "cursor", Integer.to_string(offset + limit)),
-            else: reply
+          %{"cids" => Enum.take(cids, limit)}
+          |> Params.put_cursor(cids, limit, offset)
 
         json(conn, reply)
 
@@ -251,8 +242,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
         |> send_resp(200, bytes)
 
       {:error, reason} ->
-        {status, name, message} = Xrpc.Errors.to_xrpc(reason)
-        Xrpc.error(conn, status, name, message)
+        Xrpc.error(conn, reason)
     end
   end
 
@@ -427,10 +417,16 @@ defmodule PesqueWeb.Xrpc.SyncController do
   defp sync_error(conn, :no_root),
     do: Xrpc.error(conn, 500, "InternalServerError", "the stored tree does not reach that record")
 
+  # The MST walk answering :not_found means the records table and the stored
+  # blocks disagree, which is the same server-side inconsistency as :no_root,
+  # not an unknown repo: served_repo/1 already answered that as :repo_not_found.
+  defp sync_error(conn, :not_found), do: sync_error(conn, :no_root)
+
   defp sync_error(conn, :no_commit),
     do: Xrpc.error(conn, 404, "RepoNotFound", "repo has no commits yet")
 
-  defp sync_error(conn, :not_found), do: Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
+  defp sync_error(conn, :repo_not_found),
+    do: Xrpc.error(conn, 400, "RepoNotFound", "unknown repo")
 
   defp sync_error(conn, :deactivated),
     do: Xrpc.error(conn, 400, "RepoDeactivated", "the repo is deactivated")
@@ -449,7 +445,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
         if Accounts.repo_active?(did), do: {:ok, did}, else: {:error, :deactivated}
 
       {:error, _reason} ->
-        {:error, :not_found}
+        {:error, :repo_not_found}
     end
   end
 
@@ -502,12 +498,5 @@ defmodule PesqueWeb.Xrpc.SyncController do
     e ->
       Logger.error("parsing stored cid #{cid} failed: #{Exception.message(e)}")
       :error
-  end
-
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, ""} -> n
-      _ -> 0
-    end
   end
 end

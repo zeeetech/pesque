@@ -16,6 +16,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   alias Pesque.RepoStore
   alias Pesque.ServiceAuth
   alias PesqueWeb.Xrpc
+  alias PesqueWeb.Xrpc.Params
 
   # The first thing every client asks. A server that does not answer it cannot
   # be used by an app that follows the spec, whatever else it implements, so it
@@ -100,7 +101,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def create_account(conn, %{"password" => password} = params) when is_binary(password) do
     case invite_code(params) do
       {:ok, opts} -> provision(conn, params, opts)
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -123,28 +124,30 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
   defp provision(conn, %{"did" => did} = params, opts) when is_binary(did) do
     case prove_import(conn, did) do
-      :ok -> provision_imported(conn, params, opts, did)
-      {:error, reason} -> fail(conn, reason)
+      :ok -> provision(conn, params, opts, {:imported, did})
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
-  defp provision(conn, params, opts), do: provision_new(conn, params, opts)
+  defp provision(conn, params, opts), do: provision(conn, params, opts, :new)
 
-  defp provision_new(conn, params, opts) do
+  defp provision(conn, params, opts, :new) do
     case Accounts.create_account(params["handle"], params["email"], params["password"], opts) do
-      {:ok, user} ->
-        {:ok, session} = Accounts.issue_session(user.did)
+      {:ok, user} -> session_reply(conn, user, true)
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
 
-        json(conn, %{
-          "accessJwt" => session.access_jwt,
-          "refreshJwt" => session.refresh_jwt,
-          "handle" => user.handle,
-          "did" => user.did,
-          "active" => true
-        })
-
-      {:error, reason} ->
-        fail(conn, reason)
+  defp provision(conn, params, opts, {:imported, did}) do
+    case Accounts.create_imported_account(
+           params["handle"],
+           params["email"],
+           params["password"],
+           did,
+           opts
+         ) do
+      {:ok, user} -> session_reply(conn, user, false)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -185,33 +188,19 @@ defmodule PesqueWeb.Xrpc.SessionController do
     end
   end
 
-  defp provision_imported(conn, params, opts, did) do
-    case Accounts.create_imported_account(
-           params["handle"],
-           params["email"],
-           params["password"],
-           did,
-           opts
-         ) do
-      {:ok, user} ->
-        {:ok, session} = Accounts.issue_session(user.did)
+  # The session body both provisioning paths answer, differing only in the
+  # Accounts call and whether the account is active yet. An imported account is
+  # not active until its repo lands, so `active` is the caller's fact to pass.
+  defp session_reply(conn, user, active) do
+    {:ok, session} = Accounts.issue_session(user.did)
 
-        json(conn, %{
-          "accessJwt" => session.access_jwt,
-          "refreshJwt" => session.refresh_jwt,
-          "handle" => user.handle,
-          "did" => user.did,
-          "active" => false
-        })
-
-      {:error, reason} ->
-        fail(conn, reason)
-    end
-  end
-
-  defp fail(conn, reason) do
-    {status, name, message} = Xrpc.Errors.to_xrpc(reason)
-    Xrpc.error(conn, status, name, message)
+    json(conn, %{
+      "accessJwt" => session.access_jwt,
+      "refreshJwt" => session.refresh_jwt,
+      "handle" => user.handle,
+      "did" => user.did,
+      "active" => active
+    })
   end
 
   # The guard on the password is the boundary fix for a status-code oracle.
@@ -279,7 +268,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def create_invite_codes(conn, params) do
     case Accounts.create_invite_codes(code_count(params), use_count(params), for_accounts(params)) do
       {:ok, groups} -> json(conn, %{"codes" => Enum.map(groups, &group/1)})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -304,14 +293,14 @@ defmodule PesqueWeb.Xrpc.SessionController do
         json(conn, %{"token" => token, "expiresAt" => DateTime.to_iso8601(expires_at)})
 
       {:error, reason} ->
-        fail(conn, reason)
+        Xrpc.error(conn, reason)
     end
   end
 
   def delete_account(conn, %{"did" => did, "password" => password, "token" => token}) do
     case Accounts.delete_account(conn.assigns.current_user, did, password, token) do
       {:ok, _did} -> json(conn, %{})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -329,14 +318,14 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def deactivate_account(conn, _params) do
     case Accounts.deactivate_account(conn.assigns.current_user) do
       {:ok, _did} -> json(conn, %{})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
   def activate_account(conn, _params) do
     case Accounts.activate_account(conn.assigns.current_user) do
       {:ok, _did} -> json(conn, %{})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -349,7 +338,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def get_service_auth(conn, params) do
     case ServiceAuth.mint(conn.assigns.did, params["aud"], opts(params)) do
       {:ok, token} -> json(conn, %{"token" => token})
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Xrpc.error(conn, reason)
     end
   end
 
@@ -364,9 +353,9 @@ defmodule PesqueWeb.Xrpc.SessionController do
   defp parse_exp(nil), do: nil
 
   defp parse_exp(exp) when is_binary(exp) do
-    case Integer.parse(exp) do
-      {n, ""} -> n
-      _other -> exp
+    case Params.int(exp) do
+      :error -> exp
+      n -> n
     end
   end
 

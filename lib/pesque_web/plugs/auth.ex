@@ -49,13 +49,14 @@ defmodule PesqueWeb.Plugs.Auth do
 
   require Logger
 
-  @doc "The router option naming what a route needs: `:read`, `:write` or `:account`."
-  def default_permission, do: :read
+  # The router option naming what a route needs: `:read`, `:write` or
+  # `:account`. Defaults to read.
+  @default_permission :read
 
   def init(opts), do: opts
 
   def call(conn, opts) do
-    permission = Keyword.get(opts, :permission, default_permission())
+    permission = Keyword.get(opts, :permission, @default_permission)
 
     case authenticate(conn, permission) do
       {:ok, conn, user} ->
@@ -177,11 +178,9 @@ defmodule PesqueWeb.Plugs.Auth do
   # that reads only the header still learns which of the two things to fix:
   # the token or the proof.
   defp refuse(conn, reason) do
-    {status, name, message} = Errors.to_xrpc(reason)
-
     conn
     |> put_resp_header("www-authenticate", Errors.to_challenge(reason))
-    |> Xrpc.error(status, name, message)
+    |> Xrpc.error(reason)
   end
 
   defp describe(:no_bearer_token), do: "no bearer token"
