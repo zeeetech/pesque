@@ -126,6 +126,20 @@ defmodule PesqueWeb.ProxyTest do
     assert headers =~ "atproto-accept-labelers"
   end
 
+  # The official app sends headers this server does not know about
+  # (`x-atproto-bsky-topics` today). Echoing what the browser asks for is what
+  # keeps a new one from failing the preflight.
+  test "the OPTIONS preflight echoes the headers the browser asks for" do
+    conn =
+      request(:options, "/xrpc/app.bsky.unspecced.getTrends", nil, nil, [
+        {"access-control-request-headers", "x-atproto-bsky-topics, authorization"}
+      ])
+
+    [headers] = get_resp_header(conn, "access-control-allow-headers")
+    assert headers =~ "x-atproto-bsky-topics"
+    assert headers =~ "authorization"
+  end
+
   defp request(method, path, body, token, headers) do
     build_conn()
     |> put_req_header("x-request-id", @request_id)
