@@ -6,11 +6,7 @@ defmodule Pesque.Base32 do
   @decode_map Map.new(Enum.with_index(@alphabet))
 
   def encode(data) when is_binary(data) do
-    bits = bit_size(data)
-    pad = rem(5 - rem(bits, 5), 5)
-    padded = <<data::bitstring, 0::size(pad)>>
-
-    for <<c::5 <- padded>>, into: "", do: <<Enum.fetch!(@alphabet, c)>>
+    Base.encode32(data, case: :lower, padding: false)
   end
 
   def decode!(str) when is_binary(str) do

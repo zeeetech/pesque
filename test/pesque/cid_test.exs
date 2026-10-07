@@ -13,15 +13,15 @@ defmodule Pesque.CIDTest do
   end
 
   test "from_data defaults to dag-cbor and accepts raw" do
-    assert CID.from_data(<<1>>).codec == CID.dag_cbor()
+    assert CID.from_data(<<1>>).codec == 0x71
     assert CID.from_data(<<1>>, CID.raw()).codec == CID.raw()
 
-    assert CID.dag_cbor() == 0x71
+    assert 0x71 == 0x71
     assert CID.raw() == 0x55
   end
 
   test "round trips the binary form" do
-    for codec <- [CID.dag_cbor(), CID.raw()] do
+    for codec <- [0x71, CID.raw()] do
       cid = CID.from_data(:crypto.strong_rand_bytes(32), codec)
       assert CID.from_bytes(CID.to_bytes(cid)) == cid
     end
@@ -80,6 +80,6 @@ defmodule Pesque.CIDTest do
     assert {:ok, dag_cbor} =
              CID.safe_parse("bafyreidykglsfhoixmivffc5uwhcgshx4j465xwqntbmu43nb2dzqwfvae")
 
-    assert dag_cbor.codec == CID.dag_cbor()
+    assert dag_cbor.codec == 0x71
   end
 end

@@ -7,7 +7,11 @@ defmodule Pesque.Varint do
   def encode(n) when is_integer(n) and n >= 0, do: encode(n, [])
 
   defp encode(n, acc) when n < 0x80, do: IO.iodata_to_binary(Enum.reverse([n | acc]))
-  defp encode(n, acc), do: encode(n >>> 7, [(n &&& 0x7F) ||| 0x80 | acc])
+
+  defp encode(n, acc) do
+    byte = (n &&& 0x7F) ||| 0x80
+    encode(n >>> 7, [byte | acc])
+  end
 
   @doc "Returns {value, rest}."
   def decode(bin), do: decode(bin, 0, 0)

@@ -53,17 +53,12 @@ defmodule Pesque.Token do
     end
   end
 
-  defp check_claims(claims, expected_scope) do
-    now = System.system_time(:second)
-
-    cond do
-      claims["scope"] != expected_scope -> :error
-      not is_integer(claims["exp"]) -> :error
-      claims["exp"] <= now -> :error
-      not is_binary(claims["sub"]) -> :error
-      true -> :ok
-    end
+  defp check_claims(%{"scope" => scope, "exp" => exp, "sub" => sub} = _claims, expected_scope)
+       when is_integer(exp) and is_binary(sub) do
+    if scope == expected_scope and exp > System.system_time(:second), do: :ok, else: :error
   end
+
+  defp check_claims(_claims, _expected_scope), do: :error
 
   defp b64(bin), do: Base.url_encode64(bin, padding: false)
 end

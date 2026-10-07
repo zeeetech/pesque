@@ -9,7 +9,6 @@ defmodule Pesque.CID do
 
   defstruct version: 1, codec: @dag_cbor, hash_algo: @sha2_256, digest: nil
 
-  def dag_cbor, do: @dag_cbor
   def raw, do: @raw
   def sha2_256, do: @sha2_256
 
@@ -30,6 +29,7 @@ defmodule Pesque.CID do
 
   @doc "Parses a base32-multibase CID string. Raises on malformed input."
   def parse("b" <> rest), do: rest |> Pesque.Base32.decode!() |> from_bytes()
+  def parse(_), do: raise(ArgumentError, "not a multibase base32 CID")
 
   @doc """
   Parses a CID string, or answers :error.
@@ -42,7 +42,7 @@ defmodule Pesque.CID do
   def safe_parse(cid) do
     {:ok, parse(cid)}
   rescue
-    _ -> :error
+    ArgumentError -> :error
   end
 
   def from_bytes(bin) do
