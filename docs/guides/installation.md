@@ -4,11 +4,12 @@ How to run a Pesque server, and how to check that it works.
 
 ## Requirements
 
-Elixir 1.18+ and a C toolchain, for the SQLite driver. Docker or a release needs
-a Docker daemon or a machine with `sh`, `nc` and a writable directory. Anything
-beyond `localhost` also needs a real hostname and TLS: `did:web` resolution is an
-HTTPS fetch on your domain, so a server reachable only over plain HTTP has an
-identity nothing can resolve. See [Identity](identity.md).
+Elixir 1.19+ on OTP 28+, and a C toolchain, for the SQLite driver. Docker or a
+release needs a Docker daemon or a machine with `sh`, `nc` and a writable
+directory. Anything beyond `localhost` also needs a real hostname and TLS:
+`did:web` resolution is an HTTPS fetch on your domain, so a server reachable
+only over plain HTTP has an identity nothing can resolve. See
+[Identity](identity.md).
 
 ## Run it locally
 
@@ -43,6 +44,19 @@ docker run -d --name pesque -p 4000:4000 \
 `PDS_HOSTNAME` is where your DID and every advertised URL come from;
 `PDS_HANDLE_DOMAIN` decides what handles your accounts get. The container speaks
 plain HTTP and expects a proxy.
+
+For the common case, one droplet with TLS handled for you, there is a
+`docker-compose.yml` and a `Caddyfile`, driven by `scripts/pesque`:
+
+```bash
+scripts/pesque setup     # asks for the hostname, starts the stack, checks it
+PASSWORD=... scripts/pesque account --handle alice.example.com --email alice@example.com
+scripts/pesque doctor    # the preflight below, run for you
+scripts/pesque update    # pull the new image and restart
+```
+
+The image carries a release, not Mix, so the mix tasks in this guide do not run
+inside the container; `scripts/pesque` uses the release equivalents.
 
 ## Release
 
@@ -102,7 +116,7 @@ docker run -d --name pesque -p 4000:4000 \
 | `PDS_DATA_DIR` | `data_dir` | `data` | Directory holding the entire server state |
 | `PDS_HOSTNAME` | `hostname` | `localhost` | Public hostname. Drives the DID, the DID document and every advertised URL |
 | `PDS_MODE` | `mode` | `conformant_single` | `conformant_single` or `path_multi`. See [Identity](identity.md) |
-| `PDS_IDENTITY` | `identity` | `web` | `web` or `plc`. `plc` requires `mode = path_multi` |
+| `PDS_IDENTITY` | `identity` | derived from mode | `web` or `plc`. `plc` under `path_multi`, `web` under `conformant_single` |
 | `PDS_HANDLE_DOMAIN` | `handle_domain` | hostname | The domain accounts get handles under |
 | `PDS_HANDLE` | `handle` | hostname | The handle the server publishes under `conformant_single` |
 | `PDS_PORT` | `port` | `4000` | Port the process binds |
