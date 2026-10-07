@@ -111,9 +111,13 @@ defmodule Pesque.OAuth.Fetch do
         :post -> {URI.to_string(uri), charlist_headers(headers), to_charlist(content_type), body}
       end
 
-    options = httpc_options(opts) |> Keyword.put(:max_body_size, max_bytes)
+    options = httpc_options(opts)
 
-    case :httpc.request(method, request, options, []) do
+    # max_body_size is a request option, the fourth argument to :httpc, not an
+    # HTTP option in the third: passed there it is silently ignored, and the
+    # transport reads a response of any size into memory before the post-hoc
+    # check below refuses it.
+    case :httpc.request(method, request, options, max_body_size: max_bytes) do
       {:ok, {{_v, status, _r}, resp_headers, resp_body}} ->
         body = IO.iodata_to_binary(resp_body)
 
