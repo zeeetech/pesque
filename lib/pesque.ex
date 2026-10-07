@@ -77,4 +77,15 @@ defmodule Pesque do
   """
   def repo_import_max_bytes,
     do: Application.get_env(:pesque, :repo_import_max_bytes, 100 * 1024 * 1024)
+
+  @doc """
+  The operator's privacy policy URL, or "" when none is configured.
+
+  A self-hosted PDS has no policy of its own, so describeServer only advertises
+  one the operator set. Empty means the links map omits the key.
+  """
+  def privacy_policy_url, do: Application.get_env(:pesque, :privacy_policy_url, "")
+
+  @doc "The operator's terms of service URL, or \"\" when none is configured."
+  def terms_of_service_url, do: Application.get_env(:pesque, :terms_of_service_url, "")
 end

@@ -32,16 +32,18 @@ defmodule PesqueWeb.Xrpc.SessionController do
     })
   end
 
-  # Absolute URLs to the documents this server serves itself, because a client
-  # reading describeServer from another host cannot follow a path.
+  # The documents this server serves itself are placeholders, so they are not
+  # advertised: a link a client shows a person as the server's policy has to be
+  # one the operator stands behind. Set privacy_policy_url / terms_of_service_url
+  # to publish them, or point at a policy hosted elsewhere.
   defp links do
-    base = Pesque.base_url()
-
-    %{
-      "privacyPolicy" => base <> "/privacy-policy.md",
-      "termsOfService" => base <> "/terms-of-service.md"
-    }
+    %{}
+    |> put_link("privacyPolicy", Pesque.privacy_policy_url())
+    |> put_link("termsOfService", Pesque.terms_of_service_url())
   end
+
+  defp put_link(links, _key, url) when url in [nil, ""], do: links
+  defp put_link(links, key, url), do: Map.put(links, key, url)
 
   # What an AppView asks before it mirrors a repo. `activated` is answered from
   # the row and not from the token, so a deleted account reads as deactivated

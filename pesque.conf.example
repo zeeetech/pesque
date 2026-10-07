@@ -39,3 +39,8 @@ registration = closed
 # blob_upload_limit = 5242880
 # repo_import_limit = 104857600
 # admin_dids = did:plc:...,did:web:...
+
+# Your own policy documents, published by describeServer. Unset means the links
+# map omits them, which is right when you have none to stand behind.
+# privacy_policy_url = https://example.com/privacy
+# terms_of_service_url = https://example.com/terms

@@ -35,18 +35,30 @@ defmodule PesqueWeb.ServerEndpointsTest do
     assert xrpc_get("/xrpc/com.atproto.server.describeServer").status == 200
   end
 
-  # A link a client cannot open is worse than no link: the client shows it to
-  # a person as the server's policy. These are the documents this server
-  # actually serves, so the test fetches them back.
-  test "describeServer links to policy documents this server serves" do
+  # A link a client cannot open is worse than no link, and a link to a
+  # placeholder is worse still: the client shows it to a person as the server's
+  # policy. This server has no policy of its own, so it advertises one only when
+  # the operator set it.
+  test "describeServer omits policy links until the operator sets them" do
     links = read("/xrpc/com.atproto.server.describeServer")["links"]
 
-    assert is_binary(links["privacyPolicy"])
-    assert is_binary(links["termsOfService"])
+    refute Map.has_key?(links, "privacyPolicy")
+    refute Map.has_key?(links, "termsOfService")
+  end
 
-    for path <- ["/privacy-policy.md", "/terms-of-service.md"] do
-      assert xrpc_get(path).status == 200
-    end
+  test "describeServer advertises the operator's policy documents" do
+    Application.put_env(:pesque, :privacy_policy_url, "https://example.com/privacy")
+    Application.put_env(:pesque, :terms_of_service_url, "https://example.com/terms")
+
+    on_exit(fn ->
+      Application.delete_env(:pesque, :privacy_policy_url)
+      Application.delete_env(:pesque, :terms_of_service_url)
+    end)
+
+    links = read("/xrpc/com.atproto.server.describeServer")["links"]
+
+    assert links["privacyPolicy"] == "https://example.com/privacy"
+    assert links["termsOfService"] == "https://example.com/terms"
   end
 
   test "checkAccountStatus reports a repo that has been written to", ctx do

@@ -118,6 +118,12 @@ repo_import_max_bytes =
       end
   end
 
+# The operator's own policy documents, advertised by describeServer. Empty by
+# default: this server has no policy of its own, so it publishes none rather
+# than linking a placeholder a client would show to users.
+privacy_policy_url = get.("privacy_policy_url", "")
+terms_of_service_url = get.("terms_of_service_url", "")
+
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),
   journal_mode: :wal,
@@ -151,6 +157,8 @@ config :pesque,
   registration: registration,
   blob_max_bytes: blob_max_bytes,
   repo_import_max_bytes: repo_import_max_bytes,
+  privacy_policy_url: privacy_policy_url,
+  terms_of_service_url: terms_of_service_url,
   # argon2's m_cost is an exponent of KiB, so the library default of 16 is 64
   # MiB of memory per hash. That is a defensible number on a box with room and
   # a fast way to OOM a small one: Accounts caps how many hashes run at once,
