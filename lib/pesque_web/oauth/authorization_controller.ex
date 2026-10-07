@@ -36,12 +36,12 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
          {:ok, %{request_uri: request_uri, expires_in: expires_in}} <-
            OAuth.push_request(params, checked.assigns.dpop_jkt) do
       checked
-      |> put_resp_header("cache-control", "no-store")
+      |> Errors.no_store()
       |> Proof.with_nonce()
       |> json(%{"request_uri" => request_uri, "expires_in" => expires_in})
     else
-      {:error, reason, failed} -> fail(failed, reason)
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason, failed} -> Errors.render(failed, reason)
+      {:error, reason} -> Errors.render(conn, reason)
     end
   end
 
@@ -62,31 +62,31 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
            OAuth.fetch_request(params["request_uri"], params["client_id"]) do
       render_page(conn, request, request_uri)
     else
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Errors.render(conn, reason)
     end
   end
 
   def decide(conn, params) do
     with {:ok, request, request_uri} <-
            OAuth.fetch_request(params["request_uri"], params["client_id"]),
-         {:ok, result} <- decide(params, request_uri, request, params) do
+         {:ok, result} <- decide(params, request_uri, request) do
       redirect_to_client(conn, result)
     else
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason} -> Errors.render(conn, reason)
     end
   end
 
-  defp decide(%{"decision" => "approve"}, request_uri, request, params) do
+  defp decide(%{"decision" => "approve"} = params, request_uri, request) do
     with {:ok, user} <- login(params) do
       OAuth.approve(request_uri, request.client_id, user)
     end
   end
 
-  defp decide(%{"decision" => "deny"}, request_uri, request, _params) do
+  defp decide(%{"decision" => "deny"}, request_uri, request) do
     OAuth.deny(request_uri, request.client_id)
   end
 
-  defp decide(_params, _request_uri, _request, _all), do: {:error, :invalid_credentials}
+  defp decide(_params, _request_uri, _request), do: {:error, :invalid_credentials}
 
   defp login(%{"identifier" => identifier, "password" => password}) do
     case Accounts.verify_login(identifier, password) do
@@ -106,12 +106,12 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
         "iss" => result.issuer
       })
 
-    conn |> no_store() |> redirect(external: location)
+    conn |> Errors.no_store() |> redirect(external: location)
   end
 
   defp redirect_to_client(conn, %{error: error} = result) do
     location = append_query(result.redirect_uri, %{"error" => error, "state" => result.state})
-    conn |> no_store() |> redirect(external: location)
+    conn |> Errors.no_store() |> redirect(external: location)
   end
 
   defp append_query(uri, params), do: uri <> "?" <> URI.encode_query(params)
@@ -121,12 +121,10 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   defp render_page(conn, request, request_uri) do
     conn
     |> put_resp_content_type("text/html")
-    |> put_resp_header("cache-control", "no-store")
+    |> Errors.no_store()
     |> put_resp_header("content-security-policy", page_csp())
     |> html(page(request, request_uri))
   end
-
-  defp no_store(conn), do: put_resp_header(conn, "cache-control", "no-store")
 
   # default-src 'none' plus form-action 'self': the page loads nothing and posts
   # to this origin, and a login form that could post anywhere else is a
@@ -190,15 +188,5 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     |> String.replace(">", "&gt;")
     |> String.replace("\"", "&quot;")
     |> String.replace("'", "&#39;")
-  end
-
-  defp fail(conn, reason) do
-    {status, code, description} = Errors.to_oauth(reason)
-
-    conn
-    |> no_store()
-    |> put_status(status)
-    |> json(%{"error" => code, "error_description" => description})
-    |> halt()
   end
 end

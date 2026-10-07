@@ -30,12 +30,12 @@ defmodule PesqueWeb.OAuth.TokenController do
          :ok <- authenticate_client(params),
          {:ok, response} <- grant(params, checked.assigns.dpop_jkt) do
       checked
-      |> no_store()
+      |> Errors.no_store()
       |> Proof.with_nonce()
       |> json(response)
     else
-      {:error, reason, failed} -> fail(failed, reason)
-      {:error, reason} -> fail(conn, reason)
+      {:error, reason, failed} -> Errors.render(failed, reason)
+      {:error, reason} -> Errors.render(conn, reason)
     end
   end
 
@@ -83,21 +83,9 @@ defmodule PesqueWeb.OAuth.TokenController do
   def revoke(conn, params) do
     with {:ok, checked} <- Proof.check(conn) do
       _ = OAuth.revoke(params["token"])
-      checked |> no_store() |> Proof.with_nonce() |> send_resp(200, "")
+      checked |> Errors.no_store() |> Proof.with_nonce() |> send_resp(200, "")
     else
-      {:error, reason, failed} -> fail(failed, reason)
+      {:error, reason, failed} -> Errors.render(failed, reason)
     end
-  end
-
-  defp no_store(conn), do: put_resp_header(conn, "cache-control", "no-store")
-
-  defp fail(conn, reason) do
-    {status, code, description} = Errors.to_oauth(reason)
-
-    conn
-    |> no_store()
-    |> put_status(status)
-    |> json(%{"error" => code, "error_description" => description})
-    |> halt()
   end
 end

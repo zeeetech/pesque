@@ -20,8 +20,6 @@ defmodule Pesque.OAuth.Token do
 
   use Ecto.Schema
 
-  import Ecto.Changeset
-
   @access "access"
   @refresh "refresh"
 
@@ -39,35 +37,6 @@ defmodule Pesque.OAuth.Token do
     field :revoked, :boolean, default: false
 
     timestamps(type: :utc_datetime, updated_at: false)
-  end
-
-  def changeset(attrs) do
-    %__MODULE__{}
-    |> cast(attrs, [
-      :token_hash,
-      :jti,
-      :kind,
-      :did,
-      :client_id,
-      :scope,
-      :dpop_jkt,
-      :session_id,
-      :expires_at
-    ])
-    |> validate_required([
-      :token_hash,
-      :jti,
-      :kind,
-      :did,
-      :client_id,
-      :scope,
-      :dpop_jkt,
-      :session_id,
-      :expires_at
-    ])
-    |> validate_inclusion(:kind, [@access, @refresh])
-    |> unique_constraint(:token_hash)
-    |> unique_constraint(:jti)
   end
 
   def access, do: @access

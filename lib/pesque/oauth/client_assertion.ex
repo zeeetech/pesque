@@ -27,9 +27,6 @@ defmodule Pesque.OAuth.ClientAssertion do
   @assertion_type "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
   @max_age_seconds 60
 
-  @doc "The assertion type a client must declare."
-  def assertion_type, do: @assertion_type
-
   @doc """
   Verifies the assertion for `client_id` against the client's own published keys.
 
@@ -75,19 +72,14 @@ defmodule Pesque.OAuth.ClientAssertion do
     end
   end
 
-  defp verify_signature(input, signature, %{"kty" => "EC", "crv" => "P-256", "x" => x, "y" => y})
-       when is_binary(x) and is_binary(y) do
-    with {:ok, x} <- Base.url_decode64(x, padding: false),
-         {:ok, y} <- Base.url_decode64(y, padding: false),
-         true <- byte_size(x) == 32 and byte_size(y) == 32,
-         true <- Jwt.verify_es256(input, signature, <<4, x::binary, y::binary>>) do
+  defp verify_signature(input, signature, key) do
+    with {:ok, public_key} <- Jwt.public_key(key),
+         true <- Jwt.verify_es256(input, signature, public_key) do
       :ok
     else
       _ -> {:error, :invalid_client_assertion}
     end
   end
-
-  defp verify_signature(_input, _signature, _key), do: {:error, :invalid_client_assertion}
 
   defp check_claims(claims, client_id, metadata) do
     now = System.system_time(:second)

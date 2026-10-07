@@ -50,11 +50,4 @@ defmodule Pesque.OAuth.ScopesTest do
     assert {:error, :missing_scope} = Scopes.validate(["atproto"])
     assert {:error, :missing_scope} = Scopes.validate(42)
   end
-
-  test "grantable?/1 is the same question without the atproto requirement" do
-    assert Scopes.grantable?("atproto")
-    assert Scopes.grantable?("transition:generic")
-    refute Scopes.grantable?("transition:chat.bsky")
-    refute Scopes.grantable?("atproto transition:email")
-  end
 end

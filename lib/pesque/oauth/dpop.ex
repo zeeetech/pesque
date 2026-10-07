@@ -25,9 +25,6 @@ defmodule Pesque.OAuth.DPoP do
   # reference implementation allows 10 seconds of skew plus its nonce age.
   @max_age_seconds 300
 
-  @doc "Seconds a proof's `iat` may be in the past."
-  def max_age_seconds, do: @max_age_seconds
-
   @doc """
   Checks the proof for one request.
 
@@ -76,21 +73,16 @@ defmodule Pesque.OAuth.DPoP do
 
   defp check_header(_header), do: {:error, :invalid_dpop_proof}
 
-  defp check_signature(input, signature, %{"kty" => "EC", "crv" => "P-256", "x" => x, "y" => y})
-       when is_binary(x) and is_binary(y) do
-    with {:ok, x} <- Base.url_decode64(x, padding: false),
-         {:ok, y} <- Base.url_decode64(y, padding: false),
-         true <- byte_size(x) == 32 and byte_size(y) == 32,
-         # 0x04 is the uncompressed point marker; anything else is not a point
-         # on this curve and must not reach :crypto.
-         true <- Jwt.verify_es256(input, signature, <<4, x::binary, y::binary>>) do
+  defp check_signature(input, signature, jwk) do
+    with {:ok, public_key} <- Jwt.public_key(jwk),
+         # 0x04 is the uncompressed point marker; public_key/1 refuses anything
+         # that is not a 32-byte-half P-256 point, which must not reach :crypto.
+         true <- Jwt.verify_es256(input, signature, public_key) do
       :ok
     else
       _ -> {:error, :invalid_dpop_proof}
     end
   end
-
-  defp check_signature(_input, _signature, _jwk), do: {:error, :invalid_dpop_proof}
 
   # rfc9110 section 9.1: the method is case-sensitive.
   defp check_method(%{"htm" => method}, method), do: :ok

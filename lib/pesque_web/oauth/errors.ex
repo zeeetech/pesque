@@ -13,6 +13,9 @@ defmodule PesqueWeb.OAuth.Errors do
   answer no client can act on.
   """
 
+  import Plug.Conn
+  import Phoenix.Controller, only: [json: 2]
+
   @spec to_oauth(term()) :: {integer(), String.t(), String.t()}
 
   def to_oauth(:invalid_client_id),
@@ -29,12 +32,6 @@ defmodule PesqueWeb.OAuth.Errors do
 
   def to_oauth(:no_client_keys),
     do: {400, "invalid_client", "the client published no keys"}
-
-  def to_oauth(:unknown_client_key),
-    do: {400, "invalid_client", "the assertion names no published key"}
-
-  def to_oauth(:unsupported_assertion_type),
-    do: {400, "invalid_client", "client_assertion_type is not supported"}
 
   def to_oauth(:invalid_client_assertion),
     do: {400, "invalid_client", "the client assertion did not verify"}
@@ -160,4 +157,24 @@ defmodule PesqueWeb.OAuth.Errors do
 
   def to_oauth(:invalid_token),
     do: {401, "invalid_token", "the token is unknown or no longer live"}
+
+  @doc """
+  Renders a reason as the OAuth error response: status, JSON body, `no-store`.
+
+  The conn may already carry a `DPoP-Nonce` header set by the proof check, so
+  the response keeps whatever is on it. Halted, because both controllers answer
+  this from a `with` and must not fall through.
+  """
+  def render(conn, reason) do
+    {status, code, description} = to_oauth(reason)
+
+    conn
+    |> no_store()
+    |> put_status(status)
+    |> json(%{"error" => code, "error_description" => description})
+    |> halt()
+  end
+
+  @doc "The `no-store` every token, nonce or error response carries."
+  def no_store(conn), do: put_resp_header(conn, "cache-control", "no-store")
 end

@@ -50,9 +50,23 @@ defmodule Pesque.OAuth.Fetch do
   configuration rather than a stranger's string, but one outbound path with
   one set of rules is worth more than a second unchecked one.
   """
-  def post_json(%URI{} = uri, body, _max_bytes) do
+  def post_json(%URI{} = uri, body) do
     with :ok <- hardened(uri) do
       post(uri, JSON.encode!(body))
+    end
+  end
+
+  @doc """
+  Fetches `uri` with the same hardening as json/2 and answers the raw response.
+
+  Answers {:ok, status, headers, body} or {:error, reason}. Unlike json/2 a
+  status outside 2xx is a successful answer here: this is the primitive, and
+  the caller decides what a status means. The body is capped at `max_bytes`.
+  """
+  def get(%URI{} = uri, max_bytes) do
+    with :ok <- check_scheme(uri),
+         :ok <- check_address(uri.host) do
+      raw_get(uri, max_bytes)
     end
   end
 
@@ -69,12 +83,7 @@ defmodule Pesque.OAuth.Fetch do
     case :httpc.request(
            :post,
            {URI.to_string(uri), [{~c"accept", ~c"application/json"}], ~c"application/json", body},
-           [
-             connect_timeout: @connect_timeout,
-             timeout: @timeout,
-             ssl: ssl_options(),
-             autoredirect: false
-           ],
+           httpc_options(),
            []
          ) do
       {:ok, {{_version, status, _reason}, _headers, _body}} when status in 200..299 ->
@@ -88,16 +97,32 @@ defmodule Pesque.OAuth.Fetch do
     end
   end
 
+  defp raw_get(uri, max_bytes) do
+    case :httpc.request(
+           :get,
+           {URI.to_string(uri), [{~c"accept", ~c"application/json"}]},
+           httpc_options(),
+           []
+         ) do
+      {:ok, {{_version, status, _reason}, headers, body}} ->
+        body = IO.iodata_to_binary(body)
+
+        if byte_size(body) > max_bytes do
+          {:error, :client_metadata_too_large}
+        else
+          {:ok, status, headers, body}
+        end
+
+      {:error, reason} ->
+        {:error, {:client_metadata_unreachable, reason}}
+    end
+  end
+
   defp request(uri, max_bytes) do
     case :httpc.request(
            :get,
            {URI.to_string(uri), [{~c"accept", ~c"application/json"}]},
-           [
-             connect_timeout: @connect_timeout,
-             timeout: @timeout,
-             ssl: ssl_options(),
-             autoredirect: false
-           ],
+           httpc_options(),
            []
          ) do
       {:ok, {{_version, 200, _reason}, _headers, body}} ->
@@ -109,6 +134,18 @@ defmodule Pesque.OAuth.Fetch do
       {:error, reason} ->
         {:error, {:client_metadata_unreachable, reason}}
     end
+  end
+
+  # The one request shape every outbound call uses: TLS verified, no redirect
+  # followed (a redirect is a second URL the attacker chose, and would skip the
+  # address check entirely), and a short timeout.
+  defp httpc_options do
+    [
+      connect_timeout: @connect_timeout,
+      timeout: @timeout,
+      ssl: ssl_options(),
+      autoredirect: false
+    ]
   end
 
   defp decode(body, max_bytes) do

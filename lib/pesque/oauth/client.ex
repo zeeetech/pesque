@@ -54,10 +54,9 @@ defmodule Pesque.OAuth.Client do
 
   @doc "Whether `redirect_uri` is one the client's metadata declares."
   def redirect_uri_allowed?(metadata, redirect_uri) when is_binary(redirect_uri) do
-    uris = redirect_uris(metadata)
-
-    Enum.any?(uris, &(&1 == redirect_uri)) or
-      Enum.any?(uris, &same_path_different_port?(&1, redirect_uri))
+    Enum.any?(redirect_uris(metadata), fn declared ->
+      declared == redirect_uri or same_path_different_port?(declared, redirect_uri)
+    end)
   end
 
   def redirect_uri_allowed?(_metadata, _redirect_uri), do: false

@@ -51,17 +51,11 @@ defmodule Pesque.OAuth do
   @access_ttl_seconds 900
   @refresh_ttl_seconds 14 * 24 * 60 * 60
 
-  @doc "The prefix a request_uri carries, per RFC 9126."
-  def request_uri_prefix, do: @request_uri_prefix
-
   @doc "Seconds a pushed request stays usable."
   def par_ttl_seconds, do: @par_ttl_seconds
 
   @doc "Seconds an access token is valid. Under the 30 minutes the spec caps."
   def access_ttl_seconds, do: @access_ttl_seconds
-
-  @doc "Seconds a refresh token is valid: the two weeks public clients are capped at."
-  def refresh_ttl_seconds, do: @refresh_ttl_seconds
 
   @doc "The AS metadata document, served at the well-known path."
   def metadata do
@@ -154,7 +148,7 @@ defmodule Pesque.OAuth do
   def fetch_request(request_uri, client_id) when is_binary(request_uri) do
     with true <- String.starts_with?(request_uri, @request_uri_prefix),
          {:ok, row} <- load_request(request_uri),
-         :ok <- check_request_client(row, client_id),
+         :ok <- check_client(row, client_id, :invalid_request_uri),
          :ok <- check_request_fresh(row) do
       {:ok, row, request_uri}
     else
@@ -241,7 +235,7 @@ defmodule Pesque.OAuth do
          {:ok, code} <- required(params, "code"),
          {:ok, verifier} <- required(params, "code_verifier"),
          {:ok, row} <- load_code(code),
-         :ok <- check_code_client(row, client_id),
+         :ok <- check_client(row, client_id, :invalid_grant),
          :ok <- check_pkce(row, verifier),
          :ok <- check_code_redirect(row, params["redirect_uri"]),
          :ok <- check_jkt(row, jkt),
@@ -265,7 +259,7 @@ defmodule Pesque.OAuth do
     with {:ok, client_id} <- required(params, "client_id"),
          {:ok, token} <- required(params, "refresh_token"),
          {:ok, row} <- load_refresh(token),
-         :ok <- check_refresh_client(row, client_id),
+         :ok <- check_client(row, client_id, :invalid_grant),
          :ok <- check_jkt(row, jkt),
          true <- spend_refresh(row) do
       issue(row.did, row.client_id, row.scope, jkt, row.session_id)
@@ -335,11 +329,6 @@ defmodule Pesque.OAuth do
 
   @doc "The DPoP key an access token is bound to."
   def jkt(claims), do: get_in(claims, ["cnf", "jkt"])
-
-  @doc "The scopes a token was granted, as a list."
-  def scopes(claims) do
-    claims |> Map.get("scope", "") |> String.split(" ", trim: true)
-  end
 
   defp live_token(jti) when is_binary(jti) do
     case Repo.get_by(Token, jti: jti) do
@@ -488,8 +477,8 @@ defmodule Pesque.OAuth do
     end
   end
 
-  defp check_request_client(%Request{client_id: client_id}, client_id), do: :ok
-  defp check_request_client(_row, _client_id), do: {:error, :invalid_request_uri}
+  defp check_client(%{client_id: client_id}, client_id, _reason), do: :ok
+  defp check_client(_row, _client_id, reason), do: {:error, reason}
 
   defp check_request_fresh(%Request{did: nil, expires_at: expires_at}) do
     if DateTime.before?(expires_at, DateTime.utc_now()) do
@@ -523,9 +512,6 @@ defmodule Pesque.OAuth do
         {:error, :invalid_grant}
     end
   end
-
-  defp check_code_client(%Request{client_id: client_id}, client_id), do: :ok
-  defp check_code_client(_row, _client_id), do: {:error, :invalid_grant}
 
   # RFC 7636 section 4.6: the verifier hashes to the challenge. Compared in
   # constant time because the challenge is a secret shared with the client.
@@ -571,9 +557,6 @@ defmodule Pesque.OAuth do
         {:error, :invalid_grant}
     end
   end
-
-  defp check_refresh_client(%Token{client_id: client_id}, client_id), do: :ok
-  defp check_refresh_client(_row, _client_id), do: {:error, :invalid_grant}
 
   defp spend_refresh(row) do
     {count, _} =

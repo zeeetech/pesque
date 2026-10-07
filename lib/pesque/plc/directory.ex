@@ -16,7 +16,7 @@ defmodule Pesque.Plc.Directory do
 
   @doc "Submits a signed operation for `did`. Answers :ok or {:error, reason}."
   def submit(did, op) do
-    Fetch.post_json(url(did), op, @max_bytes)
+    Fetch.post_json(url(did), op)
   end
 
   @doc "Resolves a DID document. Answers {:ok, document} or {:error, reason}."

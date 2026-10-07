@@ -8,35 +8,18 @@ defmodule Pesque.OAuth.Nonce do
   nothing about a replay across servers.
 
   The lifetime is three minutes, under the five the spec allows as a maximum.
-  Rotation replaces the row rather than adding one, so the table is one row
-  however long the server runs, and the nonce it replaces is kept in
+  Rotation replaces the live nonce rather than adding one, so the term holds
+  one entry however long the server runs, and the nonce it replaces is kept in
   `previous` for its own lifetime: a client with two requests in flight when
   the rotation happened must not have the earlier one rejected.
+
+  Held in `:persistent_term` rather than a table because it is read on every
+  DPoP-answered request and a restart minting a fresh one is harmless: the
+  client retries on `use_dpop_nonce`. The same idiom as Pesque.Secret.
   """
 
-  use Ecto.Schema
-
-  import Ecto.Changeset
-  import Ecto.Query
-
-  alias Pesque.Repo
-
+  @key {__MODULE__, :nonce}
   @max_age_seconds 180
-
-  schema "oauth_dpop_nonces" do
-    field :nonce, :string
-    field :previous, :string
-    field :expires_at, :utc_datetime
-
-    timestamps(type: :utc_datetime, updated_at: false)
-  end
-
-  def changeset(attrs) do
-    %__MODULE__{}
-    |> cast(attrs, [:nonce, :previous, :expires_at])
-    |> validate_required([:nonce, :expires_at])
-    |> unique_constraint(:nonce)
-  end
 
   @doc """
   The nonce to hand out right now, minting or rotating one when needed.
@@ -75,32 +58,46 @@ defmodule Pesque.OAuth.Nonce do
 
   def check(_nonce), do: {:error, :use_dpop_nonce}
 
-  @doc "Seconds a nonce stays live. Bounded by the five minutes the spec allows."
-  def max_age_seconds, do: @max_age_seconds
-
   defp live(now) do
-    Repo.one(
-      from n in __MODULE__,
-        where: n.expires_at > ^now,
-        order_by: [desc: n.inserted_at],
-        limit: 1
-    )
+    case :persistent_term.get(@key, nil) do
+      %{expires_at: expires_at} = state ->
+        if DateTime.after?(expires_at, now), do: state, else: nil
+
+      _other ->
+        nil
+    end
   end
 
-  # The row is deleted before the new one is written so the table never holds
-  # two live nonces, which would make "the current nonce" ambiguous.
+  # Rotation is serialized so two processes hitting an expired nonce at the
+  # same instant cannot each install one: the second sees the first's nonce as
+  # current and keeps it, and the nonce it replaced stays in `previous`. The
+  # requester is self() because :global only contends on a resource between
+  # different requesters.
   defp rotate(now) do
-    previous = live(now)
-    expires_at = DateTime.add(now, @max_age_seconds, :second)
-    attrs = %{nonce: generate(), previous: previous && previous.nonce, expires_at: expires_at}
+    :global.trans({__MODULE__, self()}, fn -> rotate_locked(now) end)
+  end
 
-    {:ok, row} =
-      Repo.transaction(fn ->
-        Repo.delete_all(from(n in __MODULE__))
-        Repo.insert!(changeset(attrs))
-      end)
+  defp rotate_locked(now) do
+    case live(now) do
+      %{nonce: _nonce} = state ->
+        state
 
-    row
+      nil ->
+        previous =
+          case :persistent_term.get(@key, nil) do
+            %{nonce: nonce} -> nonce
+            _other -> nil
+          end
+
+        state = %{
+          nonce: generate(),
+          previous: previous,
+          expires_at: DateTime.add(now, @max_age_seconds, :second)
+        }
+
+        :persistent_term.put(@key, state)
+        state
+    end
   end
 
   defp generate, do: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)

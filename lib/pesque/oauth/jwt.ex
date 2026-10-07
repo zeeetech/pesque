@@ -109,7 +109,7 @@ defmodule Pesque.OAuth.Jwt do
 
   def thumbprint(_jwk), do: {:error, :unsupported_jwk}
 
-  @doc "Encodes a public point as the JWK members a JWKS carries."
+  @doc "Encodes a raw 64-byte r || s signature as the DER ECDSA structure :crypto expects."
   def raw_to_der(<<r::binary-size(32), s::binary-size(32)>>) do
     rb = der_integer(r)
     sb = der_integer(s)
@@ -123,6 +123,26 @@ defmodule Pesque.OAuth.Jwt do
   def public_jwk(<<4, x::binary-32, y::binary-32>>) do
     %{"kty" => "EC", "crv" => "P-256", "x" => encode(x), "y" => encode(y)}
   end
+
+  @doc """
+  The uncompressed P-256 public point a JWK names, as `{:ok, <<4, x, y>>}`.
+
+  Both halves have to decode to exactly 32 bytes: a short or long one is not a
+  point on this curve, and a point that is not on the curve makes :crypto raise
+  rather than answer false. Anything else is `{:error, :invalid_jwk}`.
+  """
+  def public_key(%{"kty" => "EC", "crv" => "P-256", "x" => x, "y" => y})
+      when is_binary(x) and is_binary(y) do
+    with {:ok, x} <- Base.url_decode64(x, padding: false),
+         {:ok, y} <- Base.url_decode64(y, padding: false),
+         true <- byte_size(x) == 32 and byte_size(y) == 32 do
+      {:ok, <<4, x::binary, y::binary>>}
+    else
+      _ -> {:error, :invalid_jwk}
+    end
+  end
+
+  def public_key(_jwk), do: {:error, :invalid_jwk}
 
   def encode(bin), do: Base.url_encode64(bin, padding: false)
 

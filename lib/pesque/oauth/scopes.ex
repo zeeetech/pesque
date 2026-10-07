@@ -91,7 +91,7 @@ defmodule Pesque.OAuth.Scopes do
       scopes == [] ->
         {:error, :missing_scope}
 
-      # openid is checked before the grantable set: it is a real scope that
+      # openid is checked before the supported set: it is a real scope that
       # simply does not go with atproto, and answering "this server does not
       # grant openid" would read as though openid were an unknown permission
       # rather than a profile this server refuses to mix in.
@@ -102,8 +102,8 @@ defmodule Pesque.OAuth.Scopes do
       # client asking for a permission this server does not have should be told
       # which one, rather than being told it forgot atproto because the scope it
       # asked for was the one it spelled wrongly.
-      not Enum.all?(scopes, &(&1 in @supported)) ->
-        grantable(scopes)
+      unsupported = Enum.find(scopes, &(&1 not in @supported)) ->
+        {:error, {:unsupported_scope, unsupported}}
 
       "atproto" not in scopes ->
         {:error, :missing_atproto_scope}
@@ -114,20 +114,4 @@ defmodule Pesque.OAuth.Scopes do
   end
 
   def validate(_scope), do: {:error, :missing_scope}
-
-  @doc "Whether every scope in a space-separated string is grantable."
-  def grantable?(scope) when is_binary(scope) do
-    scope
-    |> String.split(" ", trim: true)
-    |> Enum.all?(&(&1 in @supported))
-  end
-
-  def grantable?(_scope), do: false
-
-  defp grantable(scopes) do
-    case Enum.find(scopes, &(&1 not in @supported)) do
-      nil -> {:ok, Enum.join(scopes, " ")}
-      scope -> {:error, {:unsupported_scope, scope}}
-    end
-  end
 end
