@@ -36,6 +36,9 @@ defmodule Pesque.Accounts do
   # codes.
   @max_use_count 1_000
 
+  @doc "Whether any account exists yet. Drives the first-boot hint."
+  def empty?, do: not Repo.exists?(User)
+
   @doc """
   Creates a local account from a handle, an email, and a password.
 

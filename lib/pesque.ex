@@ -51,6 +51,21 @@ defmodule Pesque do
   @doc "The domain accounts get handles under. Defaults to the hostname."
   def handle_domain, do: Application.get_env(:pesque, :handle_domain, hostname())
 
+  @doc """
+  Whether the configured hostname is an IP literal rather than a DNS name.
+
+  ATProto handles and did:web both resolve through DNS, so a server on a bare
+  address is reachable but not resolvable: it can hold an account nothing else
+  can look up. This is a warning, not a refusal, because localhost is also a
+  name that does not federate and is the right default on a dev box.
+  """
+  def hostname_is_ip? do
+    case :inet.parse_address(String.to_charlist(hostname())) do
+      {:ok, _address} -> true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc "The port this process listens on. The advertised one is base_url/0's business."
   def port, do: Application.get_env(:pesque, :port, 4000)
 

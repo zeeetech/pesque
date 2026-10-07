@@ -67,8 +67,52 @@ defmodule Pesque.Application do
     Logger.info("pesque up",
       data_dir: Pesque.data_dir(),
       hostname: Pesque.hostname(),
+      base_url: Pesque.base_url(),
       mode: Pesque.mode(),
       registration: Pesque.registration()
     )
+
+    Enum.each(boot_warnings(), &Logger.warning/1)
+  end
+
+  # The failures a self-hoster actually hits are silent ones: the process comes
+  # up and nothing can resolve it. Name them at boot rather than leaving a
+  # client to discover them later.
+  defp boot_warnings do
+    hostname_warning() ++ scheme_warning() ++ registration_warning()
+  end
+
+  defp hostname_warning do
+    if Pesque.hostname_is_ip?() do
+      [
+        "hostname #{Pesque.hostname()} is an IP literal: ATProto handles and did:web " <>
+          "resolve through DNS, so this server is reachable but not resolvable. Point a " <>
+          "domain at it and set hostname to that domain to federate."
+      ]
+    else
+      []
+    end
+  end
+
+  defp scheme_warning do
+    if String.starts_with?(Pesque.base_url(), "http://") and Pesque.hostname() != "localhost" do
+      [
+        "the advertised base URL is #{Pesque.base_url()}, not HTTPS: the spec requires TLS " <>
+          "for federation. Put a proxy in front and set url_scheme = https."
+      ]
+    else
+      []
+    end
+  end
+
+  defp registration_warning do
+    if Pesque.registration() == :closed and Pesque.Accounts.empty?() do
+      [
+        "registration is closed and no account exists yet. Create the first one with:\n" <>
+          "  mix pesque.create_account --handle <handle> --email <email> --password-env PASSWORD"
+      ]
+    else
+      []
+    end
   end
 end
