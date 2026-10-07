@@ -14,11 +14,13 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-# eval runs a fresh release VM in a one-off container. serve=false keeps it from
+# eval runs a fresh release VM in a one-off container. boot! starts the
+# application, which eval does not do on its own; serve=false keeps it from
 # binding the port the running server already holds, and --no-deps keeps it from
 # restarting the proxy.
 run_task() {
-  docker compose run --rm --no-deps -e PDS_SERVE=false pesque /app/bin/pesque eval "$1"
+  docker compose run --rm --no-deps -e PDS_SERVE=false pesque \
+    /app/bin/pesque eval "Pesque.Release.boot!(); $1"
 }
 
 case "${1:-}" in
@@ -62,7 +64,7 @@ EOF
       -e ACCOUNT_EMAIL="$email" \
       -e ACCOUNT_PASSWORD="$PASSWORD" \
       pesque /app/bin/pesque eval \
-      'Pesque.Accounts.create_account(System.get_env("ACCOUNT_HANDLE"), System.get_env("ACCOUNT_EMAIL"), System.get_env("ACCOUNT_PASSWORD")) |> IO.inspect()'
+      'Pesque.Release.boot!(); Pesque.Accounts.create_account(System.get_env("ACCOUNT_HANDLE"), System.get_env("ACCOUNT_EMAIL"), System.get_env("ACCOUNT_PASSWORD")) |> IO.inspect()'
     ;;
 
   doctor)
@@ -94,7 +96,7 @@ EOF
       -e MIGRATE_EMAIL="$email" \
       -e MIGRATE_PASSWORD="$PASSWORD" \
       pesque /app/bin/pesque eval \
-      'case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: #{inspect(reason)}"); System.halt(1) end'
+      'Pesque.Release.boot!(); case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: #{inspect(reason)}"); System.halt(1) end'
     ;;
 
   logs)

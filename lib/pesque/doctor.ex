@@ -32,8 +32,11 @@ defmodule Pesque.Doctor do
   @doc """
   Runs the checks, prints one line each, and answers `:ok` or `:error`.
 
-  This is the release-friendly entry: `bin/pesque eval 'Pesque.Doctor.run()'`
-  answers it without Mix, which a container image does not carry.
+  This is the release-friendly entry:
+  `bin/pesque eval 'Pesque.Release.boot!(); Pesque.Doctor.run()'` answers it
+  without Mix, which a container image does not carry. `boot!` is required
+  because a release `eval` does not start the application, so the server
+  identity is not loaded until it does.
   """
   def run(opts \\ []) do
     results = checks(opts)
