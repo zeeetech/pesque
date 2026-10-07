@@ -6,13 +6,19 @@
 # Caddy gets a certificate for that name automatically and proxies to the
 # server; the server itself speaks plain HTTP and advertises https, which is
 # the arrangement its defaults expect.
+#
+# The image is pulled from GHCR, so a deploy needs no toolchain and no build.
+# To build from source instead, add the override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   pesque:
-    build: .
+    image: ghcr.io/zeetech/pesque:${PESQUE_TAG:-latest}
     restart: unless-stopped
     environment:
       PDS_CONFIG: /data/pesque.conf
       PDS_HOSTNAME: ${PDS_HOSTNAME:?set PDS_HOSTNAME to the domain clients will use}
+      PDS_MODE: ${PDS_MODE:-conformant_single}
     volumes:
       - pesque-data:/data
     expose:

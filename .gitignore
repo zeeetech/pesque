@@ -34,3 +34,9 @@ pesque-*.tar
 
 # Local configuration; the example beside it is what gets committed
 /pesque.conf
+
+# Written by `scripts/pesque setup`
+/.env
+
+# Scratch notes and ideas, not published
+/docs/ideas/

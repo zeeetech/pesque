@@ -30,34 +30,54 @@ PDS_HOSTNAME=localhost PDS_URL_SCHEME=http mix phx.server
 
 ## Docker
 
+A prebuilt image is published to GHCR, so a deploy needs no toolchain:
+
 ```bash
-docker build -t pesque .
+docker pull ghcr.io/zeetech/pesque:latest
 
 docker run -d --name pesque -p 4000:4000 \
   -v pesque-data:/data \
   -e PDS_HOSTNAME=pds.example.com \
   -e PDS_MODE=path_multi \
   -e PDS_HANDLE_DOMAIN=example.com \
-  pesque
+  ghcr.io/zeetech/pesque:latest
 ```
 
-`PDS_HOSTNAME` is where your DID and every advertised URL come from;
+To build it yourself instead, `docker build -t pesque .` and use `pesque` as the
+image name. `PDS_HOSTNAME` is where your DID and every advertised URL come from;
 `PDS_HANDLE_DOMAIN` decides what handles your accounts get. The container speaks
 plain HTTP and expects a proxy.
 
+## The one-command install
+
 For the common case, one droplet with TLS handled for you, there is a
-`docker-compose.yml` and a `Caddyfile`, driven by `scripts/pesque`:
+`docker-compose.yml` and a `Caddyfile`, driven by `scripts/pesque`. Setup asks
+two plain questions, starts the stack, waits until it is healthy, creates the
+first account, and prints the DNS records to add:
 
 ```bash
-scripts/pesque setup     # asks for the hostname, starts the stack, checks it
-PASSWORD=... scripts/pesque account --handle alice.example.com --email alice@example.com
-PASSWORD=... scripts/pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
-scripts/pesque doctor    # the preflight below, run for you
-scripts/pesque update    # pull the new image and restart
+scripts/pesque setup
 ```
+
+It writes `.env` (the hostname and mode), pulls the image, and prints the host
+record and the handle record with the DID the account was minted with. After DNS
+propagates:
+
+```bash
+scripts/pesque doctor    # the preflight below, run for you
+scripts/pesque account --handle alice.example.com --email alice@example.com
+scripts/pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
+scripts/pesque update    # pull the new image and restart
+scripts/pesque logs      # follow the server logs
+```
+
+`scripts/pesque account` and `migrate` prompt for the password when `PASSWORD` is
+not set, so it does not land in your shell history. Set `PESQUE_BUILD=1` to build
+the image from source instead of pulling it.
 
 The image carries a release, not Mix, so the mix tasks in this guide do not run
 inside the container; `scripts/pesque` uses the release equivalents.
+
 
 ## Release
 

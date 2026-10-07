@@ -1,5 +1,5 @@
 defmodule Pesque.Release do
-  @moduledoc "Release support: task bootstrap and the migration runner."
+  @moduledoc "Release support: task bootstrap, the migration runner, and the first account."
 
   @doc """
   Starts the application for a one-off release task.
@@ -25,6 +25,91 @@ defmodule Pesque.Release do
       {:ok, _, _} = Ecto.Migrator.with_repo(Pesque.Repo, fn _repo -> run() end)
       :ok
     end
+  end
+
+  @doc """
+  Creates the first account from `ACCOUNT_HANDLE`, `ACCOUNT_EMAIL` and
+  `ACCOUNT_PASSWORD`, then prints what to do next.
+
+  The release-friendly entry behind `scripts/pesque account`: the container
+  image carries no Mix, so the wrapper calls this through `bin/pesque eval`
+  rather than a mix task. Answers `:ok` or `:error`, and a caller that has to
+  set an exit code can do it off the answer.
+  """
+  def create_account_from_env do
+    case Pesque.Accounts.create_account(
+           System.get_env("ACCOUNT_HANDLE"),
+           System.get_env("ACCOUNT_EMAIL"),
+           System.get_env("ACCOUNT_PASSWORD")
+         ) do
+      {:ok, account} ->
+        print_account(account)
+        :ok
+
+      {:error, reason} ->
+        IO.puts(:stderr, "Could not create the account: #{describe_error(reason)}")
+        :error
+    end
+  end
+
+  @doc "Turns a domain error atom into a sentence a person running a command can act on."
+  def describe_error(reason) do
+    case reason do
+      :handle_not_available ->
+        "that handle is already taken, or it is not under this server's handle domain"
+
+      :account_exists ->
+        "this server already has an account; conformant_single serves exactly one"
+
+      :password_too_short ->
+        "the password must be at least 8 characters"
+
+      :email_required ->
+        "an email address is required"
+
+      :disallowed_handle ->
+        "that handle is not allowed on this server"
+
+      other ->
+        inspect(other)
+    end
+  end
+
+  defp print_account(account) do
+    IO.puts("")
+    IO.puts("Account created.")
+    IO.puts("  handle  #{account.handle}")
+    IO.puts("  did     #{account.did}")
+    IO.puts("")
+    IO.puts("Point this domain at the server, then add the handle record, and give")
+    IO.puts("DNS a few minutes to catch up:")
+    IO.puts("")
+    Enum.each(dns_lines(account), &IO.puts/1)
+    IO.puts("")
+    IO.puts("Check that everything is reachable from outside:")
+    IO.puts("")
+    IO.puts("  scripts/pesque doctor")
+  end
+
+  # A did:web account is the server, which serves its own handle at
+  # /.well-known/atproto-did, so only the host record is needed. A path_multi
+  # account gets its handle resolved at _atproto.<handle>, which nothing else
+  # publishes, so the TXT carries the DID the directory minted.
+  defp dns_lines(%{did: "did:plc:" <> _} = account) do
+    [host_line(), "  _atproto.#{account.handle}   TXT    \"did=#{account.did}\""]
+  end
+
+  defp dns_lines(_account), do: [host_line()]
+
+  defp host_line do
+    ip =
+      case System.get_env("PDS_PUBLIC_IP") do
+        nil -> "<this server's public IP>"
+        "" -> "<this server's public IP>"
+        value -> value
+      end
+
+    "  #{Pesque.hostname()}   A      #{ip}"
   end
 
   defp run do

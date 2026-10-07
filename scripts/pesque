@@ -2,109 +2,308 @@
 #
 # A thin wrapper over docker compose for the common self-hosting actions.
 #
-#   scripts/pesque setup     configure, start, and check the server
+#   scripts/pesque setup     configure, start, check, and create the first account
 #   scripts/pesque update    pull the new image and restart
 #   scripts/pesque account   create an account
 #   scripts/pesque migrate   move an existing account onto this server
 #   scripts/pesque doctor    run the federation preflight
 #   scripts/pesque logs      follow the server logs
 #
+# The image is pulled from GHCR, so a deploy needs no toolchain. Set
+# PESQUE_BUILD=1 to build it from source instead.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+compose_files=(-f docker-compose.yml)
+if [ "${PESQUE_BUILD:-0}" = "1" ]; then
+  compose_files+=(-f docker-compose.build.yml)
+fi
+
+dc() { docker compose "${compose_files[@]}" "$@"; }
+
+# --- output -----------------------------------------------------------------
+
+step() { printf '\n==> %s\n' "$*"; }
+blank() { printf '\n'; }
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+# --- preflight --------------------------------------------------------------
+
+check_docker() {
+  command -v docker >/dev/null 2>&1 ||
+    die "Docker is not installed.
+  Install Docker Desktop (macOS/Windows) or Docker Engine (Linux), then run this again."
+
+  docker info >/dev/null 2>&1 ||
+    die "Docker is installed but not running.
+  Start Docker (Docker Desktop, or 'sudo systemctl start docker'), then run this again."
+
+  docker compose version >/dev/null 2>&1 ||
+    die "this needs Docker Compose v2 ('docker compose').
+  Update Docker Desktop, or install the compose plugin."
+}
+
+# Warn, do not fail: a re-run finds the stack's own containers holding the
+# ports, and a proxy the operator meant to keep is not an error.
+check_ports() {
+  if [ -n "$(dc ps -q 2>/dev/null)" ]; then return 0; fi
+  command -v lsof >/dev/null 2>&1 || return 0
+  for port in 80 443; do
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      printf 'note: port %s is already in use. If that is not this stack or a proxy\n' "$port"
+      printf '      you meant to keep, stop the other service before starting.\n'
+    fi
+  done
+}
+
+resolves() {
+  local host="$1"
+  if command -v dig >/dev/null 2>&1; then
+    [ -n "$(dig +short "$host" A 2>/dev/null)" ] && return 0
+  fi
+  if command -v getent >/dev/null 2>&1; then
+    getent hosts "$host" >/dev/null 2>&1 && return 0
+  fi
+  host "$host" >/dev/null 2>&1
+}
+
+check_dns() {
+  local host="$1"
+  resolves "$host" && return 0
+  printf 'note: %s does not resolve yet. Create its A record first, or TLS will\n' "$host"
+  printf '      not be issued until DNS propagates.\n'
+}
+
+public_ip() {
+  curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null ||
+    curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null ||
+    true
+}
+
+# --- docker helpers ---------------------------------------------------------
+
 # eval runs a fresh release VM in a one-off container. boot! starts the
-# application, which eval does not do on its own; serve=false keeps it from
+# application, which eval does not do on its own; PDS_SERVE=false keeps it from
 # binding the port the running server already holds, and --no-deps keeps it from
 # restarting the proxy.
 run_task() {
-  docker compose run --rm --no-deps -e PDS_SERVE=false pesque \
+  dc run --rm --no-deps -e PDS_SERVE=false pesque \
     /app/bin/pesque eval "Pesque.Release.boot!(); $1"
 }
 
-case "${1:-}" in
-  setup)
-    read -rp "hostname (the domain clients will use): " hostname
-    printf 'PDS_HOSTNAME=%s\n' "$hostname" > .env
-    docker compose up -d --build
-    echo "waiting for the server to come up..."
-    sleep 5
-    run_task 'Pesque.Doctor.run()' || true
-    cat <<'EOF'
+# The password and the handle go in by name, not by value, so they stay out of
+# the argument list a bystander can read from `ps`.
+create_account() {
+  local handle="$1" email="$2" password="$3" ip="${4:-}"
+  ACCOUNT_HANDLE="$handle" ACCOUNT_EMAIL="$email" ACCOUNT_PASSWORD="$password" PDS_PUBLIC_IP="$ip" \
+    dc run --rm --no-deps -e PDS_SERVE=false \
+      -e ACCOUNT_HANDLE -e ACCOUNT_EMAIL -e ACCOUNT_PASSWORD -e PDS_PUBLIC_IP \
+      pesque /app/bin/pesque eval \
+      'Pesque.Release.boot!(); case Pesque.Release.create_account_from_env() do :ok -> :ok; :error -> System.halt(1) end'
+}
 
-Next, create the first account:
+wait_for_health() {
+  local id status
+  id="$(dc ps -q pesque)"
+  printf 'waiting for the server to become healthy'
+  for _ in $(seq 1 45); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo unknown)"
+    case "$status" in
+      healthy)
+        blank
+        return 0
+        ;;
+      unhealthy)
+        blank
+        return 1
+        ;;
+    esac
+    printf '.'
+    sleep 2
+  done
+  blank
+  return 1
+}
 
-  PASSWORD=... scripts/pesque account --handle <handle> --email <email>
+start_stack() {
+  if [ "${PESQUE_BUILD:-0}" = "1" ]; then
+    dc up -d --build
+  else
+    dc pull || die "could not pull the image. Set PESQUE_BUILD=1 to build from source instead."
+    dc up -d
+  fi
+}
+
+# --- commands ---------------------------------------------------------------
+
+setup() {
+  check_docker
+
+  step "Configuration"
+  local hostname mode choice
+  read -rp "Domain clients will use to reach this server (e.g. pds.example.com): " hostname
+  [ -n "$hostname" ] || die "a domain is required"
+
+  blank
+  printf 'Will this server host:\n'
+  printf '  1) just your own account (simplest)\n'
+  printf '  2) accounts for several people\n'
+  read -rp "choose [1]: " choice
+  case "${choice:-1}" in
+    2) mode=path_multi ;;
+    *) mode=conformant_single ;;
+  esac
+
+  check_dns "$hostname"
+  check_ports
+
+  printf 'PDS_HOSTNAME=%s\nPDS_MODE=%s\n' "$hostname" "$mode" > .env
+  blank
+  printf 'Wrote .env (PDS_HOSTNAME=%s, PDS_MODE=%s).\n' "$hostname" "$mode"
+
+  step "Starting the server"
+  start_stack
+
+  if ! wait_for_health; then
+    blank
+    printf 'The server did not come up. Recent logs:\n\n'
+    dc logs --tail 40 pesque
+    die "startup failed; see the logs above"
+  fi
+  printf 'The server is up.\n'
+
+  step "First account"
+  local username handle email password
+  if [ "$mode" = "path_multi" ]; then
+    read -rp "Username for your account (e.g. alice): " username
+    [ -n "$username" ] || die "a username is required"
+    handle="$username.$hostname"
+  else
+    handle="$hostname"
+  fi
+  read -rp "Email for your account: " email
+  [ -n "$email" ] || die "an email is required"
+  read -rsp "Password (at least 8 characters, not shown): " password
+  blank
+  [ -n "$password" ] || die "a password is required"
+
+  create_account "$handle" "$email" "$password" "$(public_ip)"
+
+  step "Federation preflight"
+  run_task 'Pesque.Doctor.run()' || true
+
+  blank
+  printf 'Done. Your server is at https://%s.\n' "$hostname"
+}
+
+update() {
+  check_docker
+  start_stack
+}
+
+account() {
+  local handle="" email=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --handle)
+        handle="${2:-}"
+        shift $(( $# >= 2 ? 2 : 1 ))
+        ;;
+      --email)
+        email="${2:-}"
+        shift $(( $# >= 2 ? 2 : 1 ))
+        ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  [ -n "$handle" ] || die "--handle is required"
+  [ -n "$email" ] || die "--email is required"
+
+  if [ -z "${PASSWORD:-}" ]; then
+    read -rsp "Password for $handle (not shown): " PASSWORD
+    blank
+  fi
+  [ -n "$PASSWORD" ] || die "a password is required"
+
+  create_account "$handle" "$email" "$PASSWORD" "$(public_ip)"
+}
+
+doctor() {
+  check_docker
+  run_task 'Pesque.Doctor.run()'
+}
+
+migrate() {
+  local old_pds="" handle="" email=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --old-pds)
+        old_pds="${2:-}"
+        shift $(( $# >= 2 ? 2 : 1 ))
+        ;;
+      --handle)
+        handle="${2:-}"
+        shift $(( $# >= 2 ? 2 : 1 ))
+        ;;
+      --email)
+        email="${2:-}"
+        shift $(( $# >= 2 ? 2 : 1 ))
+        ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+  [ -n "$old_pds" ] || die "--old-pds is required"
+  [ -n "$handle" ] || die "--handle is required"
+  [ -n "$email" ] || die "--email is required"
+
+  if [ -z "${PASSWORD:-}" ]; then
+    read -rsp "Password for $handle (not shown): " PASSWORD
+    blank
+  fi
+  [ -n "$PASSWORD" ] || die "a password is required"
+
+  # -i keeps stdin attached: the identity step prompts for the code the old
+  # PDS emails.
+  MIGRATE_OLD_PDS="$old_pds" MIGRATE_HANDLE="$handle" MIGRATE_EMAIL="$email" MIGRATE_PASSWORD="$PASSWORD" \
+    dc run --rm -i --no-deps -e PDS_SERVE=false \
+      -e MIGRATE_OLD_PDS -e MIGRATE_HANDLE -e MIGRATE_EMAIL -e MIGRATE_PASSWORD \
+      pesque /app/bin/pesque eval \
+      'Pesque.Release.boot!(); case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: " <> Pesque.Release.describe_error(reason)); System.halt(1) end'
+}
+
+logs() {
+  check_docker
+  dc logs -f pesque
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage: scripts/pesque <command>
+
+  setup     configure, start, check, and create the first account
+  update    pull the new image and restart
+  account   create an account       (--handle H --email E, PASSWORD=... or prompt)
+  migrate   move an account here    (--old-pds URL --handle H --email E)
+  doctor    run the federation preflight
+  logs      follow the server logs
+
+  PESQUE_BUILD=1 builds the image from source instead of pulling it.
 EOF
-    ;;
+  exit 2
+}
 
-  update)
-    docker compose pull
-    docker compose up -d
-    ;;
-
-  account)
-    shift
-    handle="" email=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --handle) handle="$2"; shift 2 ;;
-        --email) email="$2"; shift 2 ;;
-        *) echo "unknown option: $1" >&2; exit 2 ;;
-      esac
-    done
-    : "${handle:?--handle is required}"
-    : "${email:?--email is required}"
-    : "${PASSWORD:?set PASSWORD in the environment}"
-
-    docker compose run --rm --no-deps \
-      -e PDS_SERVE=false \
-      -e ACCOUNT_HANDLE="$handle" \
-      -e ACCOUNT_EMAIL="$email" \
-      -e ACCOUNT_PASSWORD="$PASSWORD" \
-      pesque /app/bin/pesque eval \
-      'Pesque.Release.boot!(); Pesque.Accounts.create_account(System.get_env("ACCOUNT_HANDLE"), System.get_env("ACCOUNT_EMAIL"), System.get_env("ACCOUNT_PASSWORD")) |> IO.inspect()'
-    ;;
-
-  doctor)
-    run_task 'Pesque.Doctor.run()'
-    ;;
-
-  migrate)
-    shift
-    old_pds="" handle="" email=""
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --old-pds) old_pds="$2"; shift 2 ;;
-        --handle) handle="$2"; shift 2 ;;
-        --email) email="$2"; shift 2 ;;
-        *) echo "unknown option: $1" >&2; exit 2 ;;
-      esac
-    done
-    : "${old_pds:?--old-pds is required}"
-    : "${handle:?--handle is required}"
-    : "${email:?--email is required}"
-    : "${PASSWORD:?set PASSWORD in the environment}"
-
-    # -i keeps stdin attached: the identity step prompts for the code the old
-    # PDS emails.
-    docker compose run --rm -i --no-deps \
-      -e PDS_SERVE=false \
-      -e MIGRATE_OLD_PDS="$old_pds" \
-      -e MIGRATE_HANDLE="$handle" \
-      -e MIGRATE_EMAIL="$email" \
-      -e MIGRATE_PASSWORD="$PASSWORD" \
-      pesque /app/bin/pesque eval \
-      'Pesque.Release.boot!(); case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: #{inspect(reason)}"); System.halt(1) end'
-    ;;
-
-  logs)
-    docker compose logs -f pesque
-    ;;
-
-  *)
-    echo "usage: scripts/pesque {setup|update|account|migrate|doctor|logs}" >&2
-    exit 2
-    ;;
+case "${1:-}" in
+  setup) setup ;;
+  update) update ;;
+  account) account "${@:2}" ;;
+  migrate) migrate "${@:2}" ;;
+  doctor) doctor ;;
+  logs) logs ;;
+  help | --help | -h) usage ;;
+  *) usage ;;
 esac

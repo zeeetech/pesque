@@ -1,0 +1,9 @@
+# Build the image from source instead of pulling it from GHCR. For development
+# and for anyone hacking on Pesque; a deploy does not need it.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# scripts/pesque picks this up with PESQUE_BUILD=1.
+services:
+  pesque:
+    build: .

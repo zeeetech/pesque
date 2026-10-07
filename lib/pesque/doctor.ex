@@ -41,12 +41,54 @@ defmodule Pesque.Doctor do
   def run(opts \\ []) do
     results = checks(opts)
 
+    IO.puts("Pesque federation preflight")
+    IO.puts("")
+
     Enum.each(results, fn {status, title, detail} ->
       IO.puts("#{label(status)} #{title}: #{detail}")
+
+      if next = hint(status, title) do
+        IO.puts("       -> #{next}")
+      end
     end)
 
-    if Enum.any?(results, &match?({:fail, _title, _detail}, &1)), do: :error, else: :ok
+    failed = Enum.count(results, &match?({:fail, _title, _detail}, &1))
+    warned = Enum.count(results, &match?({:warn, _title, _detail}, &1))
+
+    IO.puts("")
+
+    if failed > 0 do
+      IO.puts("#{failed} check(s) failed#{warnings(warned)}; the server is not reachable")
+      IO.puts("from outside yet.")
+      :error
+    else
+      IO.puts("All checks passed#{warnings(warned)}; the server is reachable and resolvable.")
+      :ok
+    end
   end
+
+  defp warnings(0), do: ""
+  defp warnings(n), do: ", #{n} warning(s)"
+
+  defp hint(:fail, "dns"),
+    do: "point #{Pesque.hostname()} at this server's public IP with an A record"
+
+  defp hint(:warn, "dns"), do: "add an A record before going live"
+
+  defp hint(:fail, "describeServer"),
+    do: "check the proxy forwards to the server and that PDS_HOSTNAME is the domain clients use"
+
+  defp hint(:fail, "did document"),
+    do: "the domain publishes a different key; restart the server and check PDS_HOSTNAME"
+
+  defp hint(:fail, "plc document"),
+    do: "the PLC directory has not published this key yet; wait a moment and retry"
+
+  defp hint(:fail, "handle"),
+    do:
+      "add the _atproto DNS TXT record, or serve /.well-known/atproto-did at the handle's domain"
+
+  defp hint(_status, _title), do: nil
 
   defp label(:ok), do: "  ok "
   defp label(:warn), do: "warn"
