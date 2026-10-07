@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#
+# A thin wrapper over docker compose for the common self-hosting actions.
+#
+#   scripts/pesque setup     configure, start, and check the server
+#   scripts/pesque update    pull the new image and restart
+#   scripts/pesque account   create an account
+#   scripts/pesque doctor    run the federation preflight
+#   scripts/pesque logs      follow the server logs
+#
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+# eval runs a fresh release VM in a one-off container. serve=false keeps it from
+# binding the port the running server already holds, and --no-deps keeps it from
+# restarting the proxy.
+run_task() {
+  docker compose run --rm --no-deps -e PDS_SERVE=false pesque /app/bin/pesque eval "$1"
+}
+
+case "${1:-}" in
+  setup)
+    read -rp "hostname (the domain clients will use): " hostname
+    printf 'PDS_HOSTNAME=%s\n' "$hostname" > .env
+    docker compose up -d --build
+    echo "waiting for the server to come up..."
+    sleep 5
+    run_task 'Pesque.Doctor.run()' || true
+    cat <<'EOF'
+
+Next, create the first account:
+
+  PASSWORD=... scripts/pesque account --handle <handle> --email <email>
+EOF
+    ;;
+
+  update)
+    docker compose pull
+    docker compose up -d
+    ;;
+
+  account)
+    shift
+    handle="" email=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --handle) handle="$2"; shift 2 ;;
+        --email) email="$2"; shift 2 ;;
+        *) echo "unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    : "${handle:?--handle is required}"
+    : "${email:?--email is required}"
+    : "${PASSWORD:?set PASSWORD in the environment}"
+
+    docker compose run --rm --no-deps \
+      -e PDS_SERVE=false \
+      -e ACCOUNT_HANDLE="$handle" \
+      -e ACCOUNT_EMAIL="$email" \
+      -e ACCOUNT_PASSWORD="$PASSWORD" \
+      pesque /app/bin/pesque eval \
+      'Pesque.Accounts.create_account(System.get_env("ACCOUNT_HANDLE"), System.get_env("ACCOUNT_EMAIL"), System.get_env("ACCOUNT_PASSWORD")) |> IO.inspect()'
+    ;;
+
+  doctor)
+    run_task 'Pesque.Doctor.run()'
+    ;;
+
+  logs)
+    docker compose logs -f pesque
+    ;;
+
+  *)
+    echo "usage: scripts/pesque {setup|update|account|doctor|logs}" >&2
+    exit 2
+    ;;
+esac

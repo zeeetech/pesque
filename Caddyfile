@@ -1,0 +1,7 @@
+# Caddy gets a certificate for the host and proxies everything to the server,
+# including the firehose websocket: reverse_proxy upgrades it without extra
+# configuration.
+{$PDS_HOSTNAME} {
+	encode zstd gzip
+	reverse_proxy pesque:4000
+}

@@ -1,0 +1,39 @@
+# One droplet, TLS handled by Caddy. Set PDS_HOSTNAME to the domain clients
+# will use, then `docker compose up -d`.
+#
+#   PDS_HOSTNAME=pds.example.com docker compose up -d
+#
+# Caddy gets a certificate for that name automatically and proxies to the
+# server; the server itself speaks plain HTTP and advertises https, which is
+# the arrangement its defaults expect.
+services:
+  pesque:
+    build: .
+    restart: unless-stopped
+    environment:
+      PDS_CONFIG: /data/pesque.conf
+      PDS_HOSTNAME: ${PDS_HOSTNAME:?set PDS_HOSTNAME to the domain clients will use}
+    volumes:
+      - pesque-data:/data
+    expose:
+      - "4000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - pesque
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PDS_HOSTNAME: ${PDS_HOSTNAME:?set PDS_HOSTNAME to the domain clients will use}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  pesque-data:
+  caddy-data:
+  caddy-config:
