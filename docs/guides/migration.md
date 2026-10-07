@@ -8,6 +8,31 @@ Two servers are involved: the old PDS, which still holds the account, and the
 new Pesque server. Steps 2, 3, 4 and 6 read from the old PDS and write to the
 new one.
 
+## One command
+
+`mix pesque.migrate` runs the whole move on the new server, stopping only at the
+identity step, which the old PDS has to sign:
+
+```bash
+PASSWORD='...' mix pesque.migrate \
+  --old-pds https://bsky.social \
+  --handle zoedsoupe.zeetech.io \
+  --email zoedsoupe@example.com \
+  --password-env PASSWORD
+```
+
+It opens a session on the old PDS, creates the account here (deactivated),
+imports the repo and every blob, fetches the recommended credentials, then asks
+the old PDS for a PLC operation signature. On `bsky.social` that emails a code:
+the task prompts for it, has the old PDS sign the operation, submits it here,
+activates the new account and deactivates the old one. The password is the old
+PDS password (an app password if the account has 2FA), reused as the new
+account's password. A run that fails before the PLC submission can be re-run:
+the account is reused rather than recreated.
+
+The rest of this guide is the same move by hand, one step at a time, which is
+what to fall back to when something in the task does not fit.
+
 ## Before you start
 
 - The new server runs `PDS_MODE=path_multi` with `PDS_IDENTITY=plc`, behind TLS,
