@@ -40,6 +40,8 @@ defmodule Pesque.Record do
     end
   end
 
+  def check(_collection, _record, _opts), do: {:error, :missing_params}
+
   # Absent and null are different answers, so they are looked up separately.
   # Absent means the client left the type to the collection it is writing to;
   # null means the client sent a type that is not one.

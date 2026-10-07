@@ -54,9 +54,6 @@ defmodule Pesque do
   @doc "The port this process listens on. The advertised one is base_url/0's business."
   def port, do: Application.get_env(:pesque, :port, 4000)
 
-  @doc "The handle the server publishes for itself under :conformant_single."
-  def handle, do: Application.get_env(:pesque, :handle, hostname())
-
   @doc "Whether self-service account creation is open or requires an invite."
   def registration, do: Application.get_env(:pesque, :registration, :closed)
 

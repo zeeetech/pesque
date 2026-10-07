@@ -49,14 +49,8 @@ defmodule Pesque.Plc.Keys do
   end
 
   defp claim(path, pub, priv) do
-    case :file.open(path, [:write, :exclusive]) do
-      {:ok, device} ->
-        # chmod before the bytes, like Pesque.Keys: the file opens with the
-        # umask's mode, so the window where it is too wide holds nothing.
-        :ok = File.chmod(path, 0o600)
-        :ok = :file.write(device, priv)
-        :ok = :file.close(device)
-
+    case Storage.write_private(path, priv) do
+      {:ok, _path} ->
         {:ok, %{priv: priv, pub: pub, pub_multibase: Secp256k1.public_key_multibase(pub)}}
 
       {:error, reason} ->

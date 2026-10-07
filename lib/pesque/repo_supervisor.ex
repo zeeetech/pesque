@@ -18,7 +18,6 @@ defmodule Pesque.RepoSupervisor do
           {:ok, pid} -> {:ok, pid}
           {:error, {:already_started, pid}} -> {:ok, pid}
           {:error, reason} -> {:error, reason}
-          :ignore -> {:error, :ignored}
         end
     end
   end

@@ -24,17 +24,12 @@ defmodule Pesque.RepoServer do
   @rkey_regex ~r/^[a-zA-Z0-9._~:-]{1,512}$/
 
   # Genesis retry pacing. A commit that rolls back because the database was
-  # busy at boot clears in milliseconds, so the first retry is short: the
-  # account is headless for a fifth of a second rather than forever. Doubling
-  # from there reaches the ceiling in eight attempts, about fifty seconds, and
-  # from then on a database that is refusing writes outright is probed once
-  # every thirty seconds. The numbers are here rather than in a config file
-  # because a genesis that keeps failing is a broken database, not a
-  # deployment knob, and the process has to keep serving an already-genesied
-  # repo while it waits.
-  @genesis_retry_initial 200
-  @genesis_retry_factor 2
-  @genesis_retry_ceiling 30_000
+  # busy at boot clears in milliseconds, so the retry is short: the account is
+  # headless for a fifth of a second rather than forever. The number is here
+  # rather than in a config file because a genesis that keeps failing is a
+  # broken database, not a deployment knob, and the process has to keep serving
+  # an already-genesied repo while it waits.
+  @genesis_retry_interval 200
 
   defstruct [
     :did,
@@ -45,8 +40,7 @@ defmodule Pesque.RepoServer do
     :fetch,
     entries: %{},
     tid_int: 0,
-    rev: nil,
-    genesis_delay: nil
+    rev: nil
   ]
 
   def start_link(did) do
@@ -155,7 +149,7 @@ defmodule Pesque.RepoServer do
   # commit/2 is ever called.
   #
   # A database that is permanently refusing writes is retried forever, at the
-  # capped interval, rather than stopping this process. RepoSupervisor is a
+  # fixed interval, rather than stopping this process. RepoSupervisor is a
   # DynamicSupervisor on one_for_one at its defaults, intensity 3 in 5 seconds:
   # a child that stops three times inside that window takes the supervisor
   # down, and with it every other repo on the server. One repo whose database
@@ -172,7 +166,7 @@ defmodule Pesque.RepoServer do
 
     case result do
       {:ok, _prepared} ->
-        %{state | genesis_delay: nil}
+        state
 
       {:error, reason} ->
         # The transaction rolled back whole, so nothing of the commit landed
@@ -181,44 +175,33 @@ defmodule Pesque.RepoServer do
         # getLatestCommit and describeRepo read the head from meta and find
         # nothing, and nothing else would ever retry it. So the failure is
         # logged with the DID it belongs to, and retried.
-        delay = next_genesis_delay(state.genesis_delay)
-
         Logger.error("genesis commit rolled back, retrying",
           did: state.did,
           reason: inspect(reason),
-          retry_in_ms: delay
+          retry_in_ms: @genesis_retry_interval
         )
 
-        Process.send_after(self(), :genesis_retry, delay)
-        %{state | genesis_delay: delay}
+        Process.send_after(self(), :genesis_retry, @genesis_retry_interval)
+        state
     end
   end
-
-  defp next_genesis_delay(nil), do: @genesis_retry_initial
-
-  defp next_genesis_delay(delay),
-    do: min(delay * @genesis_retry_factor, @genesis_retry_ceiling)
 
   @impl true
   def handle_call(:entries, _from, state), do: {:reply, state.entries, state}
 
+  # The single write is the batch of one: same validation, same encoding, same
+  # commit, so createRecord and a batch create cannot drift apart. The op type
+  # is chosen here rather than inferred from the key, because putRecord is an
+  # upsert while a batch update is strict, and the two disagree on a key that is
+  # not there.
   def handle_call({:write, action, collection, rkey, record, opts}, _from, state) do
-    with :ok <- validate_collection(collection),
-         {:ok, rkey, state} <- ensure_rkey(rkey, state) do
-      key = collection <> "/" <> rkey
+    case prepare_single(action, collection, rkey, record, opts, state) do
+      {:ok, next_state, changes} ->
+        {state, result} = commit(next_state, changes)
+        {:reply, result, state}
 
-      case {action, Map.has_key?(state.entries, key)} do
-        {:create, true} ->
-          {:reply, {:error, :record_exists}, state}
-
-        _ ->
-          case Record.check(collection, record, opts) do
-            {:ok, record} -> encode_write(state, action, key, record)
-            {:error, _reason} = error -> {:reply, error, state}
-          end
-      end
-    else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -265,6 +248,36 @@ defmodule Pesque.RepoServer do
     end
   end
 
+  defp prepare_single(:create, collection, rkey, record, opts, state) do
+    write = %{
+      "$type" => "com.atproto.repo.applyWrites#create",
+      "collection" => collection,
+      "rkey" => rkey,
+      "value" => record
+    }
+
+    unwrap_single(prepare([write], state, opts))
+  end
+
+  defp prepare_single(:put, collection, rkey, record, opts, state) do
+    with {:ok, rkey, state} <- ensure_rkey(rkey, state) do
+      key = collection <> "/" <> rkey
+
+      type =
+        if Map.has_key?(state.entries, key),
+          do: "com.atproto.repo.applyWrites#update",
+          else: "com.atproto.repo.applyWrites#create"
+
+      write = %{"$type" => type, "collection" => collection, "rkey" => rkey, "value" => record}
+      unwrap_single(prepare([write], state, opts))
+    end
+  end
+
+  # A single write's failure is the write's own, not a batch index's: the batch
+  # wraps it as write 1, and the caller of the single path never saw an index.
+  defp unwrap_single({:ok, next_state, changes}), do: {:ok, next_state, changes}
+  defp unwrap_single({:error, {:write_failed, 1, reason}}), do: {:error, reason}
+
   # swapCommit is compared against the stored head rather than the one this
   # process cached, so a head another writer moved while this repo was down is
   # still seen as a mismatch.
@@ -307,7 +320,7 @@ defmodule Pesque.RepoServer do
          opts
        ) do
     with :ok <- validate_collection(write["collection"]),
-         {:ok, record} <- checked(write["collection"], write["value"], opts),
+         {:ok, record} <- Record.check(write["collection"], write["value"], opts),
          {:ok, rkey, state} <- ensure_rkey(write["rkey"], state) do
       key = write["collection"] <> "/" <> rkey
 
@@ -326,7 +339,7 @@ defmodule Pesque.RepoServer do
        ) do
     with :ok <- validate_collection(write["collection"]),
          :ok <- validate_rkey_present(write["rkey"]),
-         {:ok, record} <- checked(write["collection"], write["value"], opts) do
+         {:ok, record} <- Record.check(write["collection"], write["value"], opts) do
       key = write["collection"] <> "/" <> write["rkey"]
 
       if Map.has_key?(state.entries, key) do
@@ -377,24 +390,6 @@ defmodule Pesque.RepoServer do
     end
   end
 
-  defp checked(_collection, record, _opts) when not is_map(record),
-    do: {:error, :missing_params}
-
-  defp checked(collection, record, opts), do: Record.check(collection, record, opts)
-
-  # Split out of the write clause so the record check is the last thing that
-  # clause reads as before the encoding starts.
-  defp encode_write(state, action, key, record) do
-    case Commit.encode_write(state.entries, action, key, record) do
-      {:ok, change} ->
-        {state, result} = commit(state, [change])
-        {:reply, result, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
-    end
-  end
-
   defp commit(state, changes) do
     {:ok, prepared} = Commit.commit(state, changes)
 
@@ -437,10 +432,7 @@ defmodule Pesque.RepoServer do
                  RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
              end)
 
-             RepoStore.put_meta!("root:" <> state.did, CID.to_string(prepared.root_cid))
-             RepoStore.put_meta!("rev:" <> state.did, prepared.rev)
-             RepoStore.put_meta!("tid_int:" <> state.did, Integer.to_string(prepared.tid_int))
-             RepoStore.put_meta!("commit:" <> state.did, CID.to_string(prepared.commit_cid))
+             RepoStore.put_head!(state.did, prepared)
 
              # A commit over the lexicon's limits goes out as a #commit followed
              # by the #sync that tells a consumer to re-fetch. Both rows are
@@ -448,8 +440,7 @@ defmodule Pesque.RepoServer do
              # The frame carries only what this commit added. A frame over the
              # whole closure would report tooBig on every commit for a repo
              # past the 2MB blocks limit, and emit a #sync after each one.
-             incremental = Map.drop(blocks, MapSet.to_list(already))
-             frames = Commit.frames(prepared, seq, incremental, changes)
+             frames = Commit.frames(prepared, seq, prepared.all_blocks, already, changes)
 
              Enum.each(frames, fn {frame_seq, frame} ->
                RepoStore.insert_event!(state.did, frame_seq, frame)
@@ -461,9 +452,7 @@ defmodule Pesque.RepoServer do
          ) do
       {:ok, frames} ->
         Enum.each(frames, fn {_frame_seq, frame} ->
-          Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
-            for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
-          end)
+          Pesque.Events.broadcast(frame)
         end)
 
         {next_state(state, prepared), {:ok, prepared.result}}
@@ -491,10 +480,6 @@ defmodule Pesque.RepoServer do
 
   defp log_mst(_did, :incremental), do: :ok
   defp log_mst(_did, :genesis), do: :ok
-
-  defp log_mst(did, :rebuild) do
-    Logger.warning("rebuilt the MST from records", did: did, reason: :no_root)
-  end
 
   defp log_mst(did, {:rebuild, reason}) do
     Logger.warning("rebuilt the MST from records", did: did, reason: inspect(reason))

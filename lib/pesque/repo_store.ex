@@ -5,8 +5,8 @@ defmodule Pesque.RepoStore do
 
   require Logger
 
-  alias Pesque.CBOR
   alias Pesque.CID
+  alias Pesque.Mst
   alias Pesque.Repo
   alias Pesque.RepoStore.Blob
   alias Pesque.RepoStore.Block
@@ -196,54 +196,7 @@ defmodule Pesque.RepoStore do
   def blocks_for_path(did, cid_string) do
     case get_meta("root:" <> did) do
       nil -> {:error, :no_root}
-      root -> walk_to(blocks_map(did), root, cid_string, [])
-    end
-  end
-
-  # acc is reversed: a node is prepended as the walk goes down and the list is
-  # reversed once at the top, which keeps the root first in what is answered.
-  defp walk_to(blocks, node, target, acc) do
-    case Map.fetch(blocks, node) do
-      {:ok, data} ->
-        case children(data) do
-          {:ok, children} ->
-            acc = [{node, data} | acc]
-
-            cond do
-              node == target ->
-                {:ok, Enum.reverse(acc)}
-
-              target in children ->
-                case Map.fetch(blocks, target) do
-                  {:ok, data} -> {:ok, Enum.reverse([{target, data} | acc])}
-                  :error -> {:error, :corrupt}
-                end
-
-              true ->
-                descend(blocks, children, target, acc)
-            end
-
-          :error ->
-            Logger.warning("block path gave up: #{node} does not decode")
-            {:error, :corrupt}
-        end
-
-      :error ->
-        Logger.warning("block path gave up: #{node} is named by the tree but not stored")
-        {:error, :corrupt}
-    end
-  end
-
-  # Every child is tried, not just the subtree ones: the walk does not know
-  # which subtree holds the target, and a child that is itself a record block
-  # simply answers :not_found on the way back out.
-  defp descend(_blocks, [], _target, _acc), do: {:error, :not_found}
-
-  defp descend(blocks, [child | rest], target, acc) do
-    case walk_to(blocks, child, target, acc) do
-      {:ok, path} -> {:ok, path}
-      {:error, :corrupt} = error -> error
-      {:error, :not_found} -> descend(blocks, rest, target, acc)
+      root -> Mst.blocks_for_path(blocks_map(did), root, cid_string)
     end
   end
 
@@ -292,7 +245,7 @@ defmodule Pesque.RepoStore do
         0
 
       true ->
-        case children(blocks[cid]) do
+        case Mst.children(blocks[cid]) do
           {:ok, children} ->
             walk(MapSet.put(marked, cid), blocks, children ++ queue, did)
 
@@ -315,41 +268,6 @@ defmodule Pesque.RepoStore do
       acc + count
     end)
   end
-
-  # An MST node carries the subtree to its left plus, per entry, the subtree
-  # and the record the entry points at. A record block carries $type and none
-  # of those keys, and the walk stops there rather than mistaking every record
-  # for a tree.
-  defp children(data) do
-    case safe_decode(data) do
-      {:ok, %{"l" => left, "e" => entries} = node} ->
-        if Map.has_key?(node, "$type") do
-          {:ok, []}
-        else
-          {:ok,
-           Enum.reduce(entries, cid_link([], left), fn
-             %{"t" => subtree, "v" => value}, acc -> acc |> cid_link(subtree) |> cid_link(value)
-             _entry, acc -> acc
-           end)}
-        end
-
-      {:ok, _record_or_commit} ->
-        {:ok, []}
-
-      :error ->
-        :error
-    end
-  end
-
-  defp safe_decode(data) do
-    {:ok, CBOR.decode!(data)}
-  rescue
-    _ -> :error
-  end
-
-  defp cid_link(acc, nil), do: acc
-  defp cid_link(acc, %CID{} = cid), do: [CID.to_string(cid) | acc]
-  defp cid_link(acc, _other), do: acc
 
   @doc """
   Deletes every block of `did`. The import path writes the blocks a CAR carries
@@ -541,6 +459,20 @@ defmodule Pesque.RepoStore do
       on_conflict: {:replace, [:value]},
       conflict_target: [:key]
     )
+  end
+
+  @doc """
+  Writes the four head meta rows a prepared commit leaves behind: the MST root,
+  the rev, the tid counter and the head commit.
+
+  The commit path and the import path both need exactly these four, and writing
+  them here keeps the two from drifting on which keys a head is made of.
+  """
+  def put_head!(did, prepared) do
+    put_meta!("root:" <> did, CID.to_string(prepared.root_cid))
+    put_meta!("rev:" <> did, prepared.rev)
+    put_meta!("tid_int:" <> did, Integer.to_string(prepared.tid_int))
+    put_meta!("commit:" <> did, CID.to_string(prepared.commit_cid))
   end
 
   @doc """

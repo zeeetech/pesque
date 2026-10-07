@@ -32,9 +32,14 @@ defmodule Pesque.Keys do
   user cannot reach the path at all.
   """
   def create_exclusive(did) do
-    case :file.open(path(did), [:write, :exclusive]) do
-      {:ok, device} -> {:ok, write(did, device)}
-      {:error, reason} -> {:error, reason}
+    {pub, priv} = Secp256k1.generate_keypair()
+
+    case write(path(did), priv) do
+      {:ok, _path} ->
+        {:ok, %{priv: priv, pub: pub, pub_multibase: Secp256k1.public_key_multibase(pub)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -73,17 +78,7 @@ defmodule Pesque.Keys do
     Secp256k1.public_key_multibase(Secp256k1.public_from_private(priv))
   end
 
-  defp write(did, device) do
-    {pub, priv} = Secp256k1.generate_keypair()
-
-    # Before the key bytes, not after: the file opens with the umask's mode, so
-    # chmodming first means the moment it is briefly too wide it is empty.
-    :ok = File.chmod(path(did), 0o600)
-    :ok = :file.write(device, priv)
-    :ok = :file.close(device)
-
-    %{priv: priv, pub: pub, pub_multibase: Secp256k1.public_key_multibase(pub)}
-  end
+  defp write(path, priv), do: Storage.write_private(path, priv)
 
   defp keypair(priv) do
     pub = Secp256k1.public_from_private(priv)

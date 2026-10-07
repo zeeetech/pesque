@@ -50,4 +50,27 @@ defmodule Pesque.Storage do
         secret
     end
   end
+
+  @doc """
+  Writes `bytes` to `path` exclusively, with the mode set before they land.
+
+  The chmod is not a leftover. Erlang's `file:open/2` has no creation-mode
+  option: the file opens with the umask's mode, and a descriptor opened in the
+  window between the create and the chmod keeps reading it. Chmodming first
+  means that window holds an empty file rather than a private key. The open is
+  `:exclusive`, so two writers racing for one path get `{:error, :eexist}`
+  rather than overwriting each other.
+  """
+  def write_private(path, bytes) do
+    case :file.open(path, [:write, :exclusive]) do
+      {:ok, device} ->
+        :ok = File.chmod(path, 0o600)
+        :ok = :file.write(device, bytes)
+        :ok = :file.close(device)
+        {:ok, path}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end

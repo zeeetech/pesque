@@ -27,6 +27,8 @@ defmodule Pesque.Mst do
   alias Pesque.CBOR
   alias Pesque.CID
 
+  require Logger
+
   defmodule Node do
     @moduledoc """
     One MST node, in the shape the layering rules need.
@@ -143,8 +145,7 @@ defmodule Pesque.Mst do
   the node blocks that changed.
 
   `ops` is applied in order. Each is `{:put, key, value}` (an add when the key
-  is absent, an update when it is there), `{:update, key, value}` or
-  `{:delete, key}`.
+  is absent, an update when it is there) or `{:delete, key}`.
 
   `fetch` is given a `%CID{}` and answers `{:ok, bytes}` or `{:error, reason}`.
   Only the nodes on the path a change rewrites are read, and only the nodes
@@ -180,7 +181,6 @@ defmodule Pesque.Mst do
     end
   end
 
-  defp change({:update, key, value}, node, fetch), do: update(key, value, node, fetch)
   defp change({:delete, key}, node, fetch), do: delete(key, node, fetch)
 
   defp get(key, node, fetch) do
@@ -286,8 +286,6 @@ defmodule Pesque.Mst do
       end)
 
     Enum.reverse(reversed)
-  rescue
-    _ -> raise(ArgumentError, "malformed MST node entry")
   end
 
   defp add(key, value, node, fetch, known_zeros \\ nil) do
@@ -608,4 +606,111 @@ defmodule Pesque.Mst do
   end
 
   defp resolve([], left, acc, blocks), do: {left, Enum.reverse(acc), blocks}
+
+  # Stored-tree traversal
+  # ---------------------
+  #
+  # These read a tree as it is stored: a `%{cid_string => bytes}` map, not the
+  # `%Node{}` structure the incremental updates walk. They are what a reader
+  # uses to turn a hash into a position, or to find every block a tree reaches.
+
+  @doc """
+  The child CIDs an MST node names: the subtree to its left plus, per entry,
+  the subtree and the record the entry points at.
+
+  A record block carries `$type` and none of those keys, and the walk stops
+  there rather than mistaking every record for a tree.
+  """
+  def children(data) do
+    case safe_decode(data) do
+      {:ok, %{"l" => left, "e" => entries} = node} ->
+        if Map.has_key?(node, "$type") do
+          {:ok, []}
+        else
+          {:ok,
+           Enum.reduce(entries, cid_link([], left), fn
+             %{"t" => subtree, "v" => value}, acc -> acc |> cid_link(subtree) |> cid_link(value)
+             _entry, acc -> acc
+           end)}
+        end
+
+      {:ok, _record_or_commit} ->
+        {:ok, []}
+
+      :error ->
+        :error
+    end
+  end
+
+  @doc """
+  The blocks that place `target` in `blocks`: the nodes from `root` down to the
+  one holding it, plus the block itself.
+
+  The record block alone does not say where it lives. Reaching it from the root
+  is what turns a hash into a position, so the walk follows the same child
+  links a sweep follows, and a tree it cannot finish answers an error rather
+  than a partial path. Answers `{:error, :not_found}` when the tree does not
+  name the block at all, and `{:error, :corrupt}` when a block on the way is
+  missing or does not decode.
+  """
+  def blocks_for_path(blocks, root, target) do
+    walk_to(blocks, root, target, [])
+  end
+
+  # acc is reversed: a node is prepended as the walk goes down and the list is
+  # reversed once at the top, which keeps the root first in what is answered.
+  defp walk_to(blocks, node, target, acc) do
+    case Map.fetch(blocks, node) do
+      {:ok, data} ->
+        case children(data) do
+          {:ok, children} ->
+            acc = [{node, data} | acc]
+
+            cond do
+              node == target ->
+                {:ok, Enum.reverse(acc)}
+
+              target in children ->
+                case Map.fetch(blocks, target) do
+                  {:ok, data} -> {:ok, Enum.reverse([{target, data} | acc])}
+                  :error -> {:error, :corrupt}
+                end
+
+              true ->
+                descend(blocks, children, target, acc)
+            end
+
+          :error ->
+            Logger.warning("block path gave up: #{node} does not decode")
+            {:error, :corrupt}
+        end
+
+      :error ->
+        Logger.warning("block path gave up: #{node} is named by the tree but not stored")
+        {:error, :corrupt}
+    end
+  end
+
+  # Every child is tried, not just the subtree ones: the walk does not know
+  # which subtree holds the target, and a child that is itself a record block
+  # simply answers :not_found on the way back out.
+  defp descend(_blocks, [], _target, _acc), do: {:error, :not_found}
+
+  defp descend(blocks, [child | rest], target, acc) do
+    case walk_to(blocks, child, target, acc) do
+      {:ok, path} -> {:ok, path}
+      {:error, :corrupt} = error -> error
+      {:error, :not_found} -> descend(blocks, rest, target, acc)
+    end
+  end
+
+  defp safe_decode(data) do
+    {:ok, CBOR.decode!(data)}
+  rescue
+    _ -> :error
+  end
+
+  defp cid_link(acc, nil), do: acc
+  defp cid_link(acc, %CID{} = cid), do: [CID.to_string(cid) | acc]
+  defp cid_link(acc, _other), do: acc
 end

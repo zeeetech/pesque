@@ -162,8 +162,6 @@ defmodule Pesque.Commit do
     end
   end
 
-  defp apply_mst(_state, entries, _changes), do: build(entries, :rebuild)
-
   defp build(entries, path) do
     {root, blocks} = Mst.build(entries)
     {root, blocks, path}
@@ -174,11 +172,12 @@ defmodule Pesque.Commit do
   in the order they go out.
 
   The first is always the `#commit` envelope over the CAR of the blocks this
-  frame carries; `new_blocks` carries their CID strings, parsed back into CIDs
-  here. The caller chooses that set: it is the blocks this commit added rather
+  frame carries. `blocks` is the commit's whole block map, keyed by `%CID{}`,
+  and `already` is the CID strings storage already holds; the frame carries the
+  blocks that are not in `already`, which is the set this commit added rather
   than the whole commit closure, because a frame sized to the closure reports
   `tooBig` forever on a repo past the blocks limit. Storage does not depend on
-  it, so a block that is in `new_blocks` or not is written either way.
+  it, so a block that is in the frame or not is written either way.
 
   A commit whose CAR is over the lexicon's 2,000,000-byte `blocks` limit, or
   whose op count is over its limit of 200, is over what a consumer is meant to
@@ -201,14 +200,16 @@ defmodule Pesque.Commit do
           prev_root: prev_root
         } = prepared,
         seq,
-        new_blocks,
+        blocks,
+        already,
         changes
       ) do
-    car =
-      Car.encode(
-        [commit_cid],
-        Map.new(new_blocks, fn {cid_string, bytes} -> {CID.parse(cid_string), bytes} end)
-      )
+    new_blocks =
+      blocks
+      |> Enum.reject(fn {cid, _bytes} -> MapSet.member?(already, CID.to_string(cid)) end)
+      |> Map.new()
+
+    car = Car.encode([commit_cid], new_blocks)
 
     ops =
       Enum.map(changes, fn c ->
