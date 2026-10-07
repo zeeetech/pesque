@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português (BR)](README.pt-BR.md)
 
-![CI](https://github.com/zeetech/pesque/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/zeeetech/pesque/actions/workflows/ci.yml/badge.svg)
 ![License: WTFPL](https://img.shields.io/badge/license-WTFPL-blue.svg)
 ![Elixir](https://img.shields.io/badge/elixir-1.20%20%7C%20OTP%2029-purple.svg)
 
@@ -23,17 +23,42 @@ protocolo atrás de uma dependência não tá te mostrando nadinha.
 
 O nome parece PDS e significa "vai pescar" em português.
 
-## Rodando
+## Faz o deploy
 
-Precisa de Elixir 1.18+ e um toolchain de C (o driver do SQLite compila da
-fonte).
+Uma droplet, TLS resolvido pra você, sem toolchain:
+
+```bash
+git clone https://github.com/zeeetech/pesque
+cd pesque
+scripts/pesque setup
+```
+
+O setup pergunta o domínio que os clientes vão usar e se o servidor hospeda uma
+conta só ou várias, puxa a imagem pré-compilada, sobe o Pesque atrás do Caddy,
+espera ficar saudável, cria a primeira conta e imprime os registros de DNS pra
+adicionar. Depois que o DNS propagar:
+
+```bash
+scripts/pesque doctor    # preflight de federação
+scripts/pesque account   # criar outra conta
+scripts/pesque migrate   # trazer uma conta existente pra este servidor
+scripts/pesque update    # puxar uma imagem nova e reiniciar
+scripts/pesque logs      # acompanhar os logs do servidor
+```
+
+`account` e `migrate` perguntam a senha quando `PASSWORD` não tá setada, então
+ela não cai no histórico do shell. `PESQUE_BUILD=1` compila a imagem da fonte em
+vez de puxar. Docker cru, release, TLS sem Caddy e todas as opções de
+configuração estão no [guia de instalação](docs/guides/installation.md).
+
+## Rodando da fonte
+
+Precisa de Elixir 1.19+ no OTP 28+ e um toolchain de C (o driver do SQLite
+compila da fonte).
 
 ```bash
 mix deps.get
 mix phx.server
-```
-
-```bash
 curl http://localhost:4000/xrpc/_health
 ```
 
@@ -45,7 +70,6 @@ mix pesque.create_account --handle alice.example.com --email alice@example.com
 
 As migrações rodam no boot e o `_health` consulta a tabela de usuários, então um
 servidor cujas migrações nunca rodaram responde `503` em vez de um ok alegre.
-Docker, release e TLS estão no [guia de instalação](docs/guides/installation.md).
 
 Ainda não tem: `signPlcOperation` e `requestPlcOperationSignature` (o PDS antigo
 assina a mudança) e consentimento granular no OAuth.

@@ -2,7 +2,7 @@
 
 [English](README.md) | [Português (BR)](README.pt-BR.md)
 
-![CI](https://github.com/zeetech/pesque/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/zeeetech/pesque/actions/workflows/ci.yml/badge.svg)
 ![License: WTFPL](https://img.shields.io/badge/license-WTFPL-blue.svg)
 ![Elixir](https://img.shields.io/badge/elixir-1.20%20%7C%20OTP%2029-purple.svg)
 
@@ -23,16 +23,42 @@ dependency is not showing you anything.
 
 The name sounds like PDS and means "go fish" in Portuguese.
 
-## Run it
+## Deploy it
 
-Needs Elixir 1.18+ and a C toolchain (the SQLite driver compiles from source).
+One droplet, TLS handled for you, no toolchain:
+
+```bash
+git clone https://github.com/zeeetech/pesque
+cd pesque
+scripts/pesque setup
+```
+
+Setup asks for the domain clients will use and whether the server hosts one
+account or several, pulls the prebuilt image, starts Pesque behind Caddy, waits
+until it is healthy, creates the first account, and prints the DNS records to
+add. After DNS propagates:
+
+```bash
+scripts/pesque doctor    # federation preflight
+scripts/pesque account   # create another account
+scripts/pesque migrate   # move an existing account onto this server
+scripts/pesque update    # pull a new image and restart
+scripts/pesque logs      # follow the server logs
+```
+
+`account` and `migrate` prompt for the password when `PASSWORD` is not set, so
+it does not land in your shell history. `PESQUE_BUILD=1` builds the image from
+source instead of pulling it. Raw Docker, releases, TLS without Caddy and every
+configuration knob are in the [installation guide](docs/guides/installation.md).
+
+## Run it from source
+
+Needs Elixir 1.19+ on OTP 28+ and a C toolchain (the SQLite driver compiles from
+source).
 
 ```bash
 mix deps.get
 mix phx.server
-```
-
-```bash
 curl http://localhost:4000/xrpc/_health
 ```
 
@@ -43,8 +69,7 @@ mix pesque.create_account --handle alice.example.com --email alice@example.com
 ```
 
 Migrations run on boot and `_health` reads the users table, so a server whose
-migrations never ran answers `503` instead of a cheerful ok. Docker, releases
-and TLS are in the [installation guide](docs/guides/installation.md).
+migrations never ran answers `503` instead of a cheerful ok.
 
 Not implemented yet: `signPlcOperation` and `requestPlcOperationSignature` (the
 old PDS signs the move), and granular OAuth consent.
