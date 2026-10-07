@@ -47,21 +47,29 @@ mode =
     other -> raise "mode must be conformant_single or path_multi, got: #{other}"
   end
 
-# The DID method. Derived from the mode by default: a multi-account server
-# mints did:plc because the official client expects it, and the single-account
-# server is did:web of its own hostname. Set identity explicitly to override.
+# The DID method. Under path_multi it is always plc: the official client
+# expects a did:plc account, and path-based did:web is not a valid ATProto DID.
+# Under conformant_single the operator chooses, defaulting to did:web of the
+# hostname.
 identity =
-  case get.("identity", if(mode == :path_multi, do: "plc", else: "web")) do
-    "web" -> :web
-    "plc" -> :plc
-    other -> raise "identity must be web or plc, got: #{other}"
-  end
+  case mode do
+    :path_multi ->
+      case get.("identity", "plc") do
+        "plc" ->
+          :plc
 
-# path_multi hands handles to real clients, and the official client expects a
-# did:plc account, so web there would mint accounts it cannot use.
-if mode == :path_multi and identity == :web do
-  raise "mode = path_multi requires identity = plc: the official client expects did:plc accounts"
-end
+        other ->
+          raise "identity = #{other} is not valid under mode = path_multi: " <>
+                  "path_multi accounts are did:plc, and path-based did:web is not a valid ATProto DID"
+      end
+
+    :conformant_single ->
+      case get.("identity", "web") do
+        "web" -> :web
+        "plc" -> :plc
+        other -> raise "identity must be web or plc, got: #{other}"
+      end
+  end
 
 # Only read when identity = plc. A directory the operator points at is a
 # deployment choice, so it is configuration rather than a constant.
