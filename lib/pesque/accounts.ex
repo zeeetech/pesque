@@ -10,6 +10,7 @@ defmodule Pesque.Accounts do
   alias Pesque.Base32
   alias Pesque.Did
   alias Pesque.Events
+  alias Pesque.HandleResolver
   alias Pesque.Identity
   alias Pesque.Keys
   alias Pesque.Repo
@@ -91,16 +92,20 @@ defmodule Pesque.Accounts do
   The key file it claims is this server's, so the account signs with a key it
   holds from its first write.
 
+  A handle under this server's own handle domain is resolved here and needs no
+  network. Any other handle has to resolve to the imported DID, in both
+  directions, before a row is written: the caller publishes the TXT record or
+  well-known document, and the DID's own document has to claim the handle back.
+
   The account starts deactivated, so nothing is served or written until
   activateAccount; the repo is empty until importRepo fills it. The same key
   claim and password hash as create_account/4, and the same invite-code rules.
   """
   def create_imported_account(handle, email, password, did, opts \\ []) do
-    with {:ok, identity} <- identity_for(handle),
-         :ok <- check_import_did(did),
+    with :ok <- check_import_did(did),
          :ok <- check_password(password),
          :ok <- check_email(email),
-         {:ok, identity} <- put_import_did(identity, did),
+         {:ok, identity} <- imported_identity_for(handle, did),
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity),
          {:ok, password_hash} <- hash_password(password) do
@@ -122,10 +127,53 @@ defmodule Pesque.Accounts do
 
   defp check_import_did(_did), do: {:error, :invalid_did}
 
+  # A handle under the server's own domain is resolved here, so it takes the
+  # local derivation with no network. A foreign handle has no local username and
+  # is proved by resolving it to the imported DID before the identity is built.
+  # A foreign handle is only meaningful where accounts have their own DIDs: under
+  # conformant_single the account is the server, and admitting one would be a
+  # second account in a mode that serves one.
+  defp imported_identity_for(handle, did) do
+    cond do
+      local_handle?(handle) ->
+        with {:ok, identity} <- identity_for(handle), do: put_import_did(identity, did)
+
+      Pesque.mode() == :path_multi ->
+        with {:ok, identity} <- foreign_handle_identity(handle, did, nil),
+             :ok <- HandleResolver.verify(identity.handle, did) do
+          {:ok, identity}
+        end
+
+      true ->
+        {:error, :disallowed_handle}
+    end
+  end
+
   # The identity_for/1 struct carries the DID this server would derive for the
   # handle. An import replaces it with the caller's, so the row, the key file
   # and every check below are about the imported identity and not the local one.
   defp put_import_did(identity, did), do: {:ok, %{identity | did: did}}
+
+  # A foreign handle's stored spelling comes from the resolver, which settles
+  # the syntax without the local-domain requirement. There is no local path
+  # label behind it, so the username is nil; a did:plc document is keyed by the
+  # stored DID and does not need one.
+  defp foreign_handle_identity(handle, did, username) do
+    with {:ok, normalized} <- HandleResolver.normalize(handle) do
+      {:ok, %{mode: Pesque.mode(), did: did, handle: normalized, username: username}}
+    end
+  end
+
+  # A handle this server already resolves: the bare handle domain, or a label
+  # under it. The server owns that resolution, so no network call is needed.
+  defp local_handle?(handle) when is_binary(handle) do
+    domain = String.downcase(Pesque.handle_domain())
+    normalized = handle |> String.trim() |> String.downcase()
+
+    normalized == domain or String.ends_with?(normalized, "." <> domain)
+  end
+
+  defp local_handle?(_handle), do: false
 
   @doc """
   Creates `code_count` invite codes, each good for `use_count` accounts, and
@@ -422,6 +470,13 @@ defmodule Pesque.Accounts do
   account's own row is excluded from the availability check, so setting the
   handle an account already has is a no-op rather than a collision with itself.
 
+  A did:plc account may move to a handle on a foreign domain. The PLC operation
+  that publishes the new handle is submitted first, then the handle has to
+  resolve to the account's DID in both directions before the row is written. A
+  local handle needs no network: this server owns its resolution. A did:web
+  account keeps a handle under this server's domain, because its document is
+  served here.
+
   Only the handle moves. The DID was minted once, when the account was created,
   and every record, block and meta row is keyed by it, so a handle change that
   re-derived the DID would strand all of them. Under path_multi that means the
@@ -430,14 +485,40 @@ defmodule Pesque.Accounts do
   is the name it is known by.
   """
   def update_handle(%User{} = user, handle) do
-    with {:ok, identity} <- identity_for(handle),
+    with {:ok, identity} <- update_handle_identity(user, handle),
          :ok <- check_reclaimable(identity, user),
+         :ok <- require_handle_points_here(user, identity),
          {:ok, operation} <- update_plc_operation(user, identity.handle),
          {:ok, updated} <- write_handle(user, identity.handle, operation) do
       Events.emit_identity(updated.did, updated.handle)
       {:ok, updated}
     end
   end
+
+  # A foreign handle is only reachable for a did:plc account: a did:web
+  # account's handle is derived from the local domain and its document served
+  # here, so a foreign handle would name a document this server does not own.
+  defp update_handle_identity(%User{did: "did:plc:" <> _} = user, handle) do
+    if local_handle?(handle) do
+      identity_for(handle)
+    else
+      foreign_handle_identity(handle, user.did, user.username)
+    end
+  end
+
+  defp update_handle_identity(%User{}, handle), do: identity_for(handle)
+
+  # The handle has to already resolve to this account before the PLC operation
+  # publishes it, otherwise a directory that accepted the operation would name a
+  # handle this server's own resolution does not, and the row would be the only
+  # place the two disagree. Checked before the operation, not after, so a refused
+  # check leaves the directory untouched. A local handle is resolved by this
+  # server and a did:web document is served here, so neither needs the check.
+  defp require_handle_points_here(%User{did: "did:plc:" <> _} = user, %{handle: handle}) do
+    if local_handle?(handle), do: :ok, else: HandleResolver.resolves_to?(handle, user.did)
+  end
+
+  defp require_handle_points_here(%User{}, _identity), do: :ok
 
   # The PLC operation is written before the row. If the directory refuses it
   # nothing local moves, so the handle this server resolves never disagrees

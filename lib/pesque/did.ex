@@ -190,6 +190,30 @@ defmodule Pesque.Did do
   end
 
   @doc """
+  Whether a DID document claims `handle` for `did`.
+
+  The document's own `id` is checked against the expected DID rather than
+  trusted, and `alsoKnownAs` has to carry `at://<handle>`. Without it a TXT
+  record pointing somebody else's handle at a DID would pass. Pure: it reads
+  the document it is given and consults nothing else.
+  """
+  def claims_handle?(document, did, handle)
+      when is_map(document) and is_binary(did) and is_binary(handle) do
+    document["id"] == did and claimed_handle(document["alsoKnownAs"]) == normalize!(handle)
+  end
+
+  def claims_handle?(_document, _did, _handle), do: false
+
+  defp claimed_handle(entries) when is_list(entries) do
+    Enum.find_value(entries, fn
+      "at://" <> handle when handle != "" -> normalize!(handle)
+      _not_a_handle -> nil
+    end)
+  end
+
+  defp claimed_handle(_entries), do: nil
+
+  @doc """
   Lowercases a username and checks it against the handle label rules, returning
   {:ok, username} or {:error, reason}.
   """
@@ -315,6 +339,12 @@ defmodule Pesque.Did do
       _ -> {:error, :not_did_web}
     end
   end
+
+  # A handle is compared, not validated: the caller is a resolver that has
+  # already settled the syntax, and this is here so the two sides of the
+  # comparison agree on spelling whatever the document published.
+  defp normalize!(handle),
+    do: handle |> String.trim() |> String.trim_leading("@") |> String.downcase()
 
   defp normalize_username!(username) do
     case normalize_username(username) do

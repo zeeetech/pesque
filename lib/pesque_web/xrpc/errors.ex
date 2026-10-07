@@ -83,6 +83,25 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:handle_not_available),
     do: {400, "HandleNotAvailable", "handle is not available on this server"}
 
+  # Importing a DID or moving a did:plc handle to a foreign domain requires the
+  # handle to resolve to the DID, in both directions. A handle that resolves to
+  # nothing or to another DID, and a DID document that does not name the handle,
+  # are each refused before a row is written.
+  def to_xrpc(:invalid_handle),
+    do: {400, "InvalidHandle", "handle is not a valid handle"}
+
+  def to_xrpc(:disallowed_handle),
+    do: {400, "InvalidHandle", "handle is under a domain that cannot resolve"}
+
+  def to_xrpc(:handle_unresolved),
+    do: {400, "HandleNotFound", "the handle does not resolve to a DID"}
+
+  def to_xrpc(:handle_mismatch),
+    do: {400, "HandleNotFound", "the handle resolves to a different DID"}
+
+  def to_xrpc(:handle_not_claimed),
+    do: {400, "UnresolvableDid", "the DID document does not claim the handle"}
+
   def to_xrpc(:key_unavailable),
     do: {500, "InternalServerError", "the server signing key could not be loaded"}
 
