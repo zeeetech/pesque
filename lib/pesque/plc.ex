@@ -170,7 +170,7 @@ defmodule Pesque.Plc do
   def submit_operation(%User{did: "did:plc:" <> _} = user, operation) do
     with :ok <- validate_operation(user, operation),
          :ok <- submit(user.did, operation),
-         :ok <- confirm_pds(user.did),
+         :ok <- verify_pds(user.did),
          {:ok, _user} <- store_operation(user, operation) do
       {:ok, user.did}
     end
@@ -212,15 +212,6 @@ defmodule Pesque.Plc do
   end
 
   defp validate_handle(_user, _operation), do: {:error, :plc_operation_invalid}
-
-  # The document the directory now serves has to name this server, or the
-  # account would resolve away from here the moment it is activated.
-  defp confirm_pds(did) do
-    with {:ok, document} <- client().resolve(did),
-         {:ok, endpoint} <- pds_endpoint(document) do
-      if endpoint == Pesque.base_url(), do: :ok, else: {:error, :pds_mismatch}
-    end
-  end
 
   defp store_operation(%User{} = user, operation) do
     case user |> User.plc_operation_changeset(JSON.encode!(operation)) |> Repo.update() do

@@ -23,8 +23,8 @@ defmodule Pesque.Plc.Keys do
     Path.join(Storage.keys_dir(), Storage.digest_name(did) <> ".rotation.key")
   end
 
-  @doc "Path of the repo signing key file, which is Pesque.Keys'."
-  def repo_path(did), do: Keys.path(did)
+  # The repo signing key file is Pesque.Keys' own; this names it for create_repo.
+  defp repo_path(did), do: Keys.path(did)
 
   @doc "Generates a rotation keypair for a DID and claims its file exclusively."
   def create_rotation(did) do

@@ -11,30 +11,20 @@ defmodule Pesque.Crawl do
 
   require Logger
 
-  @timeout 10_000
+  alias Pesque.OAuth.Fetch
 
   @doc "Asks every configured crawler to crawl this server. Never raises."
   def request_all do
     Enum.each(Pesque.crawlers(), &request/1)
   end
 
-  def request(base) do
+  defp request(base) do
     url = String.trim_trailing(base, "/") <> "/xrpc/com.atproto.sync.requestCrawl"
-    body = JSON.encode!(%{"hostname" => Pesque.hostname()})
 
-    case :httpc.request(
-           :post,
-           {String.to_charlist(url), [{~c"content-type", ~c"application/json"}],
-            ~c"application/json", body},
-           [timeout: @timeout, connect_timeout: @timeout],
-           []
-         ) do
-      {:ok, {{_v, status, _r}, _headers, _body}} when status in 200..299 ->
-        Logger.info("asked a relay to crawl this server", crawler: base, status: status)
-
-      {:ok, {{_v, status, _r}, _headers, _body}} ->
-        Logger.warning("a relay refused the crawl request", crawler: base, status: status)
-
+    with {:ok, uri} <- URI.new(url),
+         :ok <- Fetch.post_json(uri, %{"hostname" => Pesque.hostname()}) do
+      Logger.info("asked a relay to crawl this server", crawler: base)
+    else
       {:error, reason} ->
         Logger.warning("a relay could not be reached", crawler: base, reason: inspect(reason))
     end

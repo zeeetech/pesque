@@ -50,16 +50,6 @@ defmodule Pesque.Did do
     normalize_username!(username) <> "." <> handle_domain
   end
 
-  @doc "The username a path DID carries, or {:error, :invalid_did} when the DID is not a path DID of this mode."
-  def username_from_did(:path_multi, did) do
-    case did_parts(did) do
-      {_host, ["user", username]} -> {:ok, username}
-      _ -> {:error, :invalid_did}
-    end
-  end
-
-  def username_from_did(:conformant_single, _did), do: {:error, :invalid_did}
-
   @doc "The path a DID document is served at, per the did:web resolution rules."
   def path_for_did(did) do
     case did_parts(did) do
@@ -129,30 +119,9 @@ defmodule Pesque.Did do
       ) do
     did = did_for_username(mode, did_host(hostname, port), username)
     handle = handle_for_username(mode, handle_domain, username)
+    endpoint = Map.get(attrs, :endpoint, "https://" <> hostname)
 
-    %{
-      "@context" => [
-        "https://www.w3.org/ns/did/v1",
-        "https://w3id.org/security/multikey/v1"
-      ],
-      "id" => did,
-      "alsoKnownAs" => ["at://" <> handle],
-      "verificationMethod" => [
-        %{
-          "id" => did <> "#atproto",
-          "type" => "Multikey",
-          "controller" => did,
-          "publicKeyMultibase" => pub_multibase
-        }
-      ],
-      "service" => [
-        %{
-          "id" => "#atproto_pds",
-          "type" => "AtprotoPersonalDataServer",
-          "serviceEndpoint" => Map.get(attrs, :endpoint, "https://" <> hostname)
-        }
-      ]
-    }
+    document(did, handle, pub_multibase, endpoint)
   end
 
   @doc """
@@ -164,6 +133,10 @@ defmodule Pesque.Did do
   endpoint, the same one the genesis operation published.
   """
   def plc_document(%{did: did, handle: handle, pub_multibase: pub_multibase, endpoint: endpoint}) do
+    document(did, handle, pub_multibase, endpoint)
+  end
+
+  defp document(did, handle, pub_multibase, endpoint) do
     %{
       "@context" => [
         "https://www.w3.org/ns/did/v1",
@@ -230,108 +203,6 @@ defmodule Pesque.Did do
   end
 
   def normalize_username(_username), do: {:error, :not_a_string}
-
-  @doc """
-  Resolves a local handle or DID to the canonical DID of that account.
-
-  Answers one question: is this identifier an account of THIS server, and what
-  is its canonical DID. That is the question the write boundary asks, so the
-  caller compares two resolved DIDs, which is a plain equality.
-
-  Whether a handle's domain is this server's DID host is configuration, not
-  something either string carries, so the config is an argument.
-
-  Deliberately consults no database. A resolver that cannot see the users
-  table cannot be talked into accepting a remote account; whether the account
-  exists is the caller's question, not this function's.
-
-  Answers {:error, :not_local} for a DID of another host, a handle under a
-  domain this server does not serve, and any path that is not exactly
-  user/<username>.
-  """
-  def to_local_did(config, identifier) when is_binary(identifier) do
-    identifier = String.trim(identifier)
-
-    case identifier |> String.downcase() |> String.split(":", parts: 3) do
-      ["did", "web", rest] -> did_to_local_did(config, rest)
-      _ -> handle_to_local_did(config, identifier)
-    end
-  end
-
-  def to_local_did(_config, _identifier), do: {:error, :invalid_identifier}
-
-  # The host and path arrive lowercased, so the host is compared folded
-  # against did_host/2, which percent-encodes a port in uppercase hex.
-  defp did_to_local_did(config, rest) do
-    {did_host, path} = split_host_path(rest)
-
-    with true <- did_host == String.downcase(host(config)),
-         {:ok, username} <- username_in_did(config.mode, path) do
-      {:ok, did_for_username(config.mode, host(config), username)}
-    else
-      _ -> {:error, :not_local}
-    end
-  end
-
-  defp split_host_path(rest) do
-    case String.split(rest, ":", parts: 2) do
-      [host] -> {host, []}
-      [host, path] -> {host, String.split(path, ":")}
-    end
-  end
-
-  # nil is the server itself, the account a bare host DID names. It mirrors
-  # bare_handle_did/1: under conformant_single both the bare DID and the bare
-  # handle resolve to the single account, and under path_multi neither does,
-  # because no account claims the bare domain.
-  defp username_in_did(:conformant_single, []), do: {:ok, nil}
-  defp username_in_did(:conformant_single, _path), do: {:error, :not_local}
-
-  defp username_in_did(:path_multi, ["user", username]) do
-    case normalize_username(username) do
-      {:ok, normalized} -> {:ok, normalized}
-      {:error, _reason} -> {:error, :not_local}
-    end
-  end
-
-  defp username_in_did(_mode, _path), do: {:error, :not_local}
-
-  # The bare handle domain is the server's own handle in conformant_single,
-  # where there is a single account and writes are addressed to it. Under
-  # path_multi no account claims the bare domain, so it names nothing.
-  defp handle_to_local_did(config, handle) do
-    handle = String.downcase(handle)
-
-    if handle == String.downcase(config.handle_domain) do
-      bare_handle_did(config)
-    else
-      labeled_handle_did(config, handle)
-    end
-  end
-
-  defp bare_handle_did(%{mode: :conformant_single} = config) do
-    {:ok, did_for_username(:conformant_single, host(config), nil)}
-  end
-
-  defp bare_handle_did(_config), do: {:error, :not_local}
-
-  # Only path_multi has accounts named by a label, so only there does a label
-  # carry meaning. Under conformant_single the single account's handle is the
-  # bare domain, and accepting a label here would widen what the write guard
-  # takes without any account behind it.
-  defp labeled_handle_did(%{mode: :path_multi} = config, handle) do
-    with [username, domain] <- String.split(handle, ".", parts: 2),
-         {:ok, username} <- normalize_username(username),
-         true <- domain == String.downcase(config.handle_domain) do
-      {:ok, did_for_username(:path_multi, host(config), username)}
-    else
-      _ -> {:error, :not_local}
-    end
-  end
-
-  defp labeled_handle_did(_config, _handle), do: {:error, :not_local}
-
-  defp host(config), do: did_host(config.hostname, config.port)
 
   defp did_parts(did) do
     case String.split(did, ":") do

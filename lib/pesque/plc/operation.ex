@@ -47,9 +47,9 @@ defmodule Pesque.Plc.Operation do
     |> sign(rotation_priv)
   end
 
-  @doc "The unsigned operation body for `attrs` and a previous CID or nil."
+  # The unsigned operation body for `attrs` and a previous CID or nil.
   @spec unsigned(map(), String.t() | nil) :: t()
-  def unsigned(attrs, prev) do
+  defp unsigned(attrs, prev) do
     %{
       "type" => "plc_operation",
       "rotationKeys" => attrs.rotation_keys,
@@ -65,9 +65,9 @@ defmodule Pesque.Plc.Operation do
     }
   end
 
-  @doc "Signs an operation, adding the base64url (unpadded) `sig` field."
+  # Signs an operation, adding the base64url (unpadded) `sig` field.
   @spec sign(t(), binary()) :: t()
-  def sign(op, priv) do
+  defp sign(op, priv) do
     sig = priv |> Secp256k1.sign(CBOR.encode(op)) |> Base.url_encode64(padding: false)
     Map.put(op, "sig", sig)
   end

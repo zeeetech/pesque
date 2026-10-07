@@ -16,10 +16,9 @@ defmodule Pesque.HandleResolver do
 
   alias Pesque.Did
   alias Pesque.DidResolver
+  alias Pesque.OAuth.Fetch
 
-  @connect_timeout 5_000
   @timeout 5_000
-  @profile :httpc_pesque_handle_resolver
 
   # The spec allows redirects "up to a reasonable number of redirect hops" and
   # does not name the number. Three is past anything a correct endpoint needs
@@ -289,63 +288,17 @@ defmodule Pesque.HandleResolver do
   @doc """
   The production HTTPS fetch: `{:ok, status, headers, body}` or `{:error, reason}`.
 
-  TLS is verified, the timeout is bounded, redirects are not followed (the
-  resolver counts the hops itself), and the body is capped.
+  The transport is `Pesque.OAuth.Fetch.get/2`, so the scheme and address checks
+  are the same ones every outbound request makes: a private or loopback answer
+  is refused before the connection, TLS is verified, the timeout is bounded,
+  redirects are not followed (the resolver counts the hops itself), and the
+  body is capped.
   """
   def http_get(url) do
-    profile = start_profile()
-
-    case :httpc.request(
-           :get,
-           {url, [{~c"accept", ~c"text/plain, application/json"}]},
-           [
-             connect_timeout: @connect_timeout,
-             timeout: @timeout,
-             ssl: ssl_options(),
-             autoredirect: false
-           ],
-           [body_format: :binary],
-           profile
-         ) do
-      {:ok, {{_version, status, _reason}, headers, body}}
-      when is_binary(body) and byte_size(body) <= @max_body_bytes ->
-        {:ok, status, headers, body}
-
-      {:ok, {{_version, _status, _reason}, _headers, body}}
-      when is_binary(body) ->
-        {:error, {:body_too_large, byte_size(body)}}
-
-      {:ok, {_status_line, _headers, _body}} ->
-        {:error, :unexpected_response}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, uri} <- URI.new(url) do
+      Fetch.get(uri, @max_body_bytes)
+    else
+      _ -> {:error, :invalid_url}
     end
-  rescue
-    _raised -> {:error, :fetch_failed}
-  catch
-    _kind, _reason -> {:error, :fetch_failed}
-  end
-
-  # A profile carries body_format, which is not a per-request option: passed in
-  # the request options httpc hands back a charlist and every byte_size/1 on it
-  # raises. Started once and reused.
-  defp start_profile do
-    case :inets.start(:httpc, [{:profile, @profile}, {:body_format, :binary}]) do
-      {:ok, _pid} -> @profile
-      {:error, {:already_started, _pid}} -> @profile
-      {:error, _reason} -> @profile
-    end
-  end
-
-  defp ssl_options do
-    [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      depth: 3,
-      customize_hostname_check: [
-        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-      ]
-    ]
   end
 end
