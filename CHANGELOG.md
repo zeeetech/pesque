@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/zeeetech/pesque/compare/pesque-v1.0.0...pesque-v1.1.0) (2026-10-07)
+
+
+### Features
+
+* **deploy:** one-command setup, prebuilt image, human output ([3075656](https://github.com/zeeetech/pesque/commit/3075656be2f282499a92280875f71955538177ba))
+* **xrpc:** forward proxied calls and serve preferences ([c271ee0](https://github.com/zeeetech/pesque/commit/c271ee05445cfd0e2df16f5c1e0285019ae3a0d9))
+
+
+### Bug Fixes
+
+* correctly start app supervision tree inside container (release) ([2ac0768](https://github.com/zeeetech/pesque/commit/2ac0768ee1282c7b7c8d199df0cc75d1adfeb1cf))
+
 ## 1.0.0 (2026-10-07)
 
 
