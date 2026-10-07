@@ -15,6 +15,50 @@ defmodule Pesque.Storage do
   @doc "Directory holding the blob bytes."
   def blobs_dir, do: Path.join(Pesque.data_dir(), "blobs")
 
+  @doc "Path of the persisted server identity: the server's own did:plc and its operation."
+  def server_identity_path, do: Path.join(Pesque.data_dir(), "server.identity.json")
+
+  @doc """
+  Reads the persisted server identity.
+
+  Answers `{:ok, %{"did" => did, "operation" => operation}}`, or
+  `{:error, :enoent}` when nothing has been minted yet. The DID and the
+  operation are public (the operation is on plc.directory), so this is an
+  ordinary read: no mode dance like `write_private/2`, which exists for key
+  material.
+  """
+  def read_server_identity do
+    case File.read(server_identity_path()) do
+      {:ok, body} ->
+        case JSON.decode(body) do
+          {:ok, %{"did" => _did, "operation" => _operation} = identity} ->
+            {:ok, identity}
+
+          _other ->
+            {:error, :invalid_server_identity}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Persists the server's minted did:plc so the next boot reuses it.
+
+  Written before the value is cached, so a write that fails fails boot rather
+  than leaving a process that believes it persisted an identity it did not.
+  """
+  def write_server_identity(%{"did" => _did, "operation" => _operation} = identity) do
+    File.mkdir_p!(Pesque.data_dir())
+    path = server_identity_path()
+
+    case File.write(path, JSON.encode!(identity)) do
+      :ok -> {:ok, path}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @doc """
   A filesystem-safe name for a DID.
 

@@ -7,8 +7,15 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   alias Pesque.Plc
   alias PesqueWeb.Xrpc
 
+  # Under plc the server's own DID is a did:plc, which resolves through
+  # plc.directory rather than at this route: serving the did:web-shaped
+  # document here would publish a second, conflicting document for the DID.
   def did_document(conn, _params) do
-    json(conn, Pesque.Identity.did_document())
+    if Pesque.identity() == :plc do
+      send_resp(conn, 404, "")
+    else
+      json(conn, Pesque.Identity.did_document())
+    end
   end
 
   # The HTTPS half of handle resolution. The DID answered depends on the name

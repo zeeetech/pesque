@@ -63,13 +63,6 @@ if mode == :path_multi and identity == :web do
   raise "mode = path_multi requires identity = plc: the official client expects did:plc accounts"
 end
 
-# conformant_single serves one account as the server, so the account's DID is
-# the server's own; making that did:plc needs the server identity minted
-# through the directory at boot, which is not built yet.
-if identity == :plc and mode == :conformant_single do
-  raise "identity = plc with conformant_single is not supported yet: the single account is the server, whose DID is did:web"
-end
-
 # Only read when identity = plc. A directory the operator points at is a
 # deployment choice, so it is configuration rather than a constant.
 plc_directory = get.("plc_directory", "https://plc.directory")

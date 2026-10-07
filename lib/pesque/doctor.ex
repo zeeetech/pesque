@@ -102,28 +102,40 @@ defmodule Pesque.Doctor do
     end
   end
 
+  # A did:web document is served here; a did:plc document is served by the
+  # directory, so the check follows the DID method to whichever host owns it.
   defp did_document_check(http) do
-    url = Pesque.base_url() <> "/.well-known/did.json"
+    if Pesque.identity() == :plc do
+      check_document(http, plc_document_url(), "plc document")
+    else
+      check_document(http, Pesque.base_url() <> "/.well-known/did.json", "did document")
+    end
+  end
 
+  defp plc_document_url do
+    String.trim_trailing(Pesque.plc_directory(), "/") <> "/" <> Identity.did()
+  end
+
+  defp check_document(http, url, title) do
     with {:ok, 200, body} <- http.(url),
          {:ok, document} <- JSON.decode(body) do
       published = published_key(document)
 
       if published == Identity.public_key_multibase() do
-        {:ok, "did document", "#{url} publishes the server key"}
+        {:ok, title, "#{url} publishes the server key"}
       else
-        {:fail, "did document",
+        {:fail, title,
          "#{url} publishes #{inspect(published)}, expected #{inspect(Identity.public_key_multibase())}"}
       end
     else
       {:ok, status, _body} ->
-        {:fail, "did document", "#{url} answered HTTP #{status}"}
+        {:fail, title, "#{url} answered HTTP #{status}"}
 
       {:error, reason} ->
-        {:fail, "did document", "#{url} could not be reached: #{inspect(reason)}"}
+        {:fail, title, "#{url} could not be reached: #{inspect(reason)}"}
 
       _other ->
-        {:fail, "did document", "#{url} answered something that is not a JSON object"}
+        {:fail, title, "#{url} answered something that is not a JSON object"}
     end
   end
 

@@ -1013,6 +1013,16 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # The single account is the server, whose identity was minted at boot, so
+  # there is nothing to mint here: the boot-time key is claimed and the
+  # operation that registered the DID is carried onto the row. Under the
+  # default web identity server_operation/0 is nil, which is the old shape.
+  defp claim_account(%{mode: :conformant_single} = identity) do
+    with {:ok, key} <- claim_key(identity) do
+      {:ok, %{identity: identity, key: key, plc_operation: Identity.server_operation()}}
+    end
+  end
+
   # Under PDS_IDENTITY=plc the DID is minted by the directory rather than
   # derived from the hostname, so the key claim and the DID arrive together
   # from Pesque.Plc. Under the default web identity this is exactly the old
