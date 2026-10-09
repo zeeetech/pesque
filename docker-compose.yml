@@ -19,6 +19,10 @@ services:
       PDS_CONFIG: /data/pesque.conf
       PDS_HOSTNAME: ${PDS_HOSTNAME:?set PDS_HOSTNAME to the domain clients will use}
       PDS_MODE: ${PDS_MODE:-conformant_single}
+      # The relay asked to crawl this server at boot. Defaults to the Bluesky
+      # relay, which is what makes a fresh deploy federate; set it empty to
+      # announce to nobody.
+      PDS_CRAWLER: ${PDS_CRAWLER:-https://bsky.network}
     volumes:
       - pesque-data:/data
     expose:
