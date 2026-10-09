@@ -23,6 +23,7 @@ defmodule Pesque.Doctor do
 
     [
       config_check(),
+      config_file_check(),
       dns_check(resolver),
       describe_check(http),
       did_document_check(http),
@@ -109,6 +110,26 @@ defmodule Pesque.Doctor do
       {:warn, "configuration", detail <> " (hostname is an IP literal; handles will not resolve)"}
     else
       {:ok, "configuration", detail}
+    end
+  end
+
+  # Where the settings actually came from. The container reads `PDS_CONFIG`,
+  # which points into the volume rather than the directory the compose file
+  # lives in, so an operator who dropped a `pesque.conf` beside
+  # `docker-compose.yml` sees here that it was not the file that was read.
+  defp config_file_check do
+    path = Pesque.Config.path()
+
+    case File.read(path) do
+      {:ok, _text} ->
+        {:ok, "config file", "#{path} is read; settings there win over the defaults"}
+
+      {:error, :enoent} ->
+        {:ok, "config file",
+         "no file at #{path}; settings come from the environment and defaults"}
+
+      {:error, reason} ->
+        {:warn, "config file", "cannot read #{path}: #{inspect(reason)}"}
     end
   end
 

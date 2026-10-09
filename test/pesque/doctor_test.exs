@@ -69,7 +69,7 @@ defmodule Pesque.DoctorTest do
     do: Enum.find_value(results, &if(elem(&1, 1) == title, do: elem(&1, 0)))
 
   test "every check passes when the server answers as it should" do
-    assert Enum.map(all_ok(), &elem(&1, 0)) == [:ok, :ok, :ok, :ok, :ok, :ok]
+    assert Enum.map(all_ok(), &elem(&1, 0)) == [:ok, :ok, :ok, :ok, :ok, :ok, :ok]
   end
 
   test "a describeServer did that is not this server's fails" do
@@ -140,6 +140,42 @@ defmodule Pesque.DoctorTest do
     Application.put_env(:pesque, :crawlers, [])
 
     assert status(all_ok(), "relay") == :warn
+  end
+
+  test "the config file check names the file it read" do
+    path =
+      Path.join(System.tmp_dir!(), "pesque-doctor-#{System.unique_integer([:positive])}.conf")
+
+    File.write!(path, "hostname = pds.example.com\n")
+    previous = System.get_env("PDS_CONFIG")
+    System.put_env("PDS_CONFIG", path)
+
+    on_exit(fn ->
+      File.rm(path)
+
+      if previous,
+        do: System.put_env("PDS_CONFIG", previous),
+        else: System.delete_env("PDS_CONFIG")
+    end)
+
+    {state, _title, detail} = Enum.find(all_ok(), &(elem(&1, 1) == "config file"))
+    assert state == :ok
+    assert detail =~ "is read"
+  end
+
+  test "the config file check says so when there is no file" do
+    previous = System.get_env("PDS_CONFIG")
+    System.put_env("PDS_CONFIG", "/nonexistent/pesque.conf")
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("PDS_CONFIG", previous),
+        else: System.delete_env("PDS_CONFIG")
+    end)
+
+    {state, _title, detail} = Enum.find(all_ok(), &(elem(&1, 1) == "config file"))
+    assert state == :ok
+    assert detail =~ "no file at"
   end
 
   describe "Pesque.hostname_is_ip?/0" do
