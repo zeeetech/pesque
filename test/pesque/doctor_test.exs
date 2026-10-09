@@ -6,8 +6,15 @@ defmodule Pesque.DoctorTest do
 
   setup do
     previous = Application.get_env(:pesque, :hostname)
+    previous_crawlers = Application.get_env(:pesque, :crawlers)
     Application.put_env(:pesque, :hostname, "pds.example.com")
-    on_exit(fn -> Application.put_env(:pesque, :hostname, previous) end)
+    Application.put_env(:pesque, :crawlers, ["https://bsky.network"])
+
+    on_exit(fn ->
+      Application.put_env(:pesque, :hostname, previous)
+      Application.put_env(:pesque, :crawlers, previous_crawlers)
+    end)
+
     :ok
   end
 
@@ -32,10 +39,22 @@ defmodule Pesque.DoctorTest do
         String.ends_with?(url, "/.well-known/did.json") ->
           {:ok, 200, JSON.encode!(did_document())}
 
+        String.contains?(url, "getHostStatus") ->
+          {:ok, 200, JSON.encode!(host_status(1))}
+
         true ->
           {:ok, 404, ""}
       end
     end
+  end
+
+  defp host_status(account_count) do
+    %{
+      "hostname" => "pds.example.com",
+      "status" => "active",
+      "accountCount" => account_count,
+      "seq" => if(account_count > 0, do: 42, else: -1)
+    }
   end
 
   defp all_ok(overrides \\ []) do
@@ -50,7 +69,7 @@ defmodule Pesque.DoctorTest do
     do: Enum.find_value(results, &if(elem(&1, 1) == title, do: elem(&1, 0)))
 
   test "every check passes when the server answers as it should" do
-    assert Enum.map(all_ok(), &elem(&1, 0)) == [:ok, :ok, :ok, :ok, :ok]
+    assert Enum.map(all_ok(), &elem(&1, 0)) == [:ok, :ok, :ok, :ok, :ok, :ok]
   end
 
   test "a describeServer did that is not this server's fails" do
@@ -95,6 +114,32 @@ defmodule Pesque.DoctorTest do
 
     assert status(results, "configuration") == :warn
     assert status(results, "dns") == :fail
+  end
+
+  test "a relay that holds the host but no accounts warns" do
+    http = fn url ->
+      if String.contains?(url, "getHostStatus"),
+        do: {:ok, 200, JSON.encode!(host_status(0))},
+        else: http_ok().(url)
+    end
+
+    assert status(all_ok(http: http), "relay") == :warn
+  end
+
+  test "a relay that cannot be reached warns" do
+    http = fn url ->
+      if String.contains?(url, "getHostStatus"),
+        do: {:error, :timeout},
+        else: http_ok().(url)
+    end
+
+    assert status(all_ok(http: http), "relay") == :warn
+  end
+
+  test "no crawler configured warns rather than passing silently" do
+    Application.put_env(:pesque, :crawlers, [])
+
+    assert status(all_ok(), "relay") == :warn
   end
 
   describe "Pesque.hostname_is_ip?/0" do

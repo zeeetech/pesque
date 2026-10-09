@@ -1,8 +1,9 @@
 defmodule Pesque.Doctor do
   @moduledoc """
   A federation preflight: the checks that decide whether this server is
-  reachable and resolvable from outside, which is what a PDS has to be to be
-  useful. It automates the manual verify list in the installation guide.
+  reachable and resolvable from outside, and whether a relay has crawled it,
+  which is what a PDS has to be to be useful. It automates the manual verify
+  list in the installation guide.
 
   Every check answers `{status, title, detail}` with status `:ok`, `:warn` or
   `:fail`. The checks are read-only: none of them writes or changes anything.
@@ -26,7 +27,7 @@ defmodule Pesque.Doctor do
       describe_check(http),
       did_document_check(http),
       handle_check(resolves)
-    ]
+    ] ++ relay_checks(http)
   end
 
   @doc """
@@ -87,6 +88,11 @@ defmodule Pesque.Doctor do
   defp hint(:fail, "handle"),
     do:
       "add the _atproto DNS TXT record, or serve /.well-known/atproto-did at the handle's domain"
+
+  defp hint(:warn, "relay"),
+    do:
+      "check that a relay can reach this server (proxy, firewall) and that PDS_CRAWLER is set, " <>
+        "then restart to ask it to crawl again"
 
   defp hint(_status, _title), do: nil
 
@@ -195,6 +201,70 @@ defmodule Pesque.Doctor do
        "#{handle} does not resolve to #{did} (set DNS TXT _atproto.#{handle} or serve " <>
          "https://#{handle}/.well-known/atproto-did)"}
     end
+  end
+
+  # Whether a relay has actually crawled this server, which is the difference
+  # between "the server is up" and "the network can see its records". A
+  # requestCrawl at boot only asks; this reads back what the relay did with the
+  # ask. A relay that holds the host but no accounts is the failure this check
+  # exists for: every local check passes and nothing federates.
+  defp relay_checks(http) do
+    cond do
+      Pesque.hostname_is_ip?() or Pesque.hostname() == "localhost" ->
+        [{:warn, "relay", "not checked: #{Pesque.hostname()} is not a name a relay can crawl"}]
+
+      Pesque.crawlers() == [] ->
+        [
+          {:warn, "relay",
+           "no crawler configured, so no relay was asked to crawl this server " <>
+             "(set crawler = https://bsky.network)"}
+        ]
+
+      true ->
+        Enum.map(Pesque.crawlers(), &relay_check(http, &1))
+    end
+  end
+
+  defp relay_check(http, crawler) do
+    url =
+      String.trim_trailing(crawler, "/") <>
+        "/xrpc/com.atproto.sync.getHostStatus?" <>
+        URI.encode_query(%{"hostname" => Pesque.hostname()})
+
+    case http.(url) do
+      {:ok, 200, body} ->
+        relay_status(crawler, JSON.decode(body))
+
+      {:ok, status, _body} ->
+        {:warn, "relay", "#{crawler} answered HTTP #{status} for this host"}
+
+      {:error, reason} ->
+        {:warn, "relay", "#{crawler} could not be reached: #{inspect(reason)}"}
+
+      _other ->
+        {:warn, "relay", "#{crawler} answered something that is not a host status"}
+    end
+  end
+
+  defp relay_status(crawler, {:ok, %{"accountCount" => count} = status}) when is_integer(count) do
+    cond do
+      count > 0 ->
+        {:ok, "relay", "#{crawler} has crawled #{count} account(s) from this server"}
+
+      status["status"] == "active" ->
+        {:warn, "relay",
+         "#{crawler} holds this host but has no accounts yet; it accepted the crawl but has " <>
+           "not indexed anything"}
+
+      true ->
+        {:warn, "relay",
+         "#{crawler} marked this host #{inspect(status["status"])}, so its crawler could not " <>
+           "reach this server"}
+    end
+  end
+
+  defp relay_status(crawler, _other) do
+    {:warn, "relay", "#{crawler} answered something that is not a host status"}
   end
 
   # The #atproto key of the document's verificationMethod, which is the one a
