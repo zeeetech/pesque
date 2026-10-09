@@ -40,6 +40,7 @@ docker run -d --name pesque -p 4000:4000 \
   -e PDS_HOSTNAME=pds.example.com \
   -e PDS_MODE=path_multi \
   -e PDS_HANDLE_DOMAIN=example.com \
+  -e PDS_CRAWLER=https://bsky.network \
   ghcr.io/zeeetech/pesque:latest
 ```
 
@@ -60,8 +61,10 @@ scripts/pesque setup
 ```
 
 It writes `.env` (the hostname and mode), pulls the image, and prints the host
-record and the handle record with the DID the account was minted with. After DNS
-propagates:
+record and the handle record with the DID the account was minted with. The stack
+announces itself to the Bluesky relay (`PDS_CRAWLER` defaults to
+`https://bsky.network`); set `PDS_CRAWLER` in `.env` to change or clear it. After
+DNS propagates:
 
 ```bash
 scripts/pesque doctor    # the preflight below, run for you
@@ -122,14 +125,24 @@ variable without the `PDS_` prefix, lowercased: `hostname = pds.example.com` is
 instead of being ignored. `pesque.conf.example` is the starting point.
 
 The server reads `PDS_CONFIG`, or `pesque.conf` in the working directory. In the
-container the path is `/data/pesque.conf`, on the volume, so one mount configures
-it:
+container the path is `/data/pesque.conf`, inside the `pesque-data` volume, and a
+raw `docker run` binds it directly:
 
 ```bash
 docker run -d --name pesque -p 4000:4000 \
   -v pesque-data:/data \
   -v "$PWD/pesque.conf:/data/pesque.conf" \
   pesque
+```
+
+The compose stack does not mount a `pesque.conf` for you. It passes a fixed set
+of settings (`PDS_HOSTNAME`, `PDS_MODE`, `PDS_CRAWLER`) read from `.env`, and
+everything else comes from the defaults. To configure it with a file instead,
+put the file on the volume and restart:
+
+```bash
+docker compose cp pesque.conf pesque:/data/pesque.conf
+docker compose restart pesque
 ```
 
 | Variable | Key in the file | Default | Purpose |
