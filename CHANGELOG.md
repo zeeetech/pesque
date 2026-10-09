@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/zeeetech/pesque/compare/pesque-v1.1.2...pesque-v1.2.0) (2026-10-09)
+
+
+### Features
+
+* **doctor:** check the relay's crawl status ([dd7af8d](https://github.com/zeeetech/pesque/commit/dd7af8dcede4e1ad114aae820c14e4e803169174))
+* **doctor:** report the config file in effect ([45e25df](https://github.com/zeeetech/pesque/commit/45e25df501e2e101b19cd6e705ab5f2a7ac32f73))
+
+
+### Bug Fixes
+
+* **deploy:** set PDS_CRAWLER in the compose ([0dc00a8](https://github.com/zeeetech/pesque/commit/0dc00a86d996d466a9fc0c92107818a9f1f70e6b))
+
 ## [1.1.2](https://github.com/zeeetech/pesque/compare/pesque-v1.1.1...pesque-v1.1.2) (2026-10-07)
 
 
