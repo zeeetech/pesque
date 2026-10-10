@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/zeeetech/pesque/compare/pesque-v1.3.0...pesque-v1.3.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **nix:** build against the current beam override API ([a041b73](https://github.com/zeeetech/pesque/commit/a041b7345d862505380caaf40b4f9766957244c2))
+
 ## [1.3.0](https://github.com/zeeetech/pesque/compare/pesque-v1.2.1...pesque-v1.3.0) (2026-10-10)
 
 
