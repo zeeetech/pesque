@@ -13,6 +13,11 @@
 # The account and migrate env files keep the password out of the Nix store;
 # create them with `install -m600 /dev/null /var/lib/pesque/account.env` and
 # fill in ACCOUNT_HANDLE, ACCOUNT_EMAIL and ACCOUNT_PASSWORD (or MIGRATE_*).
+#
+# The move stops at the PLC step for a code the account holder gets by email.
+# A oneshot has no terminal to prompt on, so pesque-migrate is run twice: the
+# first start asks the old PDS to email the code, then MIGRATE_PLC_TOKEN is set
+# in migrate.env and the second start completes the move.
 {
   config,
   lib,
@@ -314,7 +319,7 @@ in
     };
 
     systemd.services.pesque-migrate = taskService {
-      expr = "Pesque.Release.boot!(); case Pesque.Migrate.run(old_pds: System.get_env(\"MIGRATE_OLD_PDS\"), handle: System.get_env(\"MIGRATE_HANDLE\"), email: System.get_env(\"MIGRATE_EMAIL\"), password: System.get_env(\"MIGRATE_PASSWORD\")) do :ok -> IO.puts(\"migration complete\"); {:error, reason} -> IO.puts(:stderr, \"migration failed: \" <> Pesque.Release.describe_error(reason)); System.halt(1) end";
+      expr = "Pesque.Release.boot!(); case Pesque.Release.migrate_from_env() do :ok -> :ok; :error -> System.halt(1) end";
       environmentFiles = [ "-${cfg.dataDir}/migrate.env" ];
     };
 

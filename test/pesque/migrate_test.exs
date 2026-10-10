@@ -46,6 +46,39 @@ defmodule Pesque.MigrateTest do
     assert :deactivate in calls()
     assert {:get_repo, did} in calls()
     assert {:list_blobs, did} in calls()
+    assert :request_plc_signature in calls()
+    assert {:sign_plc_operation, "email-code"} in calls()
+  end
+
+  test "a supplied PLC token is used instead of asking for a new code" do
+    did = old_did()
+    handle = unique("dave") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok = run(handle, plc_token: "the-code")
+
+    assert {:sign_plc_operation, "the-code"} in calls()
+    refute :request_plc_signature in calls()
+  end
+
+  test "request_plc_code emails a code without moving anything" do
+    did = old_did()
+    handle = unique("erin") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok =
+             Migrate.request_plc_code(
+               old_pds: "https://old.example.com",
+               handle: handle,
+               password: @password,
+               client: Pesque.MigrateTest.FakeOldPds
+             )
+
+    assert :request_plc_signature in calls()
+    refute {:get_repo, did} in calls()
+    refute Accounts.get_user(did)
   end
 
   test "a create_session failure returns the error and creates no account" do
@@ -70,15 +103,17 @@ defmodule Pesque.MigrateTest do
     assert Accounts.get_user(did).active
   end
 
-  defp run(handle) do
+  defp run(handle, extra \\ []) do
     Migrate.run(
-      old_pds: "https://old.example.com",
-      handle: handle,
-      email: handle <> "@localhost",
-      password: @password,
-      client: Pesque.MigrateTest.FakeOldPds,
-      prompt: fn _prompt -> "email-code" end,
-      log: fn _line -> :ok end
+      [
+        old_pds: "https://old.example.com",
+        handle: handle,
+        email: handle <> "@localhost",
+        password: @password,
+        client: Pesque.MigrateTest.FakeOldPds,
+        prompt: fn _prompt -> "email-code" end,
+        log: fn _line -> :ok end
+      ] ++ extra
     )
   end
 
@@ -175,8 +210,8 @@ defmodule Pesque.MigrateTest.FakeOldPds do
   end
 
   @impl true
-  def sign_plc_operation(_base_url, _access_jwt, credentials, _token) do
-    record(:sign_plc_operation)
+  def sign_plc_operation(_base_url, _access_jwt, credentials, token) do
+    record({:sign_plc_operation, token})
     {:ok, Map.put(credentials, "type", "plc_operation")}
   end
 

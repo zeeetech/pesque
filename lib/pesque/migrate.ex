@@ -29,8 +29,10 @@ defmodule Pesque.Migrate do
   PDS password or app password, reused as the new account's password).
 
   Seams: `:client` (default `Pesque.Migrate.Http`), `:prompt` (a 1-arity fun
-  for the PLC email code, default `&IO.gets/1`) and `:log` (a 1-arity fun,
-  default `&IO.puts/1`).
+  for the PLC email code, default `&IO.gets/1`), `:log` (a 1-arity fun,
+  default `&IO.puts/1`) and `:plc_token` (a code already requested from the old
+  PDS, for a caller with no terminal to prompt on; when present it is used
+  instead of asking the old PDS to email a new one).
 
   Answers `:ok` on a completed move, or `{:error, reason}` at the first step
   that fails. Steps before the PLC submission can be retried: a second run
@@ -41,6 +43,7 @@ defmodule Pesque.Migrate do
     client = Keyword.get(opts, :client, Http)
     prompt = Keyword.get(opts, :prompt, &IO.gets/1)
     log = Keyword.get(opts, :log, &IO.puts/1)
+    plc_token = Keyword.get(opts, :plc_token)
 
     with {:ok, old_pds} <- fetch(opts, :old_pds),
          {:ok, handle} <- fetch(opts, :handle),
@@ -54,9 +57,31 @@ defmodule Pesque.Migrate do
          {:ok, user} <- current_user(did),
          {:ok, credentials} <- Plc.recommended_credentials(user),
          {:ok, operation} <-
-           move_identity(client, old_pds, session.access_jwt, credentials, prompt),
+           move_identity(client, old_pds, session.access_jwt, credentials, prompt, plc_token),
          {:ok, _did} <- Plc.submit_operation(user, operation),
          :ok <- activate(client, old_pds, session.access_jwt, did, log) do
+      :ok
+    end
+  end
+
+  @doc """
+  Asks the old PDS to email the PLC operation signature code, without running
+  the move.
+
+  The move stops at the PLC step for a code the account holder receives by
+  email, and a caller with no terminal cannot answer the prompt that follows.
+  Splitting the request out lets that caller get the code first, then hand it
+  back through `:plc_token`.
+  """
+  @spec request_plc_code(keyword()) :: :ok | {:error, term()}
+  def request_plc_code(opts) do
+    client = Keyword.get(opts, :client, Http)
+
+    with {:ok, old_pds} <- fetch(opts, :old_pds),
+         {:ok, handle} <- fetch(opts, :handle),
+         {:ok, password} <- fetch(opts, :password),
+         {:ok, session} <- client.create_session(old_pds, handle, password),
+         :ok <- client.request_plc_signature(old_pds, session.access_jwt) do
       :ok
     end
   end
@@ -119,10 +144,31 @@ defmodule Pesque.Migrate do
     end
   end
 
-  defp move_identity(client, old_pds, access_jwt, credentials, prompt) do
-    with :ok <- client.request_plc_signature(old_pds, access_jwt) do
-      token = prompt.("Enter the code from your email: ")
+  # A supplied code is used as is, so a caller that requested it out of band
+  # does not make the old PDS email a second one (which would invalidate the
+  # first). Without one, the code is requested and read from the prompt.
+  defp move_identity(client, old_pds, access_jwt, credentials, prompt, plc_token) do
+    with {:ok, token} <- plc_code(client, old_pds, access_jwt, prompt, plc_token) do
       client.sign_plc_operation(old_pds, access_jwt, credentials, token)
+    end
+  end
+
+  defp plc_code(_client, _old_pds, _access_jwt, _prompt, token)
+       when is_binary(token) and token != "" do
+    {:ok, token}
+  end
+
+  defp plc_code(client, old_pds, access_jwt, prompt, _token) do
+    case client.request_plc_signature(old_pds, access_jwt) do
+      :ok -> prompt_code(prompt)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp prompt_code(prompt) do
+    case prompt.("Enter the code from your email: ") do
+      token when is_binary(token) and token != "" -> {:ok, token}
+      _ -> {:error, :plc_code_missing}
     end
   end
 

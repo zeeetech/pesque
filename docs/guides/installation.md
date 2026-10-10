@@ -165,6 +165,12 @@ install -m600 /dev/null /var/lib/pesque/migrate.env
 $EDITOR /var/lib/pesque/migrate.env   # MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD
 ```
 
+The move stops at the PLC step for a code emailed to the account holder, and a
+oneshot has no terminal to prompt on, so `pesque-migrate` is started twice: the
+first start emails the code, then `MIGRATE_PLC_TOKEN` is added to the env file
+and the second start completes the move. See
+[Migration](migration.md#on-nixos).
+
 The server speaks plain HTTP and expects a TLS proxy, exactly as in Docker.
 `services.pesque.openFirewall` is off by default: the port should be reachable
 only by the proxy on the same host or a tunnel.

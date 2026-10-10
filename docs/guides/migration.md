@@ -32,9 +32,8 @@ PASSWORD='...' scripts/pesque migrate \
 ```
 
 The wrapper drives compose by default and a container you already run with
-`PESQUE_BACKEND=docker`; on NixOS the same move is
-`systemctl start pesque-migrate` with the `MIGRATE_*` env file. Both are in the
-[installation guide](installation.md).
+`PESQUE_BACKEND=docker`; both attach a terminal so the code prompt can be
+answered. Both are in the [installation guide](installation.md).
 
 It opens a session on the old PDS, creates the account here (deactivated),
 imports the repo and every blob, fetches the recommended credentials, then asks
@@ -44,6 +43,23 @@ activates the new account and deactivates the old one. The password is the old
 PDS password (an app password if the account has 2FA), reused as the new
 account's password. A run that fails before the PLC submission can be re-run:
 the account is reused rather than recreated.
+
+### On NixOS
+
+`services.pesque` runs the move as the `pesque-migrate` oneshot, which has no
+terminal to prompt on. So the code step is split across two starts, both driven
+by `/zdata/pesque/migrate.env`:
+
+```sh
+sudo systemctl start pesque-migrate   # asks the old PDS to email the code
+# check the email, then add MIGRATE_PLC_TOKEN=<code> to migrate.env
+sudo systemctl start pesque-migrate   # runs the move using that code
+```
+
+The first start does not import anything: it only requests the code. The second
+one does the whole move (create, import, sign, submit, activate) and is what
+prints `migration complete`. Setting `MIGRATE_PLC_TOKEN` ahead of a run skips
+the request, so the same env file drives both.
 
 The rest of this guide is the same move by hand, one step at a time, which is
 what to fall back to when something in the task does not fit.

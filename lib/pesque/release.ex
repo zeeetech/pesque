@@ -52,9 +52,56 @@ defmodule Pesque.Release do
     end
   end
 
+  @doc """
+  Runs the account move from the `MIGRATE_*` environment, the release-friendly
+  entry behind `pesque-migrate`.
+
+  The move stops at the PLC step for a code the account holder receives by
+  email, and a systemd oneshot has no terminal to prompt on. So the step is
+  split: with no `MIGRATE_PLC_TOKEN`, this asks the old PDS to email the code
+  and returns; with the code set, it runs the move using it. Answers `:ok` or
+  `:error` so a caller can set an exit code off the answer.
+  """
+  def migrate_from_env do
+    opts = [
+      old_pds: System.get_env("MIGRATE_OLD_PDS"),
+      handle: System.get_env("MIGRATE_HANDLE"),
+      email: System.get_env("MIGRATE_EMAIL"),
+      password: System.get_env("MIGRATE_PASSWORD")
+    ]
+
+    case System.get_env("MIGRATE_PLC_TOKEN") do
+      token when is_binary(token) and token != "" ->
+        case Pesque.Migrate.run(opts ++ [plc_token: token]) do
+          :ok ->
+            IO.puts("migration complete")
+            :ok
+
+          {:error, reason} ->
+            IO.puts(:stderr, "migration failed: " <> describe_error(reason))
+            :error
+        end
+
+      _ ->
+        case Pesque.Migrate.request_plc_code(opts) do
+          :ok ->
+            IO.puts("a PLC operation code was emailed to the account holder")
+            IO.puts("set MIGRATE_PLC_TOKEN in migrate.env, then run pesque-migrate again")
+            :ok
+
+          {:error, reason} ->
+            IO.puts(:stderr, "could not request the PLC code: " <> describe_error(reason))
+            :error
+        end
+    end
+  end
+
   @doc "Turns a domain error atom into a sentence a person running a command can act on."
   def describe_error(reason) do
     case reason do
+      :plc_code_missing ->
+        "no PLC code was read; run this where the prompt can be answered, or set MIGRATE_PLC_TOKEN"
+
       :handle_not_available ->
         "that handle is already taken, or it is not under this server's handle domain"
 
