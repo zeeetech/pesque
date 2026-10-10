@@ -81,6 +81,38 @@ the image from source instead of pulling it.
 The image carries a release, not Mix, so the mix tasks in this guide do not run
 inside the container; `scripts/pesque` uses the release equivalents.
 
+### Docker without Compose
+
+`scripts/pesque` also drives a single container you already run, no compose file
+and no Caddy. It picks that mode when there is no `docker-compose.yml` beside
+it, or when `PESQUE_BACKEND=docker` is set. Point it at the container and image:
+
+```bash
+PESQUE_BACKEND=docker PESQUE_CONTAINER=pesque scripts/pesque doctor
+```
+
+The one-off tasks (`doctor`, `account`, `migrate`) run in a throwaway container
+from the same image: `docker run --volumes-from` shares the running container's
+data volume and the running container's `PDS_*` environment is mirrored in, so
+the task reads the same state the live server does. `setup` writes a
+`pesque.conf` and prints how to mount it; it does not start anything, because
+the container belongs to your service manager. `update` pulls the image and then
+runs `PESQUE_RESTART_CMD`, which has to recreate the container, since a plain
+restart keeps the old image:
+
+```bash
+PESQUE_RESTART_CMD='systemctl restart pesque' scripts/pesque update
+```
+
+Without the script the same task is one command. `-i` keeps stdin attached for
+the migration's code prompt:
+
+```bash
+docker run --rm -i --volumes-from pesque \
+  --env-file <(docker inspect pesque --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^PDS_') \
+  -e PDS_SERVE=false ghcr.io/zeeetech/pesque:latest \
+  /app/bin/pesque eval 'Pesque.Release.boot!(); Pesque.Doctor.run()'
+```
 
 ## Release
 

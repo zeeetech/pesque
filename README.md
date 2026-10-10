@@ -50,6 +50,8 @@ scripts/pesque logs      # follow the server logs
 it does not land in your shell history. `PESQUE_BUILD=1` builds the image from
 source instead of pulling it. Raw Docker, releases, TLS without Caddy and every
 configuration knob are in the [installation guide](docs/guides/installation.md).
+Without compose the same wrapper drives a container you already run
+(`PESQUE_BACKEND=docker`), and the flake ships `services.pesque` for NixOS.
 
 ## Run it from source
 

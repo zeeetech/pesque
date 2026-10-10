@@ -50,6 +50,8 @@ scripts/pesque logs      # acompanhar os logs do servidor
 ela não cai no histórico do shell. `PESQUE_BUILD=1` compila a imagem da fonte em
 vez de puxar. Docker cru, release, TLS sem Caddy e todas as opções de
 configuração estão no [guia de instalação](docs/guides/installation.md).
+Sem compose, o mesmo script roda um container que você já tem
+(`PESQUE_BACKEND=docker`), e o flake entrega `services.pesque` pro NixOS.
 
 ## Rodando da fonte
 

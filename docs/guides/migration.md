@@ -31,6 +31,11 @@ PASSWORD='...' scripts/pesque migrate \
   --email zoedsoupe@example.com
 ```
 
+The wrapper drives compose by default and a container you already run with
+`PESQUE_BACKEND=docker`; on NixOS the same move is
+`systemctl start pesque-migrate` with the `MIGRATE_*` env file. Both are in the
+[installation guide](installation.md).
+
 It opens a session on the old PDS, creates the account here (deactivated),
 imports the repo and every blob, fetches the recommended credentials, then asks
 the old PDS for a PLC operation signature. On `bsky.social` that emails a code:
