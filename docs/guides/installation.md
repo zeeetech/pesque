@@ -127,6 +127,48 @@ commit finishes. Copy the release directory wherever you want it and run
 `PDS_HANDLE_DOMAIN`, then `ExecStart=/opt/pesque/bin/pesque start` and
 `ExecStop=/opt/pesque/bin/pesque stop`.
 
+## NixOS
+
+The flake builds the release from source and runs it as a plain systemd service,
+no container runtime:
+
+```nix
+services.pesque = {
+  enable = true;
+  hostname = "pds.example.com";
+  mode = "path_multi";
+  identity = "plc";
+  handleDomain = "example.com";
+  crawler = [ "https://bsky.network" ];
+};
+```
+
+`nix build .#pesque` builds the same release on its own; `services.pesque.package`
+overrides what the service runs. The options are written to a `pesque.conf` in
+the store and pointed at with `PDS_CONFIG`, so they are the whole configuration;
+`services.pesque.settings` takes any extra `pesque.conf` key verbatim.
+`services.pesque.dataDir` (default `/var/lib/pesque`) is the whole server, the
+same one file and one directory as everywhere else.
+
+The operator tasks are oneshot units against the same data directory:
+
+```bash
+systemctl start pesque-doctor
+systemctl start pesque-account   # reads /var/lib/pesque/account.env
+systemctl start pesque-migrate   # reads /var/lib/pesque/migrate.env
+```
+
+Create the env file first, so the password never lands in the Nix store:
+
+```bash
+install -m600 /dev/null /var/lib/pesque/migrate.env
+$EDITOR /var/lib/pesque/migrate.env   # MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD
+```
+
+The server speaks plain HTTP and expects a TLS proxy, exactly as in Docker.
+`services.pesque.openFirewall` is off by default: the port should be reachable
+only by the proxy on the same host or a tunnel.
+
 ## Behind a TLS proxy
 
 Required for federation, and required for the rate limits to mean anything

@@ -23,6 +23,20 @@
       in
         f pkgs);
   in {
+    # The release, built from source. `nix build .#pesque` produces a runnable
+    # bin/pesque; `services.pesque` below uses the same derivation.
+    packages = forAllSystems (pkgs: {
+      pesque = pkgs.callPackage ./nix/package.nix {};
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.pesque;
+    });
+
+    # Runs it as a systemd service, no container runtime, plus the doctor,
+    # account and migrate oneshots. See nix/module.nix.
+    nixosModules = {
+      pesque = import ./nix/module.nix;
+      default = self.nixosModules.pesque;
+    };
+
     devShells = forAllSystems (pkgs: {
       default = pkgs.mkShell {
         name = "pesque-dev";
