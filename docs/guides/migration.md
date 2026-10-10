@@ -142,7 +142,7 @@ that document (`signPlcOperation`, because it holds the rotation key), then
 `submitPlcOperation` on the new PDS:
 
 ```bash
-curl -s -X POST "https://old.example.com/xrpc/com.atproto.server.signPlcOperation" \
+curl -s -X POST "https://old.example.com/xrpc/com.atproto.identity.signPlcOperation" \
   -H "authorization: Bearer $ACCESS_JWT" -H "content-type: application/json" \
   -d @recommended.json
 

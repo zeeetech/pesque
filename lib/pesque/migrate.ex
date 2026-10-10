@@ -347,8 +347,10 @@ defmodule Pesque.Migrate.Http do
   def sign_plc_operation(base_url, access_jwt, credentials, token) do
     body = JSON.encode!(Map.merge(credentials, %{"token" => token}))
 
+    # The identity namespace, not server: bsky's shard answers `501 Method Not
+    # Implemented` for the old `com.atproto.server.signPlcOperation` alias.
     with {:ok, _headers, response} <-
-           post(base_url, "/xrpc/com.atproto.server.signPlcOperation", access_jwt, body),
+           post(base_url, "/xrpc/com.atproto.identity.signPlcOperation", access_jwt, body),
          {:ok, operation} <- operation(response) do
       {:ok, operation}
     end
