@@ -299,13 +299,28 @@ defmodule Pesque.Migrate.Http do
 
   @impl true
   def list_blobs(base_url, access_jwt, did) do
-    path = "/xrpc/com.atproto.sync.listBlobs?did=" <> encode(did)
+    pages(base_url, access_jwt, did, nil, [])
+  end
+
+  # listBlobs answers one page (500 by default, 1000 at most) plus a cursor, and
+  # a repo can hold thousands of blobs, so read every page rather than stopping
+  # at the first: a short answer here is a silently incomplete move.
+  defp pages(base_url, access_jwt, did, cursor, acc) do
+    path = "/xrpc/com.atproto.sync.listBlobs?did=" <> encode(did) <> cursor_query(cursor)
 
     with {:ok, _headers, body} <- get(base_url, path, access_jwt),
-         {:ok, cids} <- cids(body) do
-      {:ok, cids}
+         {:ok, cids, next} <- blob_page(body) do
+      acc = [cids | acc]
+
+      case next do
+        nil -> {:ok, acc |> Enum.reverse() |> List.flatten()}
+        cursor -> pages(base_url, access_jwt, did, cursor, acc)
+      end
     end
   end
+
+  defp cursor_query(nil), do: ""
+  defp cursor_query(cursor), do: "&cursor=" <> encode(cursor)
 
   @impl true
   def get_blob(base_url, did, cid) do
@@ -358,10 +373,17 @@ defmodule Pesque.Migrate.Http do
     end
   end
 
-  defp cids(body) do
+  # A page of listBlobs: its CIDs and the cursor to the next page, if any.
+  defp blob_page(body) do
     case JSON.decode(body) do
-      {:ok, %{"cids" => cids}} when is_list(cids) -> {:ok, cids}
-      _ -> {:error, :invalid_response}
+      {:ok, %{"cids" => cids} = page} when is_list(cids) ->
+        case page do
+          %{"cursor" => cursor} when is_binary(cursor) -> {:ok, cids, cursor}
+          _ -> {:ok, cids, nil}
+        end
+
+      _ ->
+        {:error, :invalid_response}
     end
   end
 

@@ -111,6 +111,9 @@ defmodule Pesque.Release do
       :plc_code_missing ->
         "no PLC code was read; run this where the prompt can be answered, or set MIGRATE_PLC_TOKEN"
 
+      :too_large ->
+        "a blob is larger than this server accepts (#{Pesque.blob_max_bytes()} bytes); raise blob_upload_limit"
+
       :handle_not_available ->
         "that handle is already taken, or it is not under this server's handle domain"
 
