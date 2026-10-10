@@ -241,8 +241,10 @@ defmodule Pesque.Migrate.Http do
   The real old-PDS client, over `:httpc`.
 
   The same shape as `Pesque.Doctor` and `Pesque.OAuth.Fetch`: `:inets` and
-  `:ssl` rather than a client library, TLS verified, no redirect followed, and
-  binary bodies. Every failure is an `{:error, reason}` tuple, never a raise.
+  `:ssl` rather than a client library, TLS verified, and binary bodies. A read
+  follows redirects, because `bsky.social` answers a sync read with a 302 to the
+  account's own PDS host; a write does not. Every failure is an
+  `{:error, reason}` tuple, never a raise.
 
   `createSession` and `signPlcOperation` post JSON and decode a field from the
   answer; the `sync.*` reads take binary bodies, and `getBlob` also reads the
@@ -377,11 +379,15 @@ defmodule Pesque.Migrate.Http do
         :post -> {String.to_charlist(url), headers, content_type, body}
       end
 
+    # bsky.social answers a sync read with a 302 to the account's own PDS host
+    # (`puffball.us-east.host.bsky.network` and friends), which then serves the
+    # bytes. So a GET follows redirects; a write does not, since bsky proxies
+    # the session and identity calls rather than redirecting them.
     options = [
       connect_timeout: @connect_timeout,
       timeout: @timeout,
       ssl: ssl_options(),
-      autoredirect: false
+      autoredirect: method == :get
     ]
 
     case :httpc.request(method, request, options, body_format: :binary) do
