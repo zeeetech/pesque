@@ -81,6 +81,31 @@ defmodule Pesque.MigrateTest do
     refute Accounts.get_user(did)
   end
 
+  test "reports progress while it imports blobs" do
+    did = old_did()
+    handle = unique("frank") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    test_pid = self()
+
+    assert :ok =
+             Migrate.run(
+               old_pds: "https://old.example.com",
+               handle: handle,
+               email: handle <> "@localhost",
+               password: @password,
+               client: Pesque.MigrateTest.FakeOldPds,
+               prompt: fn _prompt -> "email-code" end,
+               log: fn line -> send(test_pid, {:progress, line}) end
+             )
+
+    lines = collected()
+    assert "importing 1 blob for #{did}" in lines
+    assert "imported 1 of 1 blob" in lines
+    assert "imported 1 blob for #{did}" in lines
+  end
+
   test "a create_session failure returns the error and creates no account" do
     did = old_did()
     handle = unique("bob") <> ".localhost"
@@ -160,6 +185,14 @@ defmodule Pesque.MigrateTest do
   defp unique(prefix), do: prefix <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 
   defp calls, do: Process.get(:fake_calls, [])
+
+  defp collected(acc \\ []) do
+    receive do
+      {:progress, line} -> collected([line | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 
   defp restore_env do
     previous = Application.get_all_env(:pesque)

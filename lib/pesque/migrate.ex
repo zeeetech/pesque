@@ -53,13 +53,16 @@ defmodule Pesque.Migrate do
          {:ok, password} <- fetch(opts, :password),
          {:ok, session} <- client.create_session(old_pds, handle, password),
          did = session.did,
+         :ok <- note(log, "opened a session on #{old_pds} for #{handle}"),
          {:ok, _user} <- ensure_account(did, handle, email, password, log),
          :ok <- import_repo(client, old_pds, session.access_jwt, did, log),
          :ok <- import_blobs(client, old_pds, session.access_jwt, did, log),
          {:ok, user} <- current_user(did),
          {:ok, credentials} <- Plc.recommended_credentials(user),
+         :ok <- note(log, "asking the old PDS to sign the identity"),
          {:ok, operation} <-
            move_identity(client, old_pds, session.access_jwt, credentials, prompt, plc_token),
+         :ok <- note(log, "submitting the plc operation"),
          {:ok, _did} <- Plc.submit_operation(user, operation),
          :ok <- activate(client, old_pds, session.access_jwt, did, log) do
       :ok
@@ -95,6 +98,13 @@ defmodule Pesque.Migrate do
     end
   end
 
+  # A progress line carried inside a `with`, so a step can announce itself
+  # without pulling the step out into its own function.
+  defp note(log, message) do
+    log.(message)
+    :ok
+  end
+
   # A re-run reuses the account a previous run created, so the account step is
   # the one place a migration is resumable rather than one-shot.
   defp ensure_account(did, handle, email, password, log) do
@@ -126,9 +136,12 @@ defmodule Pesque.Migrate do
 
   defp import_blobs(client, old_pds, access_jwt, did, log) do
     with {:ok, cids} <- client.list_blobs(old_pds, access_jwt, did) do
-      case import_each_blob(client, old_pds, did, cids, 0) do
+      total = length(cids)
+      log.("importing #{pluralize(total, "blob")} for #{did}")
+
+      case import_each_blob(client, old_pds, did, cids, log, 0, total) do
         {:ok, count} ->
-          log.("imported #{count} blobs for #{did}")
+          log.("imported #{pluralize(count, "blob")} for #{did}")
           :ok
 
         {:error, reason} ->
@@ -137,14 +150,19 @@ defmodule Pesque.Migrate do
     end
   end
 
-  defp import_each_blob(_client, _old_pds, _did, [], count), do: {:ok, count}
+  defp import_each_blob(_client, _old_pds, _did, [], _log, count, _total), do: {:ok, count}
 
-  defp import_each_blob(client, old_pds, did, [cid | rest], count) do
+  defp import_each_blob(client, old_pds, did, [cid | rest], log, count, total) do
     with {:ok, bytes, content_type} <- client.get_blob(old_pds, did, cid),
          {:ok, _blob} <- Blob.upload(did, bytes, content_type) do
-      import_each_blob(client, old_pds, did, rest, count + 1)
+      done = count + 1
+      log.("imported #{done} of #{pluralize(total, "blob")}")
+      import_each_blob(client, old_pds, did, rest, log, done, total)
     end
   end
+
+  defp pluralize(1, noun), do: "1 #{noun}"
+  defp pluralize(count, noun), do: "#{count} #{noun}s"
 
   # A supplied code is used as is, so a caller that requested it out of band
   # does not make the old PDS email a second one (which would invalidate the
