@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/zeeetech/pesque/compare/pesque-v1.2.0...pesque-v1.2.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **identity:** branch on the server's own DID method ([e38f5d4](https://github.com/zeeetech/pesque/commit/e38f5d4ec03128b146b571becd4387a6e0f4778e))
+
 ## [1.2.0](https://github.com/zeeetech/pesque/compare/pesque-v1.1.2...pesque-v1.2.0) (2026-10-09)
 
 
