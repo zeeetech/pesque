@@ -153,11 +153,33 @@ defmodule Pesque.Migrate do
   defp import_each_blob(_client, _old_pds, _did, [], _log, count, _total), do: {:ok, count}
 
   defp import_each_blob(client, old_pds, did, [cid | rest], log, count, total) do
-    with {:ok, bytes, content_type} <- client.get_blob(old_pds, did, cid),
-         {:ok, _blob} <- Blob.upload(did, bytes, content_type) do
-      done = count + 1
-      log.("imported #{done} of #{pluralize(total, "blob")}")
-      import_each_blob(client, old_pds, did, rest, log, done, total)
+    done = count + 1
+
+    case import_blob(client, old_pds, did, cid) do
+      :kept ->
+        log.("kept #{done} of #{pluralize(total, "blob")} (already stored)")
+        import_each_blob(client, old_pds, did, rest, log, done, total)
+
+      :imported ->
+        log.("imported #{done} of #{pluralize(total, "blob")}")
+        import_each_blob(client, old_pds, did, rest, log, done, total)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A blob a previous run already stored is not fetched again, so a retry after
+  # a later step failed does not re-download the whole repo over a link that has
+  # already proven slow.
+  defp import_blob(client, old_pds, did, cid) do
+    if Blob.stored?(did, cid) do
+      :kept
+    else
+      with {:ok, bytes, content_type} <- client.get_blob(old_pds, did, cid),
+           {:ok, _blob} <- Blob.upload(did, bytes, content_type) do
+        :imported
+      end
     end
   end
 

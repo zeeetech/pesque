@@ -106,6 +106,23 @@ defmodule Pesque.MigrateTest do
     assert "imported 1 blob for #{did}" in lines
   end
 
+  test "a re-run keeps blobs already stored instead of fetching them again" do
+    did = old_did()
+    handle = unique("grace") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok = run(handle)
+    assert RepoStore.get_blob(did, blob_cid())
+
+    Process.put(:fake_calls, [])
+
+    assert :ok = run(handle)
+
+    refute Enum.any?(calls(), &match?({:get_blob, _did, _cid}, &1)),
+           "a blob already on disk was fetched again"
+  end
+
   test "a create_session failure returns the error and creates no account" do
     did = old_did()
     handle = unique("bob") <> ".localhost"
@@ -145,10 +162,14 @@ defmodule Pesque.MigrateTest do
   defp configure_happy_path(did, handle) do
     Process.put(:fake_create_session, {:ok, %{access_jwt: "access", did: did, handle: handle}})
     Process.put(:fake_repo_car, source_car())
-    Process.put(:fake_blobs, {:ok, ["bafkreiblob"]})
+    Process.put(:fake_blobs, {:ok, [blob_cid()]})
     Process.put(:fake_blob, {:ok, "blob bytes", "text/plain"})
     Process.put(:plc_resolve_result, {:ok, pds_document(did)})
   end
+
+  # The CID the fake's bytes hash to, so a re-run finds the stored blob under
+  # the same CID listBlobs named, as real content addressing guarantees.
+  defp blob_cid, do: CID.to_string(CID.from_data("blob bytes", CID.raw()))
 
   # A real CAR, built from a throwaway account's genesis repo, so
   # Car.decode_repo and RepoImport.persist_import run against bytes a repo

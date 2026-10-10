@@ -135,4 +135,23 @@ defmodule Pesque.Blob do
         end
     end
   end
+
+  @doc """
+  Whether the bytes for a CID are already stored.
+
+  The row and the file both have to be there. The row alone is a row pointing
+  at a missing file (a partial restore) and the file alone is an orphan, and
+  either way this server would answer a miss rather than serve it, so a caller
+  that imports spends the network only where it has to.
+  """
+  def stored?(did, cid) do
+    case parse_cid(cid) do
+      {:ok, parsed} ->
+        RepoStore.get_blob(did, CID.to_string(parsed)) != nil and
+          File.exists?(path(did, parsed))
+
+      {:error, _reason} ->
+        false
+    end
+  end
 end
