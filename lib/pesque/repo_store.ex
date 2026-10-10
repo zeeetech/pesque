@@ -14,6 +14,12 @@ defmodule Pesque.RepoStore do
   alias Pesque.RepoStore.Meta
   alias Pesque.RepoStore.Record
 
+  # A statement may bind at most SQLITE_MAX_VARIABLE_NUMBER parameters (32766 on
+  # the SQLite exqlite bundles), and insert_all binds one per column per row. A
+  # migration writes a whole repo's blocks in one call, tens of thousands of
+  # them, so the rows go in batches that stay well under the ceiling.
+  @blocks_per_insert 2_000
+
   # records
 
   def records_for(did) do
@@ -154,7 +160,7 @@ defmodule Pesque.RepoStore do
   """
   def existing_cids(did, cid_strings) do
     cid_strings
-    # The chunk size is SQLite's bound-variable ceiling, not a tuning knob.
+    # Chunked well under SQLite's bound-variable ceiling, not a tuning knob.
     |> Enum.chunk_every(500)
     |> Enum.flat_map(fn chunk ->
       Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: b.cid)
@@ -167,8 +173,8 @@ defmodule Pesque.RepoStore do
 
   A CID this repo does not hold is absent from the map rather than nil: a
   block either exists or it does not, and the caller is the one that decides
-  what a missing one means. Chunked because 500 is SQLite's bound-variable
-  ceiling, not a tuning knob.
+  what a missing one means. Chunked well under SQLite's bound-variable ceiling,
+  not a tuning knob.
   """
   def blocks_by_cids(did, cid_strings) do
     cid_strings
@@ -278,16 +284,23 @@ defmodule Pesque.RepoStore do
     Repo.delete_all(from b in Block, where: b.did == ^did)
   end
 
-  @doc "Inserts blocks; content-addressed, so conflicts are no-ops by definition."
+  @doc """
+  Inserts blocks; content-addressed, so conflicts are no-ops by definition.
+
+  Batched because the rows reach SQL as one insert_all: a whole imported repo
+  would otherwise bind more parameters than a statement is allowed.
+  """
   def insert_blocks!(did, blocks) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
-    rows =
-      Enum.map(blocks, fn {cid_string, data} ->
-        %{cid: cid_string, did: did, data: data, inserted_at: now}
-      end)
-
-    Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:did, :cid])
+    blocks
+    |> Stream.map(fn {cid_string, data} ->
+      %{cid: cid_string, did: did, data: data, inserted_at: now}
+    end)
+    |> Stream.chunk_every(@blocks_per_insert)
+    |> Enum.each(fn rows ->
+      Repo.insert_all(Block, rows, on_conflict: :nothing, conflict_target: [:did, :cid])
+    end)
   end
 
   # blobs
