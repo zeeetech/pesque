@@ -79,6 +79,17 @@ packages.mixRelease {
     sqlite
   ];
 
+  # exqlite ships a precompiled NIF it tries to fetch at compile time, into
+  # $HOME/.cache (the sandbox HOME, /homeless-shelter, is not writable). Force
+  # elixir_make to build it from source instead; that is its own switch, read
+  # from app config.
+  postPatch = ''
+    cat >> config/config.exs <<'EOF'
+
+config :elixir_make, force_build: [exqlite: true]
+EOF
+  '';
+
   # nixpkgs strips releases/COOKIE from the store, which the release script
   # still reads unconditionally, so RELEASE_COOKIE has to come from somewhere.
   # pesque is a single node and never joins a cluster, so distribution is turned
