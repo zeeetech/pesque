@@ -13,13 +13,23 @@
 }:
 
 let
-  packages = beamPackages.overrideScope (
-    _final: prev: {
-      # 1.20 is the newest the scope carries; 1.19 satisfies mix.exs too, so
-      # fall back to it on a nixpkgs that predates 1.20.
-      elixir = if prev ? elixir_1_20 then prev.elixir_1_20 else prev.elixir_1_19;
-    }
-  );
+  # nixpkgs has flip-flopped this API. The makeExtensible rewrite exposes only
+  # beamPackages.extend; a later revision re-added overrideScope and made
+  # .extend throw "has been replaced by overrideScope". Both take the same
+  # final -> prev function, so pick whichever the scope actually carries --
+  # the release builds against either. Everything in the scope (mixRelease,
+  # fetchMixDeps, hex, rebar3) still reads `elixir` from the same fixed point.
+  override =
+    packages: f:
+      if packages ? overrideScope
+      then packages.overrideScope f
+      else packages.extend f;
+
+  packages = override beamPackages (_final: prev: {
+    # 1.20 is the newest the scope carries; 1.19 satisfies mix.exs too, so
+    # fall back to it on a nixpkgs that predates 1.20.
+    elixir = prev.elixir_1_20 or prev.elixir_1_19;
+  });
 
   # Read the version from mix.exs so release-please's bump is the only place it
   # lives. A miss falls back to 0.0.0 rather than failing the eval.
