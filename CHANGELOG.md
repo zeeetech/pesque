@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.2](https://github.com/zeeetech/pesque/compare/pesque-v1.3.1...pesque-v1.3.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* **nix:** build exqlite from source instead of fetching a NIF ([46695b2](https://github.com/zeeetech/pesque/commit/46695b2edac120ccc8b718177ebe5ea25a292ed0))
+
 ## [1.3.1](https://github.com/zeeetech/pesque/compare/pesque-v1.3.0...pesque-v1.3.1) (2026-10-10)
 
 
