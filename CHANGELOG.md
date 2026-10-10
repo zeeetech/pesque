@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.3](https://github.com/zeeetech/pesque/compare/pesque-v1.3.2...pesque-v1.3.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* **migrate:** take the plc code without a terminal ([f477bf3](https://github.com/zeeetech/pesque/commit/f477bf3a2ee4d8adc8ba5acaf3a3b473368d70e1))
+* **repo:** batch block inserts under sqlite's variable ceiling ([fbcf5e6](https://github.com/zeeetech/pesque/commit/fbcf5e62646200566626b1972b0fc09e33eeca23))
+
 ## [1.3.2](https://github.com/zeeetech/pesque/compare/pesque-v1.3.1...pesque-v1.3.2) (2026-10-10)
 
 
