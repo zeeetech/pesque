@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/zeeetech/pesque/compare/pesque-v1.2.1...pesque-v1.3.0) (2026-10-10)
+
+
+### Features
+
+* **nix:** build the release and run it on NixOS ([30d9d23](https://github.com/zeeetech/pesque/commit/30d9d23f1510c202fe5aba09624cc01a18d69abf))
+* **scripts:** drive a container without compose ([5cf0df7](https://github.com/zeeetech/pesque/commit/5cf0df7f82bb1969ac4daf4e1adc94cede5eb784))
+
 ## [1.2.1](https://github.com/zeeetech/pesque/compare/pesque-v1.2.0...pesque-v1.2.1) (2026-10-10)
 
 
