@@ -176,8 +176,11 @@ defmodule Pesque.Doctor do
 
   # A did:web document is served here; a did:plc document is served by the
   # directory, so the check follows the DID method to whichever host owns it.
+  # The method is the server's own DID's, not the account method: under
+  # path_multi the server's own DID is a did:web even though accounts are
+  # did:plc, and the directory has no document for it.
   defp did_document_check(http) do
-    if Pesque.identity() == :plc do
+    if Identity.plc?() do
       check_document(http, plc_document_url(), "plc document")
     else
       check_document(http, Pesque.base_url() <> "/.well-known/did.json", "did document")

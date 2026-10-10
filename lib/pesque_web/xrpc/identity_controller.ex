@@ -7,11 +7,14 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   alias Pesque.Plc
   alias PesqueWeb.Xrpc
 
-  # Under plc the server's own DID is a did:plc, which resolves through
-  # plc.directory rather than at this route: serving the did:web-shaped
+  # The server's own DID decides this, not the account method. Only under
+  # conformant_single with identity = plc is that DID a did:plc, which resolves
+  # through plc.directory rather than at this route: serving the did:web-shaped
   # document here would publish a second, conflicting document for the DID.
+  # Under path_multi accounts are did:plc but the server's own DID is a
+  # host-level did:web, which resolves here.
   def did_document(conn, _params) do
-    if Pesque.identity() == :plc do
+    if Pesque.Identity.plc?() do
       send_resp(conn, 404, "")
     else
       json(conn, Pesque.Identity.did_document())

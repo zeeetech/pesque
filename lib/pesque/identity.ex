@@ -104,6 +104,20 @@ defmodule Pesque.Identity do
     end
   end
 
+  @doc """
+  Whether the server's own DID is a did:plc.
+
+  Not the same question as `Pesque.identity/0`, which is the method accounts
+  are minted with: under `path_multi` accounts are did:plc while the server's
+  own host identity stays did:web. The DID method of the server's own DID is
+  what decides where its document is served, so callers that route on that ask
+  here rather than reading the account method.
+
+  Mirrors the branch in `did/0` and `load!/0`: the server's own did:plc exists
+  only under `conformant_single` with `identity = plc`.
+  """
+  def plc?, do: match?({:conformant_single, :plc}, {Pesque.mode(), Pesque.identity()})
+
   @doc "The handle the server publishes for itself."
   def handle, do: Did.handle_for_username(Pesque.mode(), Pesque.handle_domain(), nil)
 

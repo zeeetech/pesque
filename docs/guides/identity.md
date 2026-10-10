@@ -80,13 +80,17 @@ Both modes serve the server's identity and one document per account:
 
 | Path | Which |
 | --- | --- |
-| `/.well-known/did.json` | the server (`did:web`; 404 under `identity = plc`) |
+| `/.well-known/did.json` | the server's own DID (`did:web`; 404 when that DID is a `did:plc`) |
 | `/.well-known/atproto-did` | the DID for the handle the request arrived under, as `text/plain` |
 | `/user/:username/did.json` | the account with that username (`path_multi` only) |
 
-Under `identity = plc` the server's DID is a `did:plc`, which resolves at the
-directory rather than here, so `/.well-known/did.json` answers 404 instead of
-publishing a `did:web`-shaped document that would conflict with the directory's.
+The server's own DID is a `did:web` under every mode except
+`conformant_single` with `identity = plc`, where it is the `did:plc` minted at
+boot. That `did:plc` resolves at the directory rather than here, so
+`/.well-known/did.json` answers 404 instead of publishing a `did:web`-shaped
+document that would conflict with the directory's. Under `path_multi` the
+server's own DID stays a host-level `did:web` even though its accounts are
+`did:plc`, so the document is served here.
 
 The `did:web` document carries the DID as `id`, `alsoKnownAs: ["at://<handle>"]`, a
 `#atproto` `Multikey` `verificationMethod`, and an `atproto_pds` service whose

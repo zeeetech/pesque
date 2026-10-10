@@ -83,6 +83,21 @@ defmodule Pesque.ServerIdentityTest do
     assert conn.resp_body == ""
   end
 
+  # Under path_multi accounts are did:plc but the server's own DID is a
+  # host-level did:web, which resolves at this route. The account method must
+  # not turn it into a 404, or the server's own DID resolves to nothing.
+  test "under path_multi the server's own did:web document is served" do
+    Application.put_env(:pesque, :mode, :path_multi)
+    Application.put_env(:pesque, :identity, :plc)
+
+    refute Identity.plc?()
+
+    conn = dispatch(build_conn(), PesqueWeb.Endpoint, :get, "/.well-known/did.json", nil)
+
+    assert conn.status == 200
+    assert JSON.decode!(conn.resp_body)["id"] == Identity.did()
+  end
+
   # Under plc the doctor must follow the DID to the directory, not fetch the
   # local route that now 404s.
   test "the doctor checks the plc directory document under plc" do

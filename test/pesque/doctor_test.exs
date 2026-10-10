@@ -68,6 +68,18 @@ defmodule Pesque.DoctorTest do
   defp status(results, title),
     do: Enum.find_value(results, &if(elem(&1, 1) == title, do: elem(&1, 0)))
 
+  defp put_env(key, value) do
+    previous = Application.get_env(:pesque, key)
+
+    on_exit(fn ->
+      if previous == nil,
+        do: Application.delete_env(:pesque, key),
+        else: Application.put_env(:pesque, key, previous)
+    end)
+
+    Application.put_env(:pesque, key, value)
+  end
+
   test "every check passes when the server answers as it should" do
     assert Enum.map(all_ok(), &elem(&1, 0)) == [:ok, :ok, :ok, :ok, :ok, :ok, :ok]
   end
@@ -98,6 +110,24 @@ defmodule Pesque.DoctorTest do
     end
 
     assert status(all_ok(http: http), "did document") == :fail
+  end
+
+  # Under path_multi accounts are did:plc but the server's own DID is a
+  # host-level did:web, so its document is served here and the directory has
+  # none. The check follows the server's own DID method, not the account
+  # method, or it asks plc.directory for a did:web and reads the 400 as a
+  # federation failure.
+  test "under path_multi the server's own did:web document is checked locally" do
+    put_env(:mode, :path_multi)
+    put_env(:identity, :plc)
+
+    assert Identity.did() == "did:web:pds.example.com"
+    refute Identity.plc?()
+
+    results = all_ok()
+
+    assert status(results, "did document") == :ok
+    refute status(results, "plc document")
   end
 
   test "a handle that does not resolve fails" do
