@@ -165,6 +165,9 @@ install -m600 /dev/null /var/lib/pesque/migrate.env
 $EDITOR /var/lib/pesque/migrate.env   # MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD
 ```
 
+`MIGRATE_PASSWORD` is the account password, not an app password: the move needs
+a full-access session, which an app password never carries.
+
 The move stops at the PLC step for a code emailed to the account holder, and a
 oneshot has no terminal to prompt on, so `pesque-migrate` is started twice: the
 first start emails the code, then `MIGRATE_PLC_TOKEN` is added to the env file

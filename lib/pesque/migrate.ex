@@ -26,7 +26,9 @@ defmodule Pesque.Migrate do
   Moves the account named by `opts` onto this server.
 
   Required: `:old_pds` (base URL), `:handle`, `:email` and `:password` (the old
-  PDS password or app password, reused as the new account's password).
+  PDS account password, reused as the new account's password). Not an app
+  password: the PLC endpoints require a full-access session, which an app
+  password never carries, so the old PDS answers `400 Bad token scope`.
 
   Seams: `:client` (default `Pesque.Migrate.Http`), `:prompt` (a 1-arity fun
   for the PLC email code, default `&IO.gets/1`), `:log` (a 1-arity fun,
@@ -244,8 +246,10 @@ defmodule Pesque.Migrate.Http do
 
   `createSession` and `signPlcOperation` post JSON and decode a field from the
   answer; the `sync.*` reads take binary bodies, and `getBlob` also reads the
-  response's content type. Bearer auth is sent where a token is passed;
-  `getBlob` is public on the old PDS, so its callback takes no token.
+  response's content type. `requestPlcOperationSignature` takes no input, so it
+  posts an empty body: the endpoint rejects even `{}`. Bearer auth is sent where
+  a token is passed; `getBlob` is public on the old PDS, so its callback takes
+  no token.
   """
 
   @behaviour Pesque.Migrate.OldPds
@@ -298,8 +302,7 @@ defmodule Pesque.Migrate.Http do
            post(
              base_url,
              "/xrpc/com.atproto.identity.requestPlcOperationSignature",
-             access_jwt,
-             "{}"
+             access_jwt
            ) do
       :ok
     end
@@ -353,6 +356,13 @@ defmodule Pesque.Migrate.Http do
     request(:post, url(base_url, path), headers(access_jwt), ~c"application/json", body)
   end
 
+  # An endpoint whose lexicon declares no input rejects any body, even `{}`
+  # ("A request body was provided when none was expected"), so this posts one
+  # that is empty.
+  defp post(base_url, path, access_jwt) do
+    request(:post, url(base_url, path), headers(access_jwt), ~c"application/json", [])
+  end
+
   defp get(base_url, path, access_jwt) do
     request(:get, url(base_url, path), headers(access_jwt), nil, nil)
   end
@@ -379,11 +389,25 @@ defmodule Pesque.Migrate.Http do
       when status in 200..299 ->
         {:ok, response_headers, IO.iodata_to_binary(response_body)}
 
-      {:ok, {{_version, status, _reason}, _headers, _body}} ->
-        {:error, {:old_pds_status, status}}
+      {:ok, {{_version, status, _reason}, _headers, body}} ->
+        {:error, old_pds_status(status, IO.iodata_to_binary(body))}
 
       {:error, reason} ->
         {:error, {:old_pds_unreachable, reason}}
+    end
+  end
+
+  # The old PDS reports an XRPC failure as {"error": ..., "message": ...}. Carry
+  # the server's own message so a failed step names the reason instead of a bare
+  # status; the move runs against another operator's server, so its words are
+  # worth more than ours.
+  defp old_pds_status(status, body) do
+    case JSON.decode(body) do
+      {:ok, %{"message" => message}} when is_binary(message) ->
+        {:old_pds_status, status, message}
+
+      _ ->
+        {:old_pds_status, status}
     end
   end
 

@@ -40,9 +40,12 @@ imports the repo and every blob, fetches the recommended credentials, then asks
 the old PDS for a PLC operation signature. On `bsky.social` that emails a code:
 the task prompts for it, has the old PDS sign the operation, submits it here,
 activates the new account and deactivates the old one. The password is the old
-PDS password (an app password if the account has 2FA), reused as the new
-account's password. A run that fails before the PLC submission can be re-run:
-the account is reused rather than recreated.
+PDS account password, reused as the new account's password. Use the account
+password, not an app password: the PLC endpoints the move relies on require a
+full-access session, and an app password never carries one, so the old PDS
+answers `400 Bad token scope`. If the account has 2FA, turn it off for the move;
+the task cannot supply a second factor. A run that fails before the PLC
+submission can be re-run: the account is reused rather than recreated.
 
 ### On NixOS
 

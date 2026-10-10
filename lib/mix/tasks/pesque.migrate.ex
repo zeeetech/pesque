@@ -14,8 +14,9 @@ defmodule Mix.Tasks.Pesque.Migrate do
     * `--old-pds` - base URL of the PDS the account currently lives on.
     * `--handle` - the account's handle, which keeps resolving to the same DID.
     * `--email` - the email for the new account.
-    * `--password` - the old PDS password (or app password), reused as the new
-      account's password. Lands in your shell history and `ps`, so prefer
+    * `--password` - the old PDS account password, reused as the new account's
+      password. Not an app password: the PLC endpoints need a full-access
+      session. Lands in your shell history and `ps`, so prefer
       `--password-env`.
     * `--password-env` - the name of an environment variable holding the
       password.

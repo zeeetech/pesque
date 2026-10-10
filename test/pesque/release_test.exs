@@ -16,6 +16,13 @@ defmodule Pesque.ReleaseTest do
     test "falls back to inspect for a reason it does not know" do
       assert Release.describe_error({:unexpected, 42}) == "{:unexpected, 42}"
     end
+
+    test "names the old PDS's own message, so a bare status is not all a caller sees" do
+      assert Release.describe_error({:old_pds_status, 400, "A request body was provided"}) =~
+               "the old PDS answered 400: A request body was provided"
+
+      assert Release.describe_error({:old_pds_status, 401}) == "the old PDS answered 401"
+    end
   end
 
   describe "create_account_from_env/0" do

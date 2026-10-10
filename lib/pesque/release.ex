@@ -96,9 +96,18 @@ defmodule Pesque.Release do
     end
   end
 
-  @doc "Turns a domain error atom into a sentence a person running a command can act on."
+  @doc "Turns an error reason into a sentence a person running a command can act on."
   def describe_error(reason) do
     case reason do
+      {:old_pds_status, status, message} ->
+        "the old PDS answered #{status}: #{message}"
+
+      {:old_pds_status, status} ->
+        "the old PDS answered #{status}"
+
+      {:old_pds_unreachable, detail} ->
+        "the old PDS could not be reached: #{inspect(detail)}"
+
       :plc_code_missing ->
         "no PLC code was read; run this where the prompt can be answered, or set MIGRATE_PLC_TOKEN"
 
