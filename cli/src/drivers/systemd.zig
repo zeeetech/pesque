@@ -288,7 +288,9 @@ pub fn pull(self: driver.Systemd, host: *proc.Host, tag: ?[]const u8) Error!u8 {
     };
     var out_dir = Io.Dir.cwd().openDir(host.io, unpack_dir, .{}) catch return error.DriverFailed;
     defer out_dir.close(host.io);
-    try fetch.unpackTarGz(host, tarball, out_dir);
+    // The release tarball carries one top-level directory (`pesque/`), so strip
+    // it to land `bin/`, `lib/` and the rest at the root of the release path.
+    try fetch.unpackTarGz(host, tarball, out_dir, 1);
 
     // Atomically swap the symlink. A crash mid-swap leaves /opt/pesque.old
     // (same rollback story the restore verb has).

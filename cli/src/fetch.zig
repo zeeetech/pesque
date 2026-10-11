@@ -92,7 +92,11 @@ pub fn sha256File(host: *proc.Host, path: []const u8) Error![32]u8 {
     return digest;
 }
 
-pub fn unpackTarGz(host: *proc.Host, tarball: []const u8, out_dir: Io.Dir) Error!void {
+/// Unpack a `.tar.gz` into `out_dir`, skipping `strip_components` leading path
+/// levels. The release tarball is built with one top-level directory
+/// (`tar -C _build/prod/rel pesque`), so callers pass 1 to land `bin/`, `lib/`
+/// and the rest directly in `out_dir`.
+pub fn unpackTarGz(host: *proc.Host, tarball: []const u8, out_dir: Io.Dir, strip_components: u32) Error!void {
     const file = Io.Dir.cwd().openFile(host.io, tarball, .{}) catch {
         host.err("cannot open the downloaded tarball at {s}.", .{tarball});
         return error.DriverFailed;
@@ -102,7 +106,10 @@ pub fn unpackTarGz(host: *proc.Host, tarball: []const u8, out_dir: Io.Dir) Error
     var file_reader = file.reader(host.io, &read_buf);
     var decomp_buf: [std.compress.flate.max_window_len]u8 = undefined;
     var decompress = std.compress.flate.Decompress.init(&file_reader.interface, .gzip, &decomp_buf);
-    std.tar.extract(host.io, out_dir, &decompress.reader, .{ .mode_mode = .executable_bit_only }) catch {
+    std.tar.extract(host.io, out_dir, &decompress.reader, .{
+        .mode_mode = .executable_bit_only,
+        .strip_components = strip_components,
+    }) catch {
         host.err("the tarball at {s} is not a valid tar.gz archive.", .{tarball});
         return error.DriverFailed;
     };

@@ -385,8 +385,10 @@ test "fetch: unpackTarGz extracts a gzipped tar with exec bits" {
     }
     const extract_target = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "extracted" });
     try Io.Dir.cwd().createDirPath(testing.io, extract_target);
-    _ = try fetch.unpackTarGz(ctx.host, tarball, try Io.Dir.cwd().openDir(ctx.host.io, extract_target, .{}));
-    const extracted = try std.fs.path.join(ctx.arena_state.allocator(), &.{ extract_target, "pull-fixture/pesque/bin/pesque" });
+    // The real release tarball has one top-level directory; strip it, like the
+    // systemd driver does, so `bin/` lands directly in the target.
+    _ = try fetch.unpackTarGz(ctx.host, tarball, try Io.Dir.cwd().openDir(ctx.host.io, extract_target, .{}), 1);
+    const extracted = try std.fs.path.join(ctx.arena_state.allocator(), &.{ extract_target, "pesque/bin/pesque" });
     const st = try Io.Dir.cwd().statFile(ctx.host.io, extracted, .{});
     try testing.expect(st.size > 0);
     try testing.expect(st.permissions.toMode() & 0o111 != 0);
