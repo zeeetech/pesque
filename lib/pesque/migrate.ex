@@ -227,6 +227,12 @@ defmodule Pesque.Migrate do
     with {:ok, user} <- current_user(did),
          {:ok, _did} <- Accounts.activate_account(user),
          :ok <- client.deactivate(old_pds, access_jwt) do
+      # The old PDS's deactivation is the last account event for the DID that is
+      # not this PDS's. Re-announce after it, so this PDS's activation goes out
+      # last: a consumer that applies the old PDS's deactivation (the spec says
+      # it should not, but the AppView does) otherwise ends with the account
+      # marked deactivated even though it is active here.
+      Accounts.announce_active(did)
       log.("activated #{did} and deactivated the old PDS account")
       :ok
     end

@@ -11,6 +11,7 @@ defmodule Pesque.MigrateTest do
   use ExUnit.Case, async: false
 
   alias Pesque.Accounts
+  alias Pesque.CBOR
   alias Pesque.Car
   alias Pesque.CID
   alias Pesque.Migrate
@@ -48,6 +49,24 @@ defmodule Pesque.MigrateTest do
     assert {:list_blobs, did} in calls()
     assert :request_plc_signature in calls()
     assert {:sign_plc_operation, "email-code"} in calls()
+  end
+
+  # The old PDS deactivates the account as the last step of the move, and its
+  # #account event is the last one for the DID that is not ours. The move
+  # re-announces here after it, so a consumer that only applies the sequence
+  # ends with the account active rather than deactivated.
+  test "the last account event for the DID is this PDS's activation" do
+    did = old_did()
+    handle = unique("heidi") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok = run(handle)
+
+    {_header, last} = did |> account_events() |> List.last()
+
+    assert last["active"]
+    refute last["status"]
   end
 
   test "a supplied PLC token is used instead of asking for a new code" do
@@ -213,6 +232,18 @@ defmodule Pesque.MigrateTest do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  defp account_events(did) do
+    RepoStore.events_after(0)
+    |> Enum.map(&decode/1)
+    |> Enum.filter(fn {header, body} -> header["t"] == "#account" and body["did"] == did end)
+  end
+
+  defp decode(frame) do
+    {header, rest} = CBOR.decode(frame)
+    {body, ""} = CBOR.decode(rest)
+    {header, body}
   end
 
   defp restore_env do

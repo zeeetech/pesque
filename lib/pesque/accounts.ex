@@ -439,10 +439,26 @@ defmodule Pesque.Accounts do
   def activate_account(%User{} = user) do
     with :ok <- verify_identity(user),
          {:ok, _user} <- set_active(user, true) do
-      Events.emit_account(user.did, :activated)
-      announce_head(user.did)
+      announce_active(user.did)
       {:ok, user.did}
     end
+  end
+
+  @doc """
+  Announces an already-active account without changing it: the `#account` frame
+  and the empty commit, the announcement activate_account/1 makes after it flips
+  the row.
+
+  Used at the end of a migration, after the account is active here and the old
+  PDS has been deactivated, so this PDS's activation is the last account event
+  for the DID on the wire. A consumer that applies the deactivation the old PDS
+  still emits (the spec says it should not; the AppView does) otherwise ends
+  with the account marked deactivated.
+  """
+  def announce_active(did) when is_binary(did) do
+    Events.emit_account(did, :activated)
+    announce_head(did)
+    :ok
   end
 
   @doc """
