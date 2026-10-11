@@ -1,9 +1,9 @@
 //! Process helpers: child spawning (argv arrays, never `sh -c`), environment
 //! handling, and the CLI's output conventions.
 //!
-//! Exit-code discipline (spec D4): a child's exit code propagates; death by
-//! signal maps to 1; failure to spawn maps to 3 (driver/environment failure),
-//! after printing an `error:` line with a fix.
+//! Exit-code discipline: a child's exit code propagates; death by signal maps
+//! to 1; failure to spawn maps to 3 (driver/environment failure), after
+//! printing an `error:` line with a fix.
 const std = @import("std");
 const Io = std.Io;
 
@@ -65,7 +65,7 @@ pub const Host = struct {
 
     // --- output conventions -------------------------------------------------
 
-    /// `==> step` (stdout). Blank line before, like the shell script did.
+    /// `==> step` (stdout). Blank line before.
     pub fn step(self: *Host, comptime fmt: []const u8, args: anytype) void {
         self.printTo(.stdout, "\n==> " ++ fmt ++ "\n", args);
     }

@@ -168,8 +168,8 @@ data/
 ```
 
 `records` holds only the latest version of each key, which is what `listRecords`
-and `getRecord` read, while `blocks` holds everything, which is what makes
-`getRecord?cid=` for a superseded version possible. Event rows store their
+and `getRecord` read, while `blocks` holds everything, so `getRecord?cid=`
+works for a superseded version. Event rows store their
 payload already CBOR-encoded, so a crash cannot leave an empty-payload row.
 
 ### Deliberate choices
@@ -266,7 +266,7 @@ Each module below has one invariant that is easy to get wrong.
 - **DAG-CBOR** (`Pesque.CBOR`): map keys sorted length-first then bytewise, floats
   always 64-bit, byte strings explicit, links tag 42. Determinism is the invariant:
   the same record encoded twice must produce the same bytes and CID. Invalid UTF-8
-  raises rather than encoding, which is why `Lexicon.from_json/1` rejects it first.
+  raises rather than encoding, so `Lexicon.from_json/1` rejects it first.
 - **CID** (`Pesque.CID`): CIDv1 only, sha2-256, `dag-cbor` (0x71) for blocks and
   `raw` (0x55) for blobs. `parse/1` raises and is for a CID this server computed;
   `safe_parse/1` answers `:error` and is what every request path uses.
@@ -293,16 +293,16 @@ Each module below has one invariant that is easy to get wrong.
   signature, a wrong scope and an expired token into one `{:error, :invalid_token}`,
   because distinguishing them tells an attacker which half they got right.
 - **Grapheme counting** (`String.length/1`): `maxGraphemes` counts extended
-  grapheme clusters, which is what `String.length/1` counts through the UAX #29
-  support in the Erlang runtime. There are no vendored tables and nothing to
+  grapheme clusters, and `String.length/1` counts exactly those through the
+  UAX #29 support in the Erlang runtime. There are no vendored tables and nothing to
   regenerate: the Unicode version is the OTP release's. The count diverges from
   the reference segmenter on the GB9c conjunct scripts (Khmer, Myanmar,
   Balinese) and one ZWJ case; that was the trade for dropping the hand-rolled
   segmenter and its 2,000 lines of committed tables.
 - **Varint, base32, base58**: unsigned LEB128 (`decode/1` raises on a truncated or
   over-64-bit varint, which stops a crafted CID from being an unbounded shift); RFC
-  4648 base32 lowercased and unpadded, `[a-z2-7]`, which is what makes a CID safe
-  as a filename; base58btc, only for multibase public keys.
+  4648 base32 lowercased and unpadded, `[a-z2-7]`, the alphabet that keeps a CID
+  safe as a filename; base58btc, only for multibase public keys.
 
 ## Where to change things
 
@@ -312,7 +312,7 @@ Each module below has one invariant that is easy to get wrong.
   answers `501`. Handle it in the controller, put the logic in a domain module
   returning `{:ok, value}` or `{:error, reason}`, and map the reason in
   `lib/pesque_web/xrpc/errors.ex`. A reason without a clause is a compile-and-test
-  failure, which is the point.
+  failure.
 - **OAuth scope.** Add it to `@supported` in `lib/pesque/oauth/scopes.ex`; it then
   appears in `scopes_supported` in both metadata documents. Enforce it where it is
   spent: `Pesque.OAuth.verify_access_token/1` returns the granted scope. A scope

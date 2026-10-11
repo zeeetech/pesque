@@ -217,10 +217,10 @@ install_cli() {
   dest="$prefix/bin/pesque$exe_ext"
 
   # Idempotence: an identical install is left alone, an older one is replaced,
-  # a newer one is kept. Equality is decided by sha256 (same tag, same bytes);
-  # the older/newer question by the CLI's own version. Same version with
-  # different bytes still gets replaced: the installed file may be corrupt,
-  # and "nothing to do" must never keep bad bytes. Nothing else is touched.
+  # a newer one is kept. Equality is decided by sha256, the older/newer
+  # question by the CLI's own version. Same version with different bytes is
+  # still replaced: the installed file may be corrupt, and "nothing to do"
+  # must never keep bad bytes.
   if [ -e "$dest" ]; then
     want="$(sums_entry "$work/SHA256SUMS" "$asset")"
     got="$(sha256_of "$dest")"
@@ -252,7 +252,7 @@ install_cli() {
 
 # Docker's default log driver keeps json-file growth unbounded: one chatty
 # container fills the disk and takes the whole host down. Cap every container
-# at 500 MiB across 4 files, but only when the host has no daemon.json yet -
+# at 500 MiB across 4 files, but only when the host has no daemon.json yet:
 # the file replaces the daemon's whole config, so an existing one must win.
 configure_docker_logs() {
   [ "$backend" = compose ] || [ "$backend" = docker ] || return 0

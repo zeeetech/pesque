@@ -150,8 +150,8 @@ and it is available under `conformant_single` too: there the server's own
 so a later boot reuses it. `PDS_PLC_DIRECTORY` sets the directory (default
 `https://plc.directory`).
 
-The DID is minted by the directory at account creation and stored; it never
-changes with the hostname, port or domain, which is the point. Each account gets
+The DID is minted by the directory at account creation and stored, so it
+never changes with the hostname, port or domain. Each account gets
 a rotation key, a second file next to its signing key, and the account's only
 recovery path: back up `data/keys` with the rest of the state. A freshly minted
 account is registered with the directory before its row is written, so a

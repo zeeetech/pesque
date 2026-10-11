@@ -128,7 +128,7 @@ echo 'COMPOSE_PROFILES=auto-update' >> .env
 docker compose up -d
 ```
 
-`COMPOSE_PROFILES` in `.env` is what makes the choice stick: every later
+`COMPOSE_PROFILES` in `.env` carries the choice: every later
 `docker compose` command on the project starts the watcher too, while a
 stack without that line never launches one, however many times you run
 `up -d`. That is also why this is a profile and not a default-on service.
@@ -234,8 +234,8 @@ The rollback is the pre-upgrade backup:
 
 With auto-update enabled, the pre-upgrade archive is the one the updater
 wrote (systemd) or the most recent one your cron wrote (compose). A release
-that fails its own boot check — the strict config check names the offending
-key — is recovered the same way: restore, then remove the unknown key.
+that fails its own boot check (the strict config check names the offending
+key) is recovered the same way: restore, then remove the unknown key.
 
 ## Health and logs
 

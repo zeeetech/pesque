@@ -1,6 +1,6 @@
 //! The compose backend: drives `docker compose` in a project directory.
 //! One-offs run via `docker compose run`, which reuses the service's image,
-//! volume and environment by construction (spec §5).
+//! volume and environment by construction.
 const std = @import("std");
 const Io = std.Io;
 const proc = @import("../proc.zig");

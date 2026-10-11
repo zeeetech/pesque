@@ -1,4 +1,4 @@
-//! Dispatch, usage and input-resolution tests (the exit-code surface, D4).
+//! Dispatch, usage and input-resolution tests (the exit-code surface).
 const std = @import("std");
 const testing = std.testing;
 const proc = @import("proc.zig");

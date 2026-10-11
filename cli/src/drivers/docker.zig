@@ -1,7 +1,7 @@
 //! The docker backend: drives a container you already run. One-offs go
 //! through `docker run --volumes-from`, so no compose file and no clone are
 //! needed on the server. The lifecycle is foreign: up/down refuse with
-//! instructions (spec §2).
+//! instructions.
 const std = @import("std");
 const Io = std.Io;
 const proc = @import("../proc.zig");
@@ -31,9 +31,9 @@ pub fn image(self: driver.Docker, host: *proc.Host) Error![]const u8 {
     return host.gpa.dupe(u8, found) catch error.OutOfMemory;
 }
 
-/// Mirror the running container's PDS_* environment into a root-readable-only
-/// temp file for `docker run --env-file`, so the one-off sees the same
-/// PDS_* world as the live server (spec §5). Caller removes the temp dir.
+/// Mirror the running container's PDS_* environment into an owner-only temp
+/// file for `docker run --env-file`, so the one-off sees the same PDS_* world
+/// as the live server. Caller removes the temp dir.
 fn writeEnvMirror(self: driver.Docker, host: *proc.Host, tmp_dir: []const u8) Error![]const u8 {
     const g = host.gpa;
     const argv = [_][]const u8{
@@ -89,7 +89,7 @@ pub fn runOnce(self: driver.Docker, host: *proc.Host, ro: driver.RunOnce) Error!
 }
 
 /// Foreign lifecycle: the container is declared in your service manager, not
-/// by the CLI. Refuse with the exact instruction (spec §10).
+/// by the CLI. Refuse with the exact instruction.
 pub fn refuseLifecycle(host: *proc.Host, action: []const u8, comptime fix_fmt: []const u8, fix_args: anytype) Error!u8 {
     host.err("the docker backend does not own the container lifecycle, so it cannot '{s}' the server.", .{action});
     host.printTo(.stderr, "  " ++ fix_fmt ++ "\n", fix_args);

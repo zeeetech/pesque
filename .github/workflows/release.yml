@@ -22,8 +22,8 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # The image builds only when Release Please creates a release, which is what
-  # creates the tag. A separate `on: tags` workflow would not fire: a tag made
+  # The image builds only when Release Please creates the release and its
+  # tag. A separate `on: tags` workflow would not fire: a tag made
   # with the default GITHUB_TOKEN does not trigger workflows, so the release is
   # chained here instead of depending on a PAT.
   image:
@@ -70,8 +70,8 @@ jobs:
   # The host-side CLI: one static binary per target (Windows keeps the
   # docker/compose backends only; systemd/nixos need a Linux host). Binaries
   # land on the release as `pesque-<target>`; SHA256SUMS is assembled over
-  # everything by the release-assets job, which is what install.sh and the
-  # systemd `update` flow verify against.
+  # everything by the release-assets job, and install.sh and the systemd
+  # `update` flow verify against it.
   cli:
     name: CLI binaries
     needs: release-please

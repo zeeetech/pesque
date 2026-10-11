@@ -1,8 +1,8 @@
 //! The systemd backend: drives the `pesque` unit over systemctl. One-off
 //! domain verbs run as the `pesque` user via `systemd-run --pipe --wait
-//! --collect` when the CLI runs as root (D6), or as a direct exec of the
-//! release otherwise. The NixOS driver reuses everything here with its own
-//! release path (spec §2: "same via ${PESQUE_RELEASE}").
+//! --collect` when the CLI runs as root, or as a direct exec of the release
+//! otherwise. The NixOS driver reuses everything here with the release at
+//! ${PESQUE_RELEASE}.
 const std = @import("std");
 const Io = std.Io;
 const builtin = @import("builtin");
@@ -20,7 +20,7 @@ fn isRoot() bool {
     };
 }
 
-// --- unit environment (spec §5: PDS_* comes from the unit's Environment) ----
+// --- unit environment: PDS_* comes from the unit's Environment --------------
 
 /// The unit's PDS_* environment: the inline `Environment=` directive plus any
 /// `EnvironmentFile`s the unit declares (the directive wins). Only PDS_* keys
@@ -35,7 +35,7 @@ fn unitEnv(self: driver.Systemd, host: *proc.Host, map: *std.StringHashMap([]con
     const files_cap = host.capture(&files_argv) catch |e| return e;
     defer host.freeCapture(files_cap);
     if (!files_cap.ok()) return;
-    // `EnvironmentFiles=/etc/pesque/pesque.env (ignore=no)` — possibly several.
+    // `EnvironmentFiles=/etc/pesque/pesque.env (ignore=no)`, possibly several.
     var it = std.mem.splitScalar(u8, files_cap.stdout, '\n');
     while (it.next()) |raw_line| {
         const line = std.mem.trim(u8, raw_line, " \r\n");
@@ -97,17 +97,15 @@ pub fn runOnce(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error
 }
 
 /// euid 0: a transient unit as the `pesque` user. The unit's PDS_* world and
-/// the verb's secret inputs are mirrored into one root-only EnvironmentFile
-/// (nothing secret on the command line, no `-E KEY=VALUE` either): the
-/// manager reads the file in the host namespace, so the values cross the
-/// boundary without ever appearing in `ps` or argv.
+/// the verb's secret inputs go into one root-only EnvironmentFile, read by
+/// the manager in the host namespace: no secret ever lands in `ps` or argv.
 fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!u8 {
     const g = host.gpa;
     // /run, not $TMPDIR: the manager resolves the EnvironmentFile path in the
-    // host namespace, where a service's private /tmp (PrivateTmp=true, as in
-    // contrib/systemd/pesque-update.service) does not exist. The file only
-    // has to outlive the unit's start-up read, so it is cleaned up after
-    // `--wait` returns.
+    // host namespace, so a PrivateTmp private /tmp (as in
+    // contrib/systemd/pesque-update.service) would not be seen. The file only
+    // has to outlive the unit's start-up read, so it is removed once `--wait`
+    // returns.
     const tmp_dir = makeRunOnceDir(host) catch |e| return e;
     defer host.removeTempDir(tmp_dir);
 
@@ -116,7 +114,6 @@ fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!
     try unitEnv(self, host, &pairs);
     pairs.put("PDS_SERVE", "false") catch {};
 
-    // The manager (root) reads this file for the transient unit.
     const env_file = std.fs.path.join(g, &.{ tmp_dir, "unit.env" }) catch return error.OutOfMemory;
     {
         var content: std.ArrayList(u8) = .empty;
@@ -128,10 +125,9 @@ fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!
             content.appendSlice(g, entry.value_ptr.*) catch return error.OutOfMemory;
             content.append(g, '\n') catch return error.OutOfMemory;
         }
-        // Verb inputs (passwords, tokens): the values came from the prompt,
-        // --password-env, or the bare passthrough, all validated into this
-        // process's environment by resolveEnv. Single-quoted: no escapes, no
-        // expansion, any bytes verbatim (an embedded ' is written '"'"').
+        // Verb inputs (passwords, tokens): resolveEnv has validated them into
+        // this process's environment. Single-quoted: no escapes, no expansion,
+        // any bytes verbatim (an embedded ' is written '"'"').
         for (ro.env) |e| {
             const value = host.environ.get(e.key) orelse continue;
             content.appendSlice(g, e.key) catch return error.OutOfMemory;
@@ -163,8 +159,8 @@ fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!
 }
 
 /// The run-once mirror's parent: /run on Linux (see systemdRun), the test
-/// sandbox when overridden, or the ordinary temp dir elsewhere (root CLI on a
-/// non-Linux host is not a real deployment; keep the old behavior there).
+/// sandbox when overridden, or the ordinary temp dir elsewhere (a root CLI
+/// on a non-Linux host is not a real deployment).
 fn makeRunOnceDir(host: *proc.Host) Error![]const u8 {
     if (proc.Host.run_once_base) |base| return host.makeTempDirUnder(base, "pesque-run-once-");
     if (builtin.os.tag == .linux) return host.makeTempDirUnder("/run", "pesque-run-once-");
@@ -172,9 +168,8 @@ fn makeRunOnceDir(host: *proc.Host) Error![]const u8 {
 }
 
 /// Append `value` single-quoted for a systemd EnvironmentFile (shell-style
-/// rules): quoted segments concatenate, so an embedded ' is written as '"'"'
-/// and every other byte passes verbatim. Single-quoted values carry no
-/// escape sequences and span newlines, so no secret shape is mangled.
+/// rules): an embedded ' is written as '"'"', every other byte passes
+/// verbatim, and quoted values carry no escape sequences or newline mangling.
 fn appendQuoted(g: std.mem.Allocator, content: *std.ArrayList(u8), value: []const u8) Error!void {
     content.append(g, '\'') catch return error.OutOfMemory;
     for (value) |ch| {
@@ -334,8 +329,8 @@ pub fn pull(self: driver.Systemd, host: *proc.Host, tag: ?[]const u8) Error!u8 {
     // it to land `bin/`, `lib/` and the rest at the root of the release path.
     try fetch.unpackTarGz(host, tarball, out_dir, 1);
 
-    // Atomically swap the symlink. A crash mid-swap leaves /opt/pesque.old
-    // (same rollback story the restore verb has).
+    // Atomic swap: a crash mid-swap leaves /opt/pesque.old, the same rollback
+    // the restore verb has.
     const target = std.fs.path.basename(unpack_dir);
     if (currentSymlink(host, "/opt/pesque")) |current| {
         if (std.mem.eql(u8, current, target)) {

@@ -1,5 +1,5 @@
 //! The driver interface: a tagged union over the closed backend set
-//! (compose, docker, systemd, nixos) with exhaustive switches, per spec D2.
+//! (compose, docker, systemd, nixos) with exhaustive switches.
 //! Implementations live in `drivers/`.
 const std = @import("std");
 const proc = @import("proc.zig");
@@ -11,7 +11,7 @@ const nixos = @import("drivers/nixos.zig");
 pub const Kind = enum { compose, docker, systemd, nixos };
 
 /// One one-off task: `/app/bin/pesque <verb> <argv>` inside the driver's
-/// runtime. Mirrors the `Pesque.Ops.RunOnce` contract (spec §2).
+/// runtime. Mirrors `Pesque.Ops.RunOnce` on the Elixir side.
 pub const RunOnce = struct {
     verb: []const u8,
     argv: []const []const u8 = &.{},
@@ -185,8 +185,7 @@ pub const Driver = union(Kind) {
 
     /// `update [tag]`: pull (or build) + restart, per backend semantics.
     /// Compose uses `up -d` (restart alone keeps the old container), docker
-    /// hands over to PESQUE_RESTART_CMD, systemd swaps the /opt symlink and
-    /// restarts the unit, nixos is a no-op.
+    /// defers to PESQUE_RESTART_CMD, systemd swaps the /opt symlink, nixos no-ops.
     pub fn update(self: Driver, host: *proc.Host, tag: ?[]const u8) proc.Error!u8 {
         return switch (self) {
             .compose => |d| compose.update(d, host, tag),

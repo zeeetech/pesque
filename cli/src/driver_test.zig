@@ -1,5 +1,5 @@
 //! Driver argv-construction tests against the fake binaries on the test
-//! path. Pins the load-bearing decisions (spec §9):
+//! path. Pins the load-bearing decisions:
 //!   - bare `-e KEY` (secrets never in argv, compose AND docker),
 //!   - `--volumes-from` + the PDS_* env mirror on docker,
 //!   - `-p User=pesque` on systemd-run,

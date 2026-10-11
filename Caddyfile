@@ -2,7 +2,7 @@
 # every subdomain of it, then proxies everything to the server, including the
 # firehose websocket: reverse_proxy upgrades it without extra configuration.
 #
-# The on-demand part is what makes a multi-user install work out of the box.
+# The on-demand part is how a multi-user install works out of the box.
 # Under mode = path_multi accounts get handles like alice.pds.example.com, and
 # a handshake for such a name makes Caddy ask the server whether a certificate
 # may be issued for it. The ask endpoint answers 200 for the hostname and for

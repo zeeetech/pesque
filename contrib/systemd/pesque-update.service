@@ -3,8 +3,8 @@
 # `pesque update` (the host CLI) resolves the systemd backend: it downloads
 # the newest release tarball from GitHub, verifies it against SHA256SUMS,
 # swaps the /opt/pesque symlink and restarts the service unit. It restarts
-# even when the release is already current, which is why the timer runs
-# weekly and not nightly.
+# even when the release is already current, so the timer runs weekly and
+# not nightly.
 #
 # The backup first is the rollback path: there is no down migration, so a
 # bad upgrade is recovered by restoring the pre-upgrade archive (pesque

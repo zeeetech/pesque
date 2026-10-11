@@ -1,7 +1,7 @@
 //! Terminal prompts: plain line reads and no-echo password reads (termios on
-//! POSIX). Per spec §1, when stdin is not a tty and no password source
-//! exists, the caller refuses — the prompts here are the last resort of the
-//! flag -> env -> prompt order (D3).
+//! POSIX). When stdin is not a tty and no password source exists, the caller
+//! refuses: the prompts here are the last resort of the flag -> env -> prompt
+//! order.
 const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;

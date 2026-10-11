@@ -1,10 +1,9 @@
-//! pesque — host-side CLI for operating a Pesque (ATProto PDS) server.
+//! pesque: host-side CLI for operating a Pesque (ATProto PDS) server.
 //!
-//! Layer B of the unified operations API: a thin, static transport that
-//! dispatches driver verbs directly and forwards domain verbs to the release
-//! via `driver.run_once` -> `/app/bin/pesque <verb> <argv>`. The release is
-//! the single source of truth; this binary reimplements no domain logic
-//! (spec D4: it parses nothing from verb stdout, only exit codes).
+//! A thin transport: driver verbs dispatch directly, domain verbs forward to
+//! the release via `driver.run_once` -> `/app/bin/pesque <verb> <argv>`. The
+//! release owns the domain logic; this binary parses nothing from verb
+//! stdout, only exit codes.
 //!
 //! Frozen exit codes: 0 ok, 1 domain failure, 2 usage, 3 driver/environment.
 const std = @import("std");
@@ -70,7 +69,7 @@ pub fn main(init: std.process.Init) !void {
     std.process.exit(code);
 }
 
-/// Frozen exit codes (D4): 0 ok, 1 domain failure (propagated child code),
+/// Frozen exit codes: 0 ok, 1 domain failure (propagated child code),
 /// 2 usage/input, 3 driver/environment.
 fn mapError(e: anyerror) u8 {
     return switch (e) {
@@ -264,7 +263,7 @@ fn version(host: *proc.Host, args: []const []const u8) Error!u8 {
 // --- domain verbs ---------------------------------------------------------------
 
 /// Resolve the password for a verb: `--password-env VAR` -> the conventional
-/// env var -> no-echo prompt -> refuse (D3). Returns the RunOnce env entry.
+/// env var -> no-echo prompt -> refuse. Returns the RunOnce env entry.
 fn passwordInput(host: *proc.Host, pw_env_flag: ?[]const u8, conventional: []const u8, prompt_text: []const u8) Error!proc.Env {
     if (pw_env_flag) |var_name| {
         const value = host.get(var_name) orelse
@@ -356,7 +355,6 @@ fn parseAccountCreate(host: *proc.Host, args: []const []const u8) Error!AccountC
     return f;
 }
 
-/// Run the `account create` domain verb.
 fn runAccountCreate(host: *proc.Host, f: AccountCreate) Error!u8 {
     const d = try detectBackend(host);
     var env: std.ArrayList(proc.Env) = .empty;
@@ -420,7 +418,6 @@ fn simpleVerbNamed(host: *proc.Host, verb: []const u8, sub: []const u8, args: []
     return runDomain(host, verb, &.{sub}, &.{});
 }
 
-/// Detect the backend and dispatch `bin/pesque <verb> <argv>` through run_once.
 fn runDomain(host: *proc.Host, verb: []const u8, argv: []const []const u8, env: []const proc.Env) Error!u8 {
     const d = try detectBackend(host);
     return d.runOnce(host, .{ .verb = verb, .argv = argv, .env = env, .interactive = true });
@@ -473,8 +470,8 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
         } else if (std.mem.eql(u8, args[i], "--email")) {
             email = try valueFlag(host, args, &i, "--email");
         } else if (std.mem.eql(u8, args[i], "--plc-token")) {
-            // No secret on argv (the CLI's own doctrine): the token goes
-            // through the same bare-env mechanism as the passwords.
+            // No secret on argv: the token takes the same bare-env path as
+            // the passwords.
             return failInput(host, "--plc-token would put the token on the command line. Set MIGRATE_PLC_TOKEN in the environment instead; it is forwarded to the verb like the passwords.", .{});
         } else {
             return usage(host, "unknown option '{s}' for 'migrate'", .{args[i]});
@@ -542,7 +539,7 @@ fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
     if (args.len != 1) return usage(host, "restore takes the archive path: pesque restore <archive.tar.gz>", .{});
     const abs = try absPath(host, args[0]);
     const d = try detectBackend(host);
-    // Restore is cold (D5): stop the service first when the CLI owns the
+    // Restore is cold: stop the service first when the CLI owns the
     // lifecycle; the verb refuses a locked db as a second line of defense.
     var stopped = false;
     if (d.ownsLifecycle()) {
@@ -630,10 +627,9 @@ fn setup(host: *proc.Host, yes: bool, args: []const []const u8) Error!u8 {
 
 fn writeDotEnv(host: *proc.Host, project_dir: []const u8, hostname: []const u8, mode: []const u8, yes: bool) Error!void {
     const path = std.fs.path.join(host.gpa, &.{ project_dir, ".env" }) catch return error.OutOfMemory;
-    // .env is the operator's file: COMPOSE_PROFILES=auto-update, PESQUE_TAG
-    // pins and friends live here (the rollback path in docs/guides/
-    // operations.md) and must survive a re-run. Setup owns only the two keys
-    // below.
+    // .env is the operator's file (COMPOSE_PROFILES=auto-update, PESQUE_TAG
+    // pins, the rollback path in docs/guides/operations.md): it must survive a
+    // re-run. Setup owns only the two keys below.
     const existing = try readFileOpt(host, path);
     defer if (existing) |c| host.gpa.free(c);
     const owned = [_]Owned{
@@ -646,7 +642,6 @@ fn writeDotEnv(host: *proc.Host, project_dir: []const u8, hostname: []const u8, 
 /// One key setup owns in a config file it rewrites.
 const Owned = struct { key: []const u8, value: []const u8 };
 
-/// Read a small text file, or null when it does not exist yet.
 fn readFileOpt(host: *proc.Host, path: []const u8) Error!?[]u8 {
     return Io.Dir.cwd().readFileAlloc(host.io, path, host.gpa, .limited(1 << 20)) catch |e| switch (e) {
         error.FileNotFound => null,
@@ -657,11 +652,10 @@ fn readFileOpt(host: *proc.Host, path: []const u8) Error!?[]u8 {
     };
 }
 
-/// Write `path` as `<key><eq><value>` lines: the owned keys are updated in
-/// place (missing ones appended) and every other line — operator keys,
-/// comments — survives byte-for-byte. When an owned key already holds a
-/// different value, refuse unless --yes: re-running setup must not silently
-/// reconfigure a provisioned server.
+/// Write `path` as `<key><eq><value>` lines: owned keys updated in place,
+/// every other line (operator keys, comments) kept byte-for-byte. An owned
+/// key already holding a different value is refused unless --yes: re-running
+/// setup must not silently reconfigure a provisioned server.
 fn writeOwnedConfig(host: *proc.Host, path: []const u8, existing: ?[]const u8, eq: []const u8, owned: []const Owned, yes: bool) Error!void {
     const g = host.gpa;
     if (existing) |content| {
@@ -943,8 +937,8 @@ fn dnsNote(host: *proc.Host, hostname: []const u8) Error!void {
     };
 }
 
-/// Poll the container health after `up` (45 tries, 2s apart, like the old
-/// script). Quiet per try: anything but healthy keeps polling.
+/// Poll the container health after `up` (45 tries, 2s apart). Quiet per try:
+/// anything but healthy keeps polling.
 fn waitHealthy(host: *proc.Host, d: driver.Driver) Error!bool {
     host.printTo(.stdout, "waiting for the server to become healthy", .{});
     defer host.printTo(.stdout, "\n", .{});

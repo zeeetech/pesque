@@ -1,5 +1,5 @@
 #!/bin/sh
-# End-to-end smoke for the pesque CLI against a real compose stack (spec §9).
+# End-to-end smoke for the pesque CLI against a real compose stack.
 #
 # Needs: docker with the compose plugin, and curl. Builds nothing: it uses the
 # published image (or PESQUE_BUILD=1 to build from source first). This is a

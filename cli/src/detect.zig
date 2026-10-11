@@ -1,6 +1,6 @@
 //! Backend discovery and the `backend` command.
 //!
-//! Order (spec §4): `--backend`/`PESQUE_BACKEND` -> upward search for
+//! Order: `--backend`/`PESQUE_BACKEND` -> upward search for
 //! `docker-compose.yml` -> `docker inspect <PESQUE_CONTAINER|pesque>` ->
 //! `systemctl` + unit `<PESQUE_SERVICE|pesque>` (nixos when
 //! /run/current-system exists) -> error 3 with the trace of what was tried.

@@ -1,5 +1,5 @@
-//! Network access: std-only, everything through a `curl` subprocess (spec
-//! D8), with checksums via `std.crypto` sha256.
+//! Network access: std-only, everything through a `curl` subprocess, with
+//! checksums via `std.crypto` sha256.
 const std = @import("std");
 const Io = std.Io;
 const proc = @import("proc.zig");
@@ -98,10 +98,9 @@ pub fn sha256File(host: *proc.Host, path: []const u8) Error![32]u8 {
     return digest;
 }
 
-/// Unpack a `.tar.gz` into `out_dir`, skipping `strip_components` leading path
-/// levels. The release tarball is built with one top-level directory
-/// (`tar -C _build/prod/rel pesque`), so callers pass 1 to land `bin/`, `lib/`
-/// and the rest directly in `out_dir`.
+/// Unpack a `.tar.gz` into `out_dir`, skipping `strip_components` leading
+/// path levels. The release tarball is built with one top-level directory,
+/// so callers pass 1 to land `bin/`, `lib/` and the rest directly in `out_dir`.
 pub fn unpackTarGz(host: *proc.Host, tarball: []const u8, out_dir: Io.Dir, strip_components: u32) Error!void {
     const file = Io.Dir.cwd().openFile(host.io, tarball, .{}) catch {
         host.err("cannot open the downloaded tarball at {s}.", .{tarball});
