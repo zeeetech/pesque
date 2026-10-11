@@ -18,6 +18,7 @@ defmodule Pesque.Migrate do
   alias Pesque.Accounts.User
   alias Pesque.Blob
   alias Pesque.Car
+  alias Pesque.Crawl
   alias Pesque.Migrate.Http
   alias Pesque.Plc
   alias Pesque.RepoImport
@@ -64,7 +65,8 @@ defmodule Pesque.Migrate do
            move_identity(client, old_pds, session.access_jwt, credentials, prompt, plc_token),
          :ok <- note(log, "submitting the plc operation"),
          {:ok, _did} <- Plc.submit_operation(user, operation),
-         :ok <- activate(client, old_pds, session.access_jwt, did, log) do
+         :ok <- activate(client, old_pds, session.access_jwt, did, log),
+         :ok <- announce_crawl(log) do
       :ok
     end
   end
@@ -228,6 +230,23 @@ defmodule Pesque.Migrate do
       log.("activated #{did} and deactivated the old PDS account")
       :ok
     end
+  end
+
+  # A relay learns the account is active only from a live frame, and it hears a
+  # live frame only if it is already crawling this server. The boot announcement
+  # asked once; a migration that leaves the account active but un-crawled is the
+  # failure this asks again for, at the end of the move.
+  defp announce_crawl(log) do
+    case Pesque.crawlers() do
+      [] ->
+        log.("no crawler configured, so no relay was re-asked to crawl this server")
+
+      crawlers ->
+        Crawl.request_all()
+        log.("asked #{Enum.join(crawlers, ", ")} to crawl this server")
+    end
+
+    :ok
   end
 end
 
