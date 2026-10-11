@@ -190,7 +190,13 @@ defmodule Pesque.Lexicon.ExtensionTest do
       Registry.reload()
     end)
 
-    assert Registry.reload() == :ok
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Registry.reload() == :ok
+      end)
+
+    assert log =~ "invalid json"
+    assert log =~ "broken.json"
     assert Registry.knows?("app.bsky.feed.post")
   end
 
@@ -203,8 +209,41 @@ defmodule Pesque.Lexicon.ExtensionTest do
       Registry.reload()
     end)
 
-    assert Registry.reload() == :ok
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Registry.reload() == :ok
+      end)
+
+    # A well-formed document that is not a lexicon reads as "no id", not as a
+    # parse failure: the two are different mistakes to go and fix.
+    assert log =~ "no id"
+    refute log =~ "invalid json"
     assert map_size(Registry.all()) >= 400
+  end
+
+  # "unreadable" on its own is the one skip an operator cannot act on: the file
+  # is there and lists fine from a shell, so what matters is why the server
+  # refused it. A directory named like a lexicon makes File.read fail with
+  # `:eisdir` for any user, root included, which is the portable way to
+  # reproduce the case without a permissions dance.
+  test "a path that cannot be read is skipped and the reason is logged" do
+    path = Path.join(Registry.user_dir(), "directory-not-file.json")
+    File.mkdir_p!(path)
+
+    on_exit(fn ->
+      File.rm_rf(path)
+      Registry.reload()
+    end)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Registry.reload() == :ok
+      end)
+
+    assert log =~ "unreadable"
+    assert log =~ "directory-not-file.json"
+    assert log =~ "eisdir"
+    assert Registry.knows?("app.bsky.feed.post")
   end
 
   # The override path: a copy in data/lexicons wins over the vendored file,

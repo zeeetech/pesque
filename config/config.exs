@@ -6,7 +6,19 @@ import Config
 # reader is actually looking for. Add a key here when you attach a new one.
 config :logger, :default_formatter,
   format: "$time [$level] $message $metadata\n",
-  metadata: [:did, :handle, :route, :reason, :hostname, :mode, :registration, :data_dir]
+  metadata: [
+    :did,
+    :handle,
+    :route,
+    :reason,
+    :path,
+    :count,
+    :records,
+    :hostname,
+    :mode,
+    :registration,
+    :data_dir
+  ]
 
 config :logger, :default_handler, level: :info
 

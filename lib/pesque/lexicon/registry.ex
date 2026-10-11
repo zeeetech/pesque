@@ -92,17 +92,34 @@ defmodule Pesque.Lexicon.Registry do
   defp read(path, acc) do
     case File.read(path) do
       {:ok, body} ->
-        case JSON.decode(body) do
-          {:ok, %{"id" => nsid} = doc} when is_binary(nsid) ->
-            Map.put(acc, nsid, doc)
+        read_body(path, body, acc)
 
-          _ ->
-            Logger.warning("lexicon skipped, no valid id", path: path)
-            acc
-        end
+      # The reason is the whole point of this line. A path that lists fine from a
+      # shell can still be unreadable to the server, and the file that looks
+      # present but is skipped is the one an operator cannot diagnose from
+      # "unreadable" alone: `:eacces` is a permissions problem, `:eisdir` is a
+      # directory named like a lexicon, and the two need different fixes.
+      {:error, reason} ->
+        Logger.warning("lexicon skipped, unreadable", path: path, reason: reason)
+        acc
+    end
+  end
 
-      {:error, _reason} ->
-        Logger.warning("lexicon skipped, unreadable", path: path)
+  # A missing id and a byte the JSON parser refused are different failures: the
+  # first is a well-formed document that is not a lexicon, the second is a file
+  # that is not JSON at all, and telling them apart is what makes a bad copy
+  # distinguishable from a wrong filename.
+  defp read_body(path, body, acc) do
+    case JSON.decode(body) do
+      {:ok, %{"id" => nsid} = doc} when is_binary(nsid) ->
+        Map.put(acc, nsid, doc)
+
+      {:ok, _document} ->
+        Logger.warning("lexicon skipped, no id", path: path)
+        acc
+
+      {:error, reason} ->
+        Logger.warning("lexicon skipped, invalid json", path: path, reason: inspect(reason))
         acc
     end
   end
