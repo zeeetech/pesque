@@ -218,7 +218,9 @@ install_cli() {
 
   # Idempotence: an identical install is left alone, an older one is replaced,
   # a newer one is kept. Equality is decided by sha256 (same tag, same bytes);
-  # the older/newer question by the CLI's own version. Nothing else is touched.
+  # the older/newer question by the CLI's own version. Same version with
+  # different bytes still gets replaced: the installed file may be corrupt,
+  # and "nothing to do" must never keep bad bytes. Nothing else is touched.
   if [ -e "$dest" ]; then
     want="$(sums_entry "$work/SHA256SUMS" "$asset")"
     got="$(sha256_of "$dest")"
@@ -230,13 +232,12 @@ install_cli() {
     target_ver="$(cli_version "$work/$asset")"
     if [ -n "$installed_ver" ] && [ -n "$target_ver" ]; then
       case "$(ver_cmp "$installed_ver" "$target_ver")" in
-        0)
-          note "$dest is already version $installed_ver; nothing to do"
-          return 0
-          ;;
         1)
           note "$dest is version $installed_ver, newer than the latest release ($target_ver); not downgrading"
           return 0
+          ;;
+        0)
+          note "$dest is version $installed_ver but its bytes differ from the $tag release; replacing it"
           ;;
       esac
     fi
@@ -272,13 +273,21 @@ configure_docker_logs() {
 }
 EOF
   note "capped docker logs at 500m x 4 files per container (prevents the disk-full death)"
+  # A failed restart must not abort the install: the unit may be named
+  # differently (snap, distro packaging), so fall through to `service` and
+  # finally to a note. The `if` guards keep `set -e` from firing on failure.
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl restart docker
-  elif command -v service >/dev/null 2>&1; then
-    service docker restart
-  else
-    note "restart the docker daemon by hand to apply log rotation"
+    if systemctl restart docker; then
+      return 0
+    fi
+    note "systemctl restart docker failed; trying 'service docker restart'"
   fi
+  if command -v service >/dev/null 2>&1; then
+    if service docker restart; then
+      return 0
+    fi
+  fi
+  note "could not restart the docker daemon; restart it by hand to apply the log rotation"
 }
 
 # "PDS_HOSTNAME=x PDS_MODE=y " or empty; prepended to the handoff command.
@@ -366,7 +375,9 @@ backend_systemd() {
       [ -n "$mode" ] && printf 'PDS_MODE=%s\n' "$mode"
       true
     } >"$envfile"
-    chmod 644 "$envfile"
+    # 0600 root-owned: the systemd manager (root) and the CLI's root run_once
+    # are the only readers; other users have no business with the settings.
+    chmod 600 "$envfile"
   fi
 
   unit="$sysroot/etc/systemd/system/pesque.service"

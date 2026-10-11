@@ -30,5 +30,9 @@ Environment=PESQUE_BACKEND=systemd
 ExecStartPre=/usr/bin/install -d -m 0700 -o pesque -g pesque /var/backups/pesque
 ExecStart=/usr/local/bin/pesque backup --out /var/backups/pesque
 ExecStart=/usr/local/bin/pesque update
+# PrivateTmp is safe here because the CLI hands the manager its run-once
+# environment mirror under /run, which PrivateTmp does not hide. Older CLIs
+# mirrored it under $TMPDIR and this unit then failed to load: keep the CLI
+# at the release that ships with the unit.
 PrivateTmp=true
 NoNewPrivileges=true
