@@ -9,11 +9,11 @@ defmodule PesqueWeb.MetricsController do
   other pair of secrets this server puts side by side.
 
   It runs behind the read budget like every other GET, so a scrape flood is
-  refused by the rate limiter before it costs a snapshot. The endpoint is
-  for the operator's own collector and is not published by Caddy: the
-  monitoring stack reaches it over the compose network, and anything further
-  away over an SSH tunnel. See "Metrics and monitoring" in
-  docs/guides/operations.md.
+  refused by the rate limiter before it costs a snapshot. Caddy proxies the
+  whole host, so this route is reachable through it like any other: the token,
+  and the 404 when it is unset, is the gate, not the network. The monitoring
+  stack reaches it over the compose network, and anything further away over an
+  SSH tunnel. See "Metrics and monitoring" in docs/guides/operations.md.
   """
 
   use Phoenix.Controller, formats: [:json]
