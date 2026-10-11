@@ -1,7 +1,25 @@
-# Caddy gets a certificate for the host and proxies everything to the server,
-# including the firehose websocket: reverse_proxy upgrades it without extra
-# configuration.
-{$PDS_HOSTNAME} {
+# Caddy gets a certificate for the server's own host, and one on demand for
+# every subdomain of it, then proxies everything to the server, including the
+# firehose websocket: reverse_proxy upgrades it without extra configuration.
+#
+# The on-demand part is what makes a multi-user install work out of the box.
+# Under mode = path_multi accounts get handles like alice.pds.example.com, and
+# a handshake for such a name makes Caddy ask the server whether a certificate
+# may be issued for it. The ask endpoint answers 200 for the hostname and for
+# handles the server hosts, 403 for anything else, so no name earns a
+# certificate without an account behind it. Certificates come through the
+# ordinary HTTP-01 challenge: no wildcard certificate to buy and no DNS-01
+# provider to wire up.
+{
+	on_demand_tls {
+		ask http://pesque:4000/xrpc/_tls-check
+	}
+}
+
+{$PDS_HOSTNAME}, *.{$PDS_HOSTNAME} {
 	encode zstd gzip
+	tls {
+		on_demand
+	}
 	reverse_proxy pesque:4000
 }

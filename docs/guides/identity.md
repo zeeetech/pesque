@@ -127,6 +127,19 @@ or `https://alice.example.com/.well-known/atproto-did`), not at the PDS host, so
 the operator publishes a TXT record per handle (or a wildcard) rather than
 pointing every handle subdomain at the server.
 
+A hosted handle is also a name clients fetch over HTTPS, so each one needs a
+certificate. The shipped `Caddyfile` provides those without a wildcard
+certificate and without DNS-01: it serves the hostname and every subdomain of
+it with on-demand TLS, and before issuing anything Caddy asks the server
+whether the name is one it owns
+(`GET /xrpc/_tls-check?domain=<name>` answers 200 for the hostname and for
+handles the accounts table carries, 403 for everything else). This covers the
+`path_multi` default, where the handle domain is the hostname and handles look
+like `alice.pds.example.com`. A handle domain set apart from the hostname
+needs its own on-demand site label in the proxy config; the ask endpoint
+allows the names either way, because a hosted handle is a hosted handle
+whatever its domain is.
+
 ## did:plc
 
 `PDS_IDENTITY=plc` mints accounts through the PLC directory instead of deriving

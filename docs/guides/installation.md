@@ -183,8 +183,40 @@ only by the proxy on the same host or a tunnel.
 Required for federation, and required for the rate limits to mean anything
 (see [Operations](operations.md#rate-limits-and-the-proxy)).
 
+The shipped `Caddyfile` serves the hostname and every subdomain of it with
+on-demand TLS: Caddy mints a per-name certificate the first time a client
+handshakes for that name, after asking the server whether the name is one it
+owns. `GET /xrpc/_tls-check?domain=<name>` answers 200 for the server's own
+hostname and for handles the accounts table carries, and 403 for anything
+else, which is Caddy's signal not to issue. Every certificate comes through
+the ordinary HTTP-01 challenge, so there is no wildcard certificate to buy
+and no DNS-01 provider to wire up. Under `mode = path_multi` this is what
+makes `alice.<hostname>` handles reachable over TLS with nothing to
+reconfigure per account: point `<hostname>` (or `*.<hostname>`) at the
+server, and certificates appear as clients reach the names.
+
+The ask endpoint is public on purpose and adds no configuration: handle
+existence is already public (resolveHandle answers the same question), so a
+gate would hide nothing, and the route runs under the read budget. A handle
+domain you set apart from the hostname needs its own on-demand site label
+beside the wildcard, since the ask endpoint allows the name but Caddy only
+matches the labels it is given.
+
+A Caddy you run yourself, proxying a server on the same host, is the same
+shape with a loopback ask endpoint:
+
 ```caddyfile
-pds.example.com {
+{
+	on_demand_tls {
+		ask http://127.0.0.1:4000/xrpc/_tls-check
+	}
+}
+
+pds.example.com, *.pds.example.com {
+	encode zstd gzip
+	tls {
+		on_demand
+	}
 	reverse_proxy 127.0.0.1:4000
 }
 ```
@@ -193,7 +225,9 @@ nginx needs the same proxy, plus `proxy_http_version 1.1`, the `Upgrade` and
 `Connection` headers, `proxy_read_timeout 3600s` and `proxy_buffering off`,
 because the firehose stays open indefinitely. `Connection` needs a
 `map $http_upgrade $connection_upgrade { default upgrade; '' close; }` at the
-`http` level.
+`http` level. nginx has no on-demand issuance of its own, so for
+`path_multi` handles point a wildcard DNS record at it and terminate TLS for
+the wildcard name with a certificate covering `*.<hostname>`.
 
 ## Configuration
 
@@ -244,7 +278,11 @@ docker compose restart pesque
 | `PDS_CRAWLER` | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
 | `PDS_BLOB_UPLOAD_LIMIT` | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `PDS_REPO_IMPORT_LIMIT` | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
+| `PDS_PROXY_TIMEOUT` | `proxy_timeout` | `15000` | How long a proxied call may take before it is answered 504, in milliseconds |
+| `PDS_PROXY_RESPONSE_LIMIT` | `proxy_response_limit` | `10485760` (10 MiB) | Largest body a proxied call may return |
 | `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `path_multi` |
+| `PDS_PRIVACY_POLICY_URL` | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
+| `PDS_TERMS_OF_SERVICE_URL` | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
 
 `port` is where the process binds; `url_scheme` and `url_port` are what it
 advertises. Behind a proxy, listening on 4000 and advertising 443 is correct.

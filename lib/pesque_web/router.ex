@@ -5,6 +5,16 @@ defmodule PesqueWeb.Router do
     get "/_health", HealthController, :show
   end
 
+  # Caddy's on-demand TLS consults this before issuing any certificate under
+  # the wildcard, so it has to be public and cheap: a name is allowed because
+  # an account row says so, which is the same fact resolveHandle already
+  # publishes, and the read budget is the whole cost of one indexed lookup.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :read_limits
+
+    get "/_tls-check", TlsCheckController, :show
+  end
+
   # Routes are compiled, mode is configured at boot, so a path_multi server
   # carries the conformant_single routes too and the controller decides.
   scope "/", PesqueWeb.Xrpc do
