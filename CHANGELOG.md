@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0](https://github.com/zeeetech/pesque/compare/pesque-v1.3.3...pesque-v1.4.0) (2026-10-10)
+
+
+### Features
+
+* **migrate:** keep blobs already stored on a re-run ([f9dac75](https://github.com/zeeetech/pesque/commit/f9dac7504788c3b3cecb434f26b29a25df1439cf))
+* **migrate:** report progress through the move ([84b3f9a](https://github.com/zeeetech/pesque/commit/84b3f9a6146a129a0b5296b59620344c9f7a5be9))
+
+
+### Bug Fixes
+
+* **migrate:** follow the old pds redirect on sync reads ([a4f6840](https://github.com/zeeetech/pesque/commit/a4f6840eafa0515a7bb24d09b1fcdc7174bb70b7))
+* **migrate:** read every listBlobs page, not just the first ([4f0de6d](https://github.com/zeeetech/pesque/commit/4f0de6d5333c14a7d32c282d9257cf850ee71880))
+* **migrate:** request the plc code with no body ([fb8628f](https://github.com/zeeetech/pesque/commit/fb8628fce8381ef289a26d2f8dd54e91a3356642))
+* **migrate:** sign the plc operation in the identity namespace ([f1b73f8](https://github.com/zeeetech/pesque/commit/f1b73f830d2258a1a1db8616cd798799192ef143))
+
 ## [1.3.3](https://github.com/zeeetech/pesque/compare/pesque-v1.3.2...pesque-v1.3.3) (2026-10-10)
 
 
