@@ -2,10 +2,6 @@ defmodule PesqueWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :pesque
 
   plug Plug.RequestId
-  # The stop half of this pair is what Pesque.Metrics counts requests from.
-  # log: false because Phoenix.Logger also listens on this event and Plug.Logger
-  # below is already the request log; without it every request would be logged twice.
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint], log: false
   plug Plug.Logger
   plug PesqueWeb.Plugs.SecurityHeaders
   plug PesqueWeb.Plugs.Cors

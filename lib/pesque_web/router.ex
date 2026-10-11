@@ -5,16 +5,6 @@ defmodule PesqueWeb.Router do
     get "/_health", HealthController, :show
   end
 
-  # The server's own Prometheus exposition, for the operator's collector.
-  # Not under /xrpc: it is this server's ops surface, not an ATProto method.
-  # Off answers 404 and on takes the bearer token in the controller; the read
-  # budget applies to it like to every other GET. See PesqueWeb.MetricsController.
-  scope "/", PesqueWeb do
-    pipe_through :read_limits
-
-    get "/metrics", MetricsController, :show
-  end
-
   # Caddy's on-demand TLS consults this before issuing any certificate under
   # the wildcard, so it has to be public and cheap: a name is allowed because
   # an account row says so, which is the same fact resolveHandle already

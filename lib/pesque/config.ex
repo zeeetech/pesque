@@ -61,8 +61,6 @@ defmodule Pesque.Config do
      "Your own privacy policy, published by describeServer. Unset means the\nlinks map omits it, which is right when you have none to stand behind."},
     {"terms_of_service_url", "https://example.com/terms", :default,
      "Your own terms of service, published by describeServer. Unset means the\nlinks map omits it."},
-    {"metrics_token", "", :default,
-     "The token GET /metrics requires as its bearer, which is the server's\nPrometheus exposition. Empty (the default) turns the endpoint off: it\nanswers 404. The endpoint is for your own collector, unpublished by\nCaddy; see Metrics and monitoring in docs/guides/operations.md."},
     {"serve", "true", :default,
      "Whether to start the HTTP endpoint. The one-off verbs set PDS_SERVE=false\nso they do not fight the running server for the port; leave this unset."}
   ]

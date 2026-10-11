@@ -9,9 +9,7 @@ defmodule Pesque.Events do
   what makes cursor replay order the two together.
   """
 
-  alias Pesque.CBOR
   alias Pesque.EventFrames
-  alias Pesque.Metrics
   alias Pesque.Repo
   alias Pesque.RepoStore
 
@@ -27,27 +25,9 @@ defmodule Pesque.Events do
 
   @doc "Pushes an already-persisted frame to every connected socket."
   def broadcast(frame) do
-    count_commit_frame(frame)
-
     Registry.dispatch(Pesque.EventRegistry, :firehose, fn listeners ->
       for {pid, _} <- listeners, do: send(pid, {:firehose_frame, frame})
     end)
-  end
-
-  # The type lives in the frame's header, the same small prefix the firehose
-  # socket reads its seq out of. Every frame here was built by this server, so
-  # the decode cannot fail; a raise would take the commit caller down over a
-  # metric, so anything unreadable is simply not counted.
-  defp count_commit_frame(frame) do
-    {header, _rest} = CBOR.decode(frame)
-
-    if header["t"] == "#commit" do
-      Metrics.inc(:firehose_commit_frames)
-    end
-
-    :ok
-  rescue
-    ArgumentError -> :ok
   end
 
   defp emit(did, build) do

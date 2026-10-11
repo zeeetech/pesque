@@ -80,12 +80,6 @@ registration = closed
 # links map omits it.
 # terms_of_service_url = https://example.com/terms
 
-# The token GET /metrics requires as its bearer, which is the server's
-# Prometheus exposition. Empty (the default) turns the endpoint off: it
-# answers 404. The endpoint is for your own collector, unpublished by
-# Caddy; see Metrics and monitoring in docs/guides/operations.md.
-# metrics_token =
-
 # Whether to start the HTTP endpoint. The one-off verbs set PDS_SERVE=false
 # so they do not fight the running server for the port; leave this unset.
 # serve = true
