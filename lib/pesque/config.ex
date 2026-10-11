@@ -221,7 +221,12 @@ defmodule Pesque.Config do
       |> String.split("\n")
       |> Enum.map_join("\n", &("# " <> &1))
 
-    line = if shown == :set, do: "#{key} = #{value}", else: "# #{key} = #{value}"
+    line =
+      cond do
+        shown == :set -> "#{key} = #{value}"
+        value == "" -> "# #{key} ="
+        true -> "# #{key} = #{value}"
+      end
 
     comment <> "\n" <> line <> "\n\n"
   end
