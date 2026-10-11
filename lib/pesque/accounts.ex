@@ -17,6 +17,7 @@ defmodule Pesque.Accounts do
   alias Pesque.Repo
   alias Pesque.RepoServer
   alias Pesque.RepoStore
+  alias Pesque.RepoSupervisor
   alias Pesque.Storage
 
   require Logger
@@ -430,14 +431,34 @@ defmodule Pesque.Accounts do
   Reactivates a deactivated account and announces it.
 
   Reverses deactivate_account/1. The repo was never torn down, so this is the
-  row moving back and nothing else.
+  row moving back and nothing else. The announcement is the `#account` frame
+  followed by an empty commit: the spec pairs the two on reactivation, because
+  a consumer that attached to the firehose live has only what arrives after it,
+  and only a commit moves the repo it is serving.
   """
   def activate_account(%User{} = user) do
     with :ok <- verify_identity(user),
          {:ok, _user} <- set_active(user, true) do
-      Events.emit_account(user.did, :activated)
+      announce_active(user.did)
       {:ok, user.did}
     end
+  end
+
+  @doc """
+  Announces an already-active account without changing it: the `#account` frame
+  and the empty commit, the announcement activate_account/1 makes after it flips
+  the row.
+
+  Used at the end of a migration, after the account is active here and the old
+  PDS has been deactivated, so this PDS's activation is the last account event
+  for the DID on the wire. A consumer that applies the deactivation the old PDS
+  still emits (the spec says it should not; the AppView does) otherwise ends
+  with the account marked deactivated.
+  """
+  def announce_active(did) when is_binary(did) do
+    Events.emit_account(did, :activated)
+    announce_head(did)
+    :ok
   end
 
   @doc """
@@ -490,6 +511,35 @@ defmodule Pesque.Accounts do
     case User.active_changeset(user, active) |> Repo.update() do
       {:ok, updated} -> {:ok, updated}
       {:error, _changeset} -> {:error, :account_not_updated}
+    end
+  end
+
+  # The migration spec asks a reactivated account to put a `#commit` next to the
+  # `#account` frame, so a consumer that attached to the firehose live sees the
+  # repo move. Without it a relay that never ingests anything leaves the host at
+  # `offline` forever: the account is active here and invisible on the network,
+  # which is what a migrated account looked like. Best effort, like the frame
+  # above: the account is already active, and a head that cannot advance is a
+  # storage problem to log rather than a failed activation.
+  defp announce_head(did) do
+    case RepoSupervisor.ensure_started(did) do
+      {:ok, pid} ->
+        case RepoServer.announce(pid) do
+          {:ok, _result} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("empty commit on activation failed",
+              did: did,
+              reason: inspect(reason)
+            )
+        end
+
+      {:error, reason} ->
+        Logger.warning("repo could not start to announce activation",
+          did: did,
+          reason: inspect(reason)
+        )
     end
   end
 
