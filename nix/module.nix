@@ -27,6 +27,11 @@
 # a unit. Stop pesque and run the verb by hand as the pesque user, pointing
 # PDS_CONFIG at the same conf the service runs (`systemctl cat pesque` shows
 # both store paths).
+#
+# The host-side CLI is installed on PATH by default (the flake builds it with a
+# pinned Zig and turns the option on). It finds the release and the config from
+# the running unit, so `sudo pesque doctor`, `sudo pesque account list` and the
+# rest reach this server. The lifecycle verbs no-op here: NixOS owns the unit.
 {
   config,
   lib,
@@ -258,6 +263,23 @@ in
         proxy on the loopback or the private interface.
       '';
     };
+
+    cli = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Install the host-side CLI on the system PATH. The flake turns this on
+          with a pinned build; importing this module directly leaves it off.
+        '';
+      };
+
+      package = mkOption {
+        type = types.nullOr types.package;
+        default = null;
+        description = "The CLI package to install.";
+      };
+    };
   };
 
   config = mkIf cfg.enable {
@@ -333,6 +355,9 @@ in
     };
 
     systemd.services.pesque-backup = taskService { exec = "backup"; };
+
+    environment.systemPackages =
+      mkIf (cfg.cli.enable && cfg.cli.package != null) [ cfg.cli.package ];
 
     networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.port ];
   };
