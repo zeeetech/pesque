@@ -28,6 +28,12 @@ config :pesque, PesqueWeb.Endpoint,
 
 config :pesque, ecto_repos: [Pesque.Repo]
 
+# The boot warnings speak to an operator of a real deployment: an IP hostname, a
+# non-HTTPS base URL, a closed server with no account yet. Under test all three
+# hold by construction, and the boot runs before ExUnit starts capturing, so
+# they are off rather than printed as noise no test asked for.
+config :pesque, boot_warnings: config_env() != :test
+
 config :phoenix, :json_library, JSON
 
 # The same library for the adapter, which defaults to Jason to store its array

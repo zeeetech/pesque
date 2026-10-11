@@ -8,6 +8,10 @@ defmodule Pesque.MixPesqueTest do
 
   use ExUnit.Case, async: false
 
+  # The create task prints the account and its DNS records, as it does on a real
+  # boot. Capture it so the suite output stays clean.
+  import ExUnit.CaptureIO
+
   # `Mix.Pesque` is spelled out below on purpose: an alias of it would shadow
   # the `Pesque.` root this module's DataCase reference needs.
   describe "split_password/1" do
@@ -66,14 +70,16 @@ defmodule Pesque.MixPesqueTest do
     test "creates the account with the value carried by env, never argv" do
       handle = unique("argvsafe")
 
-      Mix.Tasks.Pesque.CreateAccount.run([
-        "--handle",
-        handle <> ".localhost",
-        "--email",
-        "argvsafe@localhost",
-        "--password",
-        "secret123-secret"
-      ])
+      capture_io(fn ->
+        Mix.Tasks.Pesque.CreateAccount.run([
+          "--handle",
+          handle <> ".localhost",
+          "--email",
+          "argvsafe@localhost",
+          "--password",
+          "secret123-secret"
+        ])
+      end)
 
       assert {:ok, _user} =
                Pesque.Accounts.verify_login(handle <> ".localhost", "secret123-secret")
@@ -88,16 +94,18 @@ defmodule Pesque.MixPesqueTest do
       System.put_env("PESQUE_TEST_PASSWORD", "env-password-1")
       on_exit(fn -> System.delete_env("PESQUE_TEST_PASSWORD") end)
 
-      Mix.Tasks.Pesque.CreateAccount.run([
-        "--handle",
-        handle <> ".localhost",
-        "--email",
-        "precedence@localhost",
-        "--password",
-        "flag-password-1",
-        "--password-env",
-        "PESQUE_TEST_PASSWORD"
-      ])
+      capture_io(fn ->
+        Mix.Tasks.Pesque.CreateAccount.run([
+          "--handle",
+          handle <> ".localhost",
+          "--email",
+          "precedence@localhost",
+          "--password",
+          "flag-password-1",
+          "--password-env",
+          "PESQUE_TEST_PASSWORD"
+        ])
+      end)
 
       assert {:ok, _user} =
                Pesque.Accounts.verify_login(handle <> ".localhost", "flag-password-1")

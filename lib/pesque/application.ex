@@ -80,7 +80,11 @@ defmodule Pesque.Application do
   # up and nothing can resolve it. Name them at boot rather than leaving a
   # client to discover them later.
   defp boot_warnings do
-    hostname_warning() ++ scheme_warning() ++ registration_warning()
+    if Application.get_env(:pesque, :boot_warnings, true) do
+      hostname_warning() ++ scheme_warning() ++ registration_warning()
+    else
+      []
+    end
   end
 
   defp hostname_warning do
