@@ -196,12 +196,14 @@ the store and pointed at with `PDS_CONFIG`, so they are the whole configuration;
 `services.pesque.dataDir` (default `/var/lib/pesque`) is the whole server, the
 same one file and one directory as everywhere else.
 
-The operator tasks are oneshot units against the same data directory:
+The operator tasks are oneshot units that run the release verbs against the
+same data directory:
 
 ```bash
 systemctl start pesque-doctor
 systemctl start pesque-account   # reads /var/lib/pesque/account.env
 systemctl start pesque-migrate   # reads /var/lib/pesque/migrate.env
+systemctl start pesque-backup    # writes pesque-backup-<stamp>.tar.gz into /var/lib/pesque
 ```
 
 Create the env file first, so the password never lands in the Nix store:
@@ -219,6 +221,19 @@ oneshot has no terminal to prompt on, so `pesque-migrate` is started twice: the
 first start emails the code, then `MIGRATE_PLC_TOKEN` is added to the env file
 and the second start completes the move. See
 [Migration](migration.md#on-nixos).
+
+`pesque-backup` is safe to start while the server is up: the database is
+snapshotted first and the archive lands in `dataDir`. A restore swaps the data
+directory in place, so there is no unit for it: stop the server and run the
+verb by hand as the `pesque` user, with the same `PDS_CONFIG` the service runs
+(`systemctl cat pesque` shows both store paths):
+
+```bash
+systemctl stop pesque
+sudo -u pesque env PDS_CONFIG=/nix/store/<...>-pesque.conf \
+  /nix/store/<...>-pesque/bin/pesque restore /var/lib/pesque/pesque-backup-*.tar.gz
+systemctl start pesque
+```
 
 The server speaks plain HTTP and expects a TLS proxy, exactly as in Docker.
 `services.pesque.openFirewall` is off by default: the port should be reachable

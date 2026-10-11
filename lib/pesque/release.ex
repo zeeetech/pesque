@@ -1,5 +1,5 @@
 defmodule Pesque.Release do
-  @moduledoc "Release support: task bootstrap, the migration runner, and the first account."
+  @moduledoc "Release support: task bootstrap, the boot-time migration, and the account printer."
 
   @doc """
   Starts the application for a one-off release task.
@@ -24,75 +24,6 @@ defmodule Pesque.Release do
     else
       {:ok, _, _} = Ecto.Migrator.with_repo(Pesque.Repo, fn _repo -> run() end)
       :ok
-    end
-  end
-
-  @doc """
-  Creates the first account from `ACCOUNT_HANDLE`, `ACCOUNT_EMAIL` and
-  `ACCOUNT_PASSWORD`, then prints what to do next.
-
-  The release-friendly entry behind `scripts/pesque account`: the container
-  image carries no Mix, so the wrapper calls this through `bin/pesque eval`
-  rather than a mix task. Answers `:ok` or `:error`, and a caller that has to
-  set an exit code can do it off the answer.
-  """
-  def create_account_from_env do
-    case Pesque.Accounts.create_account(
-           System.get_env("ACCOUNT_HANDLE"),
-           System.get_env("ACCOUNT_EMAIL"),
-           System.get_env("ACCOUNT_PASSWORD")
-         ) do
-      {:ok, account} ->
-        print_account(account)
-        :ok
-
-      {:error, reason} ->
-        IO.puts(:stderr, "Could not create the account: #{describe_error(reason)}")
-        :error
-    end
-  end
-
-  @doc """
-  Runs the account move from the `MIGRATE_*` environment, the release-friendly
-  entry behind `pesque-migrate`.
-
-  The move stops at the PLC step for a code the account holder receives by
-  email, and a systemd oneshot has no terminal to prompt on. So the step is
-  split: with no `MIGRATE_PLC_TOKEN`, this asks the old PDS to email the code
-  and returns; with the code set, it runs the move using it. Answers `:ok` or
-  `:error` so a caller can set an exit code off the answer.
-  """
-  def migrate_from_env do
-    opts = [
-      old_pds: System.get_env("MIGRATE_OLD_PDS"),
-      handle: System.get_env("MIGRATE_HANDLE"),
-      email: System.get_env("MIGRATE_EMAIL"),
-      password: System.get_env("MIGRATE_PASSWORD")
-    ]
-
-    case System.get_env("MIGRATE_PLC_TOKEN") do
-      token when is_binary(token) and token != "" ->
-        case Pesque.Migrate.run(opts ++ [plc_token: token]) do
-          :ok ->
-            IO.puts("migration complete")
-            :ok
-
-          {:error, reason} ->
-            IO.puts(:stderr, "migration failed: " <> describe_error(reason))
-            :error
-        end
-
-      _ ->
-        case Pesque.Migrate.request_plc_code(opts) do
-          :ok ->
-            IO.puts("a PLC operation code was emailed to the account holder")
-            IO.puts("set MIGRATE_PLC_TOKEN in migrate.env, then run pesque-migrate again")
-            :ok
-
-          {:error, reason} ->
-            IO.puts(:stderr, "could not request the PLC code: " <> describe_error(reason))
-            :error
-        end
     end
   end
 
@@ -230,7 +161,7 @@ defmodule Pesque.Release do
 
   @doc """
   Prints the account and what to do next, the part of account creation the
-  account verbs and create_account_from_env share.
+  account verbs share.
   """
   def print_account(account) do
     IO.puts("")
