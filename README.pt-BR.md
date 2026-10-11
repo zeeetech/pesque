@@ -70,8 +70,11 @@ curl http://localhost:4000/xrpc/_health
 Pra hospedar uma conta:
 
 ```bash
-mix pesque.create_account --handle alice.example.com --email alice@example.com
+mix pesque.account create --handle alice.example.com --email alice@example.com
 ```
+
+`mix pesque.create_account` é a mesma task com o nome antigo, mantida pra guias
+e scripts mais velhos continuarem funcionando.
 
 As migrações rodam no boot e o `_health` consulta a tabela de usuários, então um
 servidor cujas migrações nunca rodaram responde `503` em vez de um ok alegre.
@@ -90,21 +93,32 @@ assina a mudança) e consentimento granular no OAuth.
 Os guias são só em inglês. Este README tem espelho em
 [English](README.md).
 
-## Convenções antes de ler o código
+## Perguntas comuns
 
-- Tudo que tem cara de protocolo é puro: `Pesque.CBOR`, `Pesque.CID`,
-  `Pesque.Mst`, `Pesque.Car`, `Pesque.Commit` e `Pesque.Lexicon.Validate`
-  recebem os argumentos, não tocam em processo nenhum, e levantam ou respondem
-  em vez de logar.
-- Tudo que encosta no mundo real mora em `Pesque.RepoStore` (SQL),
-  `Pesque.Storage` e `Pesque.Keys` (arquivos), `Pesque.Accounts` (domínio) e
-  `PesqueWeb.*` (HTTP).
-- Um processo por repositório, guardando o mapa de entradas e a chave de
-  assinatura. As escritas são serializadas por ele.
-- Razões de domínio são tuplas com tag. `PesqueWeb.Xrpc.Errors` é o único lugar
-  onde uma vira status e mensagem.
+- **Como consigo um servidor?** O instalador: [Faz o deploy](#faz-o-deploy).
+  Compose com Caddy por padrão, systemd ou Docker cru como flags.
+- **Como adiciono outra conta?**
+  `pesque account create --handle alice.example.com --email alice@example.com` -
+  pede a senha com echo desligado.
+- **Como faço backup e restauro?** `pesque backup [--out DIR]` roda com o
+  servidor no ar; `pesque restore ARQUIVO.tar.gz` pede o servidor parado.
+  [Operação](docs/guides/operations.md) tem o cronograma e os riscos.
+- **Como atualizo?** `pesque update` puxa uma imagem nova e reinicia.
+- **Como movo uma conta pra cá?** `pesque migrate --old-pds https://bsky.social
+  --handle alice.example.com --email alice@example.com`; a mudança é uma via.
+  [Migração](docs/guides/migration.md) tem a dança completa.
+- **Como movo uma conta pra fora?** Ainda não dá: este PDS não assina a
+  mudança (`signPlcOperation`).
+- **Onde fica o endpoint de métricas?** `GET /metrics`, formato Prometheus.
+  404 até `metrics_token` ser configurado, e o Caddy nunca publica.
+- **Onde fica o código?** Aqui. As primitivas de protocolo moram em
+  `lib/pesque` de propósito; [Arquitetura](docs/reference/architecture.md) é o
+  mapa.
 
-O código é a fonte da verdade. Onde estes docs discordam dele, o código manda.
+## Contribuindo
+
+Leia o [CONTRIBUTING.md](CONTRIBUTING.md) antes do código: setup de dev, a
+régua do `mix precommit` e as convenções que a árvore espera.
 
 ## Licença
 
