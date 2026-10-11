@@ -138,7 +138,8 @@ handles the accounts table carries, 403 for everything else). This covers the
 like `alice.pds.example.com`. A handle domain set apart from the hostname
 needs its own on-demand site label in the proxy config; the ask endpoint
 allows the names either way, because a hosted handle is a hosted handle
-whatever its domain is.
+whatever its domain is. The proxy configuration for all of this, Caddy and
+nginx both, is in [Installation](installation.md#behind-a-tls-proxy).
 
 ## did:plc
 

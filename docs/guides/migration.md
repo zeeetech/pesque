@@ -14,24 +14,23 @@ new one.
 identity step, which the old PDS has to sign:
 
 ```bash
-PASSWORD='...' mix pesque.migrate \
-  --old-pds https://bsky.social \
-  --handle zoedsoupe.zeetech.io \
-  --email zoedsoupe@example.com \
-  --password-env PASSWORD
-```
-
-In the container the mix task does not exist, so the wrapper runs the release
-equivalent (with stdin attached for the code prompt):
-
-```bash
-PASSWORD='...' scripts/pesque migrate \
+MIGRATE_PASSWORD='...' mix pesque.migrate \
   --old-pds https://bsky.social \
   --handle zoedsoupe.zeetech.io \
   --email zoedsoupe@example.com
 ```
 
-The wrapper drives compose by default and a container you already run with
+In the container the mix task does not exist, so the `pesque` CLI runs the
+release equivalent (with stdin attached for the code prompt):
+
+```bash
+MIGRATE_PASSWORD='...' pesque migrate \
+  --old-pds https://bsky.social \
+  --handle zoedsoupe.zeetech.io \
+  --email zoedsoupe@example.com
+```
+
+The CLI drives compose by default and a container you already run with
 `PESQUE_BACKEND=docker`; both attach a terminal so the code prompt can be
 answered. Both are in the [installation guide](installation.md).
 
@@ -51,7 +50,7 @@ submission can be re-run: the account is reused rather than recreated.
 
 `services.pesque` runs the move as the `pesque-migrate` oneshot, which has no
 terminal to prompt on. So the code step is split across two starts, both driven
-by `/zdata/pesque/migrate.env`:
+by `/var/lib/pesque/migrate.env` (`dataDir`, where `account.env` lives too):
 
 ```sh
 sudo systemctl start pesque-migrate   # asks the old PDS to email the code
@@ -175,5 +174,6 @@ curl -s -X POST https://old.example.com/xrpc/com.atproto.server.deactivateAccoun
 - A handle this server itself hosts needs a DNS record for the name (a wildcard
   `*.<handle-domain>` or one per handle). The shipped Caddyfile issues the
   certificate on demand, so there is no wildcard certificate to buy and no
-  DNS-01 provider to wire up. A handle on a domain you do not control is
-  verified by a TXT record instead.
+  DNS-01 provider to wire up; the proxy setup is in
+  [Installation](installation.md#behind-a-tls-proxy). A handle on a domain you
+  do not control is verified by a TXT record instead.

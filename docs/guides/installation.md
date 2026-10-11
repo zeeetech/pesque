@@ -124,8 +124,10 @@ pesque logs -f         # follow the server logs
 
 `account create` and `migrate` prompt for the password with echo off when it
 is not in the environment (`ACCOUNT_PASSWORD`, `MIGRATE_PASSWORD`, or
-`--password-env VAR`), so it does not land in your shell history. The image
-carries a release, not Mix, so the mix tasks in this guide do not run inside
+`--password-env VAR`), so it does not land in your shell history. The move
+itself is the [Migration guide](migration.md), and what `update` and its
+rollback are is [Operations](operations.md#automatic-updates). The image
+carries a release, not Mix, so the mix task in this guide does not run inside
 the container; `pesque` runs the release equivalents.
 
 ### Docker without Compose
@@ -223,7 +225,9 @@ and the second start completes the move. See
 [Migration](migration.md#on-nixos).
 
 `pesque-backup` is safe to start while the server is up: the database is
-snapshotted first and the archive lands in `dataDir`. A restore swaps the data
+snapshotted first and the archive lands in `dataDir`. What the archive holds,
+and how a restore swaps it in, is in
+[Backup and restore](operations.md#backup-and-restore). A restore swaps the data
 directory in place, so there is no unit for it: stop the server and run the
 verb by hand as the `pesque` user, with the same `PDS_CONFIG` the service runs
 (`systemctl cat pesque` shows both store paths):
@@ -344,6 +348,7 @@ docker compose restart pesque
 | `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `path_multi` |
 | `PDS_PRIVACY_POLICY_URL` | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
 | `PDS_TERMS_OF_SERVICE_URL` | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
+| `PDS_METRICS_TOKEN` | `metrics_token` | empty | Bearer token `GET /metrics` requires. Empty (the default) turns the endpoint off: it answers 404. See [Operations](operations.md#metrics-and-monitoring) |
 
 `port` is where the process binds; `url_scheme` and `url_port` are what it
 advertises. Behind a proxy, listening on 4000 and advertising 443 is correct.
@@ -358,7 +363,7 @@ which skips the invite requirement:
 ```bash
 export PESQUE_PASSWORD=secret123
 
-mix pesque.create_account \
+mix pesque.account create \
   --handle alice.example.com \
   --email alice@example.com \
   --password-env PESQUE_PASSWORD

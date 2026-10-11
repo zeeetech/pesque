@@ -57,6 +57,8 @@ lib/pesque/repo_supervisor.ex   finds and starts them
 lib/pesque/events.ex            the firehose log outside a commit
 lib/pesque/event_reaper.ex      daily retention sweeps
 lib/pesque/rate_limit.ex        fixed-window counters in a public ETS table
+lib/pesque/metrics.ex           the /metrics counters and snapshot, in a public ETS table
+lib/pesque/metrics/format.ex    the Prometheus text exposition of a snapshot, pure
 lib/pesque/did_resolver.ex      did:web and did:plc document resolution
 lib/pesque/handle_resolver.ex   DNS TXT and well-known handle resolution
 lib/pesque/service_auth.ex      ES256K service-auth tokens, mint and verify
@@ -76,6 +78,9 @@ lib/pesque/config.ex            the pesque.conf layer: environment, file, defaul
 lib/pesque/backup.ex            the tar backup, live-safe, and the cold restore
 lib/pesque/ops.ex               the host-side driver contract, implemented in cli/ (Zig)
 lib/pesque/cli.ex               verb dispatch: bin/pesque <verb> and the mix tasks
+lib/pesque/cli/*.ex             one module per verb, plus the shared input rules
+lib/mix/pesque.ex               the pesque.* tasks: boot without the endpoint, run the verb
+lib/mix/release_steps.ex        installs the bin/pesque verb wrapper at release time
 ```
 
 `Pesque.RepoStore` is the only module allowed to write SQL, and the only place
@@ -90,6 +95,7 @@ lib/pesque_web/router.ex        every route, and where the rate limits live
 lib/pesque_web/xrpc.ex          the error shape
 lib/pesque_web/xrpc/errors.ex   domain reason to status and message
 lib/pesque_web/xrpc/*_controller.ex
+lib/pesque_web/metrics_controller.ex  GET /metrics, off (404) until metrics_token is set
 lib/pesque_web/firehose.ex      the websocket
 lib/pesque_web/plugs/*.ex       auth, admin, CORS, rate limit, security headers
 lib/pesque_web/oauth/*.ex       PAR, the authorize page, token, revocation, metadata
@@ -107,6 +113,7 @@ decided.
 Pesque.Supervisor (one_for_one)
 ├── Pesque.Repo                  SQLite, WAL, busy timeout 5s
 ├── Pesque.RateLimit             owns one public ETS table
+├── Pesque.Metrics               owns the metrics ETS table, and the telemetry attachment
 ├── Registry (duplicate)         Pesque.EventRegistry, firehose listeners
 ├── Registry (unique)            Pesque.RepoRegistry, one pid per DID
 ├── Pesque.RepoSupervisor        DynamicSupervisor for RepoServer
