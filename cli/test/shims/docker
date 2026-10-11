@@ -1,0 +1,43 @@
+#!/bin/sh
+# Fake `docker` for the Zig driver tests. Logs its argv (one argument per
+# line, invocation terminated by an empty line) to $PESQUE_FAKE_LOG, then
+# answers the subcommands the CLI probes.
+log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+{
+  prev=""
+  for a in "$@"; do
+    printf '%s\n' "$a"
+    case "$a" in
+      # Surface the --env-file mirror so tests can assert what crossed the
+      # docker boundary. Both flag forms, inside this invocation's block.
+      --env-file=*) sed 's/^/ENVFILE:/' "${a#--env-file=}" 2>/dev/null ;;
+    esac
+    [ "$prev" = "--env-file" ] && sed 's/^/ENVFILE:/' "$a" 2>/dev/null
+    prev="$a"
+  done
+  printf '\n'
+} >>"$log"
+
+if [ "$1" = "inspect" ]; then
+  case "$*" in
+    *Config.Env*) printf 'PDS_HOSTNAME=pds.example.com\nPDS_DATA_DIR=/data\nPDS_PORT=4000\n' ;;
+    *Config.Image*) printf 'ghcr.io/zeeetech/pesque:latest\n' ;;
+    *State.Health*) printf '%s\n' "${PESQUE_FAKE_HEALTH:-healthy}" ;;
+    *Mounts*) printf 'volume pesque-data /var/lib/docker/volumes/pesque-data/_data /data\n' ;;
+  esac
+  exit 0
+fi
+
+# compose subcommands: match the pattern anywhere, since the CLI interleaves
+# -f/--project-directory flags.
+case "$*" in
+  *" compose version"*) exit 0 ;;
+  *" ps -q"*) printf 'fake-container-id\n'; exit 0 ;;
+esac
+
+# run / pull / up / down / restart / logs / build: exit-code knobs.
+if [ -n "${PESQUE_FAKE_SIGNAL:-}" ]; then
+  kill -s USR1 "$$"
+  sleep 5
+fi
+exit "${PESQUE_FAKE_EXIT:-0}"

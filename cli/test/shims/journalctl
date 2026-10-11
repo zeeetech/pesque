@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake `journalctl` for the Zig driver tests.
+log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+{
+  for a in "$@"; do printf '%s\n' "$a"; done
+  printf '\n'
+} >>"$log"
+exit 0

@@ -48,3 +48,46 @@ jobs:
 
       - name: Run precommit
         run: mix precommit
+
+  zig:
+    name: Zig CLI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Zig
+        run: |
+          version="${{ steps.zig-version.outputs.version }}"
+          cd /tmp
+          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o zig.tar.xz
+          tar -xf zig.tar.xz
+          dir="$(tar -tf zig.tar.xz | head -1 | cut -d/ -f1)"
+          echo "$PWD/$dir" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: zig fmt --check .
+
+      - name: Run tests
+        run: zig build test
+
+      # Windows keeps the docker/compose backends only; systemd/nixos need a
+      # Linux host (spec §4).
+      - name: Cross-build the release targets
+        run: |
+          set -eu
+          for target in \
+            x86_64-linux-musl \
+            aarch64-linux-musl \
+            x86_64-macos \
+            aarch64-macos \
+            x86_64-windows-gnu
+          do
+            zig build -Dtarget="$target" -Doptimize=ReleaseSafe
+          done
