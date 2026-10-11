@@ -99,6 +99,12 @@ defmodule Pesque.RateLimit do
     count = :ets.update_counter(@table, key, {2, 1}, {{key, window}, 0, window_ms})
 
     if count > limit do
+      # Counted per refused call, not per refused request: the plug asks once
+      # per key, so one request over both its keys lands here twice. A
+      # rejection is "the limiter said no", and that is the number a chart of
+      # this wants.
+      Pesque.Metrics.inc(:rate_limit_rejections)
+
       # Integer.mod/2, not rem/2. The monotonic clock is negative before the
       # node has been up long enough, and rem/2 keeps the sign, which answers a
       # caller with a wait longer than the window it is being told to wait out.
