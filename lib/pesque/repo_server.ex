@@ -70,6 +70,17 @@ defmodule Pesque.RepoServer do
   def entries(pid), do: GenServer.call(pid, :entries)
 
   @doc """
+  Writes an empty commit: a new head and rev with no record change.
+
+  The migration spec pairs a `#commit` with the `#account` frame when an
+  account becomes active, so a consumer that attached to the firehose live
+  sees the repo move even though nothing changed. Without it a relay that never
+  ingests anything leaves the host it registered at `offline` forever: the
+  account is active here and invisible on the network.
+  """
+  def announce(pid), do: GenServer.call(pid, :announce, 15_000)
+
+  @doc """
   Stops the process for `did`, if one is running. Answers whether one was.
 
   Deleting an account calls this before its rows go: a RepoServer caches the
@@ -188,6 +199,16 @@ defmodule Pesque.RepoServer do
 
   @impl true
   def handle_call(:entries, _from, state), do: {:reply, state.entries, state}
+
+  # The empty commit an activation sends. The change list is empty, so the MST
+  # is untouched, but the rev still advances and the commit is still signed:
+  # exactly the empty commit with a new rev the spec asks for when an account
+  # becomes active. A repo with no head yet answers with genesis, which is the
+  # head the account needed anyway.
+  def handle_call(:announce, _from, state) do
+    {state, result} = commit(state, [])
+    {:reply, result, state}
+  end
 
   # The single write is the batch of one: same validation, same encoding, same
   # commit, so createRecord and a batch create cannot drift apart. The op type

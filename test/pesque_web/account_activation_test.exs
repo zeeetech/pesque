@@ -196,7 +196,7 @@ defmodule PesqueWeb.AccountActivationTest do
                200
     end
 
-    test "an #account frame goes out with no status, and replays", ctx do
+    test "an #account frame and an empty #commit go out, and replay", ctx do
       write_post(ctx.alice, ctx.token)
       xrpc_post(@deactivate_path, %{}, ctx.token)
 
@@ -205,8 +205,8 @@ defmodule PesqueWeb.AccountActivationTest do
 
       assert xrpc_post(@activate_path, %{}, ctx.token).status == 200
 
-      assert_receive {:firehose_frame, frame}
-      {header, body} = decode(frame)
+      assert_receive {:firehose_frame, account}
+      {header, body} = decode(account)
 
       assert header == %{"op" => 1, "t" => "#account"}
       assert body["did"] == ctx.alice.did
@@ -214,7 +214,37 @@ defmodule PesqueWeb.AccountActivationTest do
       refute body["status"]
       assert body["seq"] == cursor + 1
 
-      assert [^frame] = RepoStore.events_after(cursor)
+      # The spec pairs the frame with a commit: a consumer that attached live
+      # has only what arrives after it did, and only the commit moves the repo
+      # that consumer is serving.
+      assert_receive {:firehose_frame, commit}
+      {commit_header, commit_body} = decode(commit)
+
+      assert commit_header == %{"op" => 1, "t" => "#commit"}
+      assert commit_body["repo"] == ctx.alice.did
+      assert commit_body["ops"] == []
+      assert commit_body["seq"] == cursor + 2
+
+      assert [^account, ^commit] = RepoStore.events_after(cursor)
+    end
+
+    # An empty commit is a new head and rev over the same tree: the head and
+    # rev move, the root the records hang off does not.
+    test "the empty commit moves the head and rev but not the tree", ctx do
+      write_post(ctx.alice, ctx.token)
+      xrpc_post(@deactivate_path, %{}, ctx.token)
+
+      before = %{
+        commit: RepoStore.get_meta("commit:" <> ctx.alice.did),
+        root: RepoStore.get_meta("root:" <> ctx.alice.did),
+        rev: RepoStore.get_meta("rev:" <> ctx.alice.did)
+      }
+
+      assert xrpc_post(@activate_path, %{}, ctx.token).status == 200
+
+      refute RepoStore.get_meta("commit:" <> ctx.alice.did) == before.commit
+      refute RepoStore.get_meta("rev:" <> ctx.alice.did) == before.rev
+      assert RepoStore.get_meta("root:" <> ctx.alice.did) == before.root
     end
   end
 
