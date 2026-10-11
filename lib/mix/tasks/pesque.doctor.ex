@@ -7,9 +7,9 @@ defmodule Mix.Tasks.Pesque.Doctor do
 
       mix pesque.doctor
 
-  These are the checks in the installation guide's verify list, run for you.
-  Each answers ok, warn or fail, and a fail exits non-zero, so this works as a
-  deploy gate. Read-only: nothing here writes.
+  The installation guide's verify list, run for you. Each check answers ok,
+  warn or fail, and a fail exits non-zero, so this works as a deploy gate.
+  Read-only.
   """
 
   use Mix.Task

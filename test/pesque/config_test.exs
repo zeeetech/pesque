@@ -111,9 +111,6 @@ defmodule Pesque.ConfigTest do
     end
 
     test "a typo the file layer would refuse is refused here too" do
-      # The file grammar refuses an unknown key; the environment layer is
-      # held to the same rule, or a misspelled variable in a unit file
-      # configures nothing and boots anyway.
       System.put_env("PDS_NOT_A_REAL_KEY", "1")
       on_exit(fn -> System.delete_env("PDS_NOT_A_REAL_KEY") end)
 

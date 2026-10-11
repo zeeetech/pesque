@@ -24,7 +24,7 @@ defmodule Pesque.Cli.Account do
   (ACCOUNT_HANDLE, ACCOUNT_EMAIL, ACCOUNT_PASSWORD), then a prompt.
   """
 
-  # Both --did and --handle name the same account through the same door.
+  # --did and --handle name the same account.
   @identifier_switches [did: :string, handle: :string]
   @password_switches [password_env: :string]
 
@@ -63,9 +63,8 @@ defmodule Pesque.Cli.Account do
          {:ok, password} <- Input.password(opts, "ACCOUNT_PASSWORD"),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
-      # The deletion keeps its protocol authorization: a token is minted for
-      # the account, the password is checked against it, and only then do
-      # the rows go.
+      # The deletion goes through the protocol flow: token minted for the
+      # account, password checked against it, only then do the rows go.
       case Accounts.request_account_delete(user) do
         {:ok, %{token: token}} ->
           case Accounts.delete_account(user, user.did, password, token) do

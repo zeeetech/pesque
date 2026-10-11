@@ -1,13 +1,9 @@
 defmodule Pesque.Cli.Input do
   @moduledoc """
-  How verbs read their input (D3): the flag first, then the environment, then
-  a prompt. Implemented once, here, so the verbs cannot drift on the order or
-  on where secrets travel.
-
-  Secrets never travel by argv: `--password-env` names the environment
-  variable that holds the password, so the value reaches a child process in
-  its environment (invisible to `ps`) rather than in its argument list, and
-  what would otherwise be `--password VALUE` is a no-echo prompt or nothing.
+  One input order for every verb, implemented here so they cannot drift: the
+  flag, then the environment, then a prompt. Secrets never travel by argv:
+  `--password-env` names the variable holding the password, so the value
+  reaches a child process in its environment (invisible to `ps`).
   """
 
   @doc """
@@ -42,11 +38,9 @@ defmodule Pesque.Cli.Input do
   end
 
   @doc """
-  A password: `--password-env NAME` (the NAME of an environment variable
-  holding it), then the conventional environment variable, then a no-echo
-  prompt. A named variable that is unset or empty fails naming it, because
-  "the variable you pointed me at is empty" is a different problem from "no
-  password was given".
+  A password: `--password-env NAME`, then the conventional variable, then a
+  no-echo prompt. A named variable that is unset or empty fails naming it:
+  an empty pointed-at variable is a different failure from no password at all.
   """
   def password(opts, env, prompt \\ "password: ", prompt_fun \\ &no_echo_line/1) do
     with :no_value <- password_env(opts),
@@ -92,10 +86,9 @@ defmodule Pesque.Cli.Input do
   end
 
   # :io.get_password/0 takes an io device, not a prompt, so the prompt is
-  # written first and the read asks the group leader. The no-echo primitive
-  # is OTP 28 and up and needs a terminal, so an older runtime or a pipe
-  # falls back to an echoed read rather than failing; a closed stdin
-  # answers :no_input there, which is the refusal.
+  # written first. The no-echo primitive needs a terminal (OTP 28 and up),
+  # so a pipe falls back to an echoed read; a closed stdin answers
+  # :no_input there, which is the refusal.
   defp no_echo_line(prompt) do
     case no_echo_read(prompt) do
       {:ok, value} -> {:ok, String.trim(value)}

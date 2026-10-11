@@ -94,9 +94,8 @@ defmodule Pesque.BackupTest do
   end
 
   # The identity file is an optional entry: a server that never minted a PLC
-  # identity has none to back up, and the restore still has to succeed - and
-  # still has to remove the running one, so the restored data directory is
-  # exactly the archive's.
+  # identity has none to back up, and the restore still removes the running
+  # one, so the restored data directory is exactly the archive's.
   test "an archive without the optional PLC identity removes the running one", %{out: out} do
     source = fresh_dir("pesque-backup-noid")
     File.mkdir_p!(Path.join(source, "keys"))
@@ -148,9 +147,9 @@ defmodule Pesque.BackupTest do
   end
 
   # install/2 is the cold swap restore ends with. Standing in for the crash:
-  # a staged directory missing one entry stops the swap after earlier
-  # entries already moved the current files aside, which is the same state a
-  # crash mid-swap leaves and the same recovery.
+  # a staged directory missing one entry stops the swap after earlier entries
+  # already moved the current files aside, the same state and recovery a
+  # crash mid-swap leaves.
   test "a swap that stops partway leaves the previous state in .old", %{dir: dir} do
     target = fresh_dir("pesque-backup-swap")
     File.cp!(db_path(dir), Path.join(target, "pesque.db"))

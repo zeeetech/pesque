@@ -1,9 +1,9 @@
 defmodule Pesque.Cli.Config do
   @moduledoc """
-  Configuration verbs. Neither boots: validate reads the file and the
-  environment the way the server will at boot (an invalid config would kill a
-  boot before anything could report it), and template prints the example file
-  the settings table generates.
+  Configuration verbs. Neither boots: an invalid config would kill a boot
+  before anything could report it, so validate reads the file and the
+  environment the way the server will at boot, and template prints the
+  example file the settings table generates.
   """
 
   alias Pesque.Cli.Input
@@ -49,10 +49,8 @@ defmodule Pesque.Cli.Config do
     end
   end
 
-  # One line per key: the value when it comes from the environment or the
-  # file, and the layer that decided it. This is the answer to "why is the
-  # server behaving like the file I edited does not exist" - the environment
-  # was winning.
+  # One line per key with the layer that decided it: the answer to "why is
+  # the server ignoring the file I edited" (the environment was winning).
   defp print_entry({key, {:env, name, value}}) do
     IO.puts(row(key, inspect(value), "env #{name}"))
   end

@@ -1,6 +1,6 @@
 defmodule Pesque.CliTest do
   @moduledoc """
-  Dispatch totality and the exit-code mapping (D4), through `run/1` and never
+  Dispatch totality and the exit-code mapping, through `run/1` and never
   `main/0`: main halts the VM, and `run/1` answers the same three answers
   main maps onto 0, 1 and 2.
   """

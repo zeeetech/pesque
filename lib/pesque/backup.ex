@@ -2,24 +2,10 @@ defmodule Pesque.Backup do
   @moduledoc """
   A live-safe backup of the data directory, and a cold restore over it.
 
-  Backup (D5) snapshots the database with `VACUUM INTO` first, so the archive
-  holds the committed state at one instant whether the server is running or
-  not, then tars the keys, the blobs and the secret straight out of the data
-  directory. That is safe on a live server because an upload writes the file
-  before the row that serves it: the worst a race with a running upload can
-  do is put an orphan file in the archive, never a row whose bytes are
-  missing. The invariant is a property of `Pesque.Blob.upload/3` and is
-  regression-tested as one.
-
-  Restore is cold: the driver stops the service first, and the verb refuses
-  while another process holds the database's write lock. Before anything
-  moves, the archive is extracted into a staging directory *inside* the data
-  directory (the swap is atomic per entry only when staged and target share
-  a filesystem) and verified against its manifest. The swap then moves every
-  current file to `<name>.old` before its replacement takes its name, so a
-  crash mid-swap leaves the previous state next to the new one: rename the
-  `.old` files back, or run restore again. A completed swap removes them;
-  the archive itself is the way back.
+  Backup snapshots the database with `VACUUM INTO` first, then tars the keys,
+  the blobs and the secret out of the data directory: live-safe because an
+  upload writes the file before the row that serves it, so the worst a race
+  with a running upload can do is put an orphan file in the archive.
   """
 
   alias Pesque.RepoStore
@@ -27,26 +13,23 @@ defmodule Pesque.Backup do
   @manifest_format "pesque-backup"
   @manifest_version 1
 
-  # What a booted server always has, split by kind only because the tar
-  # carries the files and the directories the same way.
+  # What a booted server always has.
   @files ["pesque.db", "server.secret"]
   @dirs ["keys", "blobs"]
-  # The PLC identity is written only under PDS_IDENTITY=plc.
+  # Written only under PDS_IDENTITY=plc.
   @optional ["server.identity.json"]
 
-  # The order the swap runs in: one entry at a time, each moved aside before
-  # its replacement lands. The last one is optional: an archive from a server
-  # that never minted a PLC identity carries none, and the swap still removes
-  # the running one, so the restored data directory holds exactly what the
-  # archive carried.
+  # Swap order: each entry moves aside before its replacement lands. The
+  # optional entry may be absent from the archive, in which case the running
+  # one is still removed, so the restored data directory holds exactly what
+  # the archive carried.
   @required_entries ["pesque.db", "server.secret", "keys", "blobs"]
   @optional_entries ["server.identity.json"]
   @swap_order @required_entries ++ @optional_entries
 
-  # WAL sidecars belong to the database they were opened with. Leaving a
-  # stale -wal beside the restored file would have SQLite replay the old
-  # writes onto the new database, so they move with the old db, under the
-  # name the old db would look for if it is ever renamed back.
+  # A stale -wal beside the restored database would have SQLite replay the
+  # old writes onto it, so the sidecars move aside under the name the old
+  # database would look for if it is ever renamed back.
   @db_sidecars ["pesque.db-wal", "pesque.db-shm"]
 
   @doc """
@@ -111,11 +94,9 @@ defmodule Pesque.Backup do
   The cold swap restore ends with: for every entry, the current file moves to
   `<name>.old` first and the staged one takes its name.
 
-  Public because the failure it leaves behind is part of the contract: a
-  name with nothing staged stops the swap with the `.old` files already
-  made, which is the same state a crash mid-swap leaves, and the same
-  recovery. The WAL sidecars of the old database move with it, so a stale
-  `-wal` is never replayed onto the restored file.
+  Public because the state a crash mid-swap leaves is part of the contract:
+  a name with nothing staged stops the swap the same way, and the `.old`
+  files are the recovery.
   """
   def install(data_dir, staged_dir) do
     Enum.reduce_while(@swap_order, :ok, fn
@@ -124,7 +105,6 @@ defmodule Pesque.Backup do
     end)
   end
 
-  # The pieces a booted server always has.
   defp required(data_dir) do
     case Enum.filter(@files ++ @dirs, &(not File.exists?(Path.join(data_dir, &1)))) do
       [] -> :ok

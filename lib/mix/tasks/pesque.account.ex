@@ -9,18 +9,11 @@ defmodule Mix.Tasks.Pesque.Account do
       mix pesque.account delete --handle alice.example.com
       mix pesque.account reset-password --did did:plc:...
 
-  Input order is the flag, then the conventional environment
-  (ACCOUNT_HANDLE, ACCOUNT_EMAIL, ACCOUNT_PASSWORD), then a prompt.
-
-  For `create`, the password precedence is: `--password VALUE` wins over
-  `--password-env NAME`, which wins over a no-echo prompt. The flag is dev
-  convenience for throwaway local accounts - the value lands in your shell
-  history and in `ps` - and it never reaches the verb layer: this task sets
+  Input order is the flag, then the conventional environment, then a prompt.
+  For `create`, `--password VALUE` is a dev convenience for throwaway local
+  accounts (the value lands in your shell history and in `ps`): the task sets
   it as the environment variable the verb reads and dispatches an argv with
   no password in it.
-
-  Runs with the endpoint not serving, so it works against a data directory
-  the live server already has open instead of failing on the port.
   """
 
   use Mix.Task

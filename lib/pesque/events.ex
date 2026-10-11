@@ -1,12 +1,10 @@
 defmodule Pesque.Events do
   @moduledoc """
-  The firehose log outside a commit.
-
-  A commit writes its frame inside its own transaction, because the frame
-  describes the blocks that transaction just inserted. An identity or account
-  event has no such coupling: it is a seq, a frame and a push, so it gets its
-  own transaction here and the same log the commit path writes to, which is
-  what makes cursor replay order the two together.
+  The firehose log outside a commit. A commit writes its frame inside its own
+  transaction, because the frame describes the blocks that transaction just
+  inserted; an identity or account event has no such coupling, so it gets
+  its own transaction here, on the same log, so cursor replay orders the
+  two together.
   """
 
   alias Pesque.EventFrames
@@ -31,10 +29,10 @@ defmodule Pesque.Events do
   end
 
   defp emit(did, build) do
-    # immediate, because the first statement in here reads the seq mark and a
-    # deferred transaction that read before another connection committed cannot
-    # upgrade its snapshot to a write: SQLite answers SQLITE_BUSY_SNAPSHOT at
-    # once, and a busy timeout does not make a stale snapshot current.
+    # immediate: the first statement reads the seq mark, and a deferred
+    # transaction that read before another connection committed cannot
+    # upgrade its snapshot to a write (SQLite answers SQLITE_BUSY_SNAPSHOT
+    # at once; a busy timeout does not make a stale snapshot current).
     case Repo.transaction(
            fn ->
              seq = RepoStore.claim_event_seq()

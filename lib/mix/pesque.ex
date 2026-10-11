@@ -1,12 +1,9 @@
 defmodule Mix.Pesque do
   @moduledoc """
   Shared plumbing for the pesque.* mix tasks: boot the application with the
-  endpoint down, then run the same verb the release runs.
-
-  The release carries no Mix, so `bin/pesque <verb>` is the real surface and
-  the tasks are the dev-mode spelling of it. Going through `Pesque.Cli.run/1`
-  keeps one answer per verb - :ok, {:error, reason} or {:usage, text} - which
-  this turns into a Mix.raise with the message the CLI would print.
+  endpoint down, then run the same verb the release runs. The release carries
+  no Mix, so `bin/pesque <verb>` is the real surface and the tasks are the
+  dev-mode spelling of it, dispatched through `Pesque.Cli.run/1`.
   """
 
   @doc "Boots without the endpoint and runs `Pesque.Cli.run/1` on `verb_argv`."
@@ -25,11 +22,11 @@ defmodule Mix.Pesque do
   @doc """
   Like run/1, for a verb whose password input the task resolves.
 
-  `--password VALUE` is the mix task's documented dev convenience; the
-  release CLI has no such flag (D3). The value never reaches the verb layer
-  as an argument: it is set as `env`, the conventional environment variable
-  the verb's input resolution already reads, and the argv dispatched is the
-  one `split_password/1` answers - no flag, no value.
+  `--password VALUE` is the mix task's dev convenience; the release CLI has
+  no such flag. The value never reaches the verb layer as an argument: it is
+  set as `env`, the conventional environment variable the verb's input
+  resolution already reads, and the dispatched argv carries no flag and no
+  value.
   """
   def run_with_password(verb_argv, env) do
     {password, verb_argv} = split_password(verb_argv)
@@ -52,14 +49,12 @@ defmodule Mix.Pesque do
 
   @doc """
   Splits `--password VALUE` (or `--password=VALUE`) out of a task's argv,
-  answering the value and the argv handed to `Pesque.Cli.run/1`: no flag, no
-  value, wherever they sat.
+  answering the value and the argv handed to `Pesque.Cli.run/1`.
 
-  `--password-env` comes out too when a value was lifted, because the
-  password flag outranks it (flag, then named variable, then prompt) and a
-  left-behind `--password-env` would have the verb read the named variable
-  first, flipping that order. Without the flag, the argv passes through
-  untouched and `--password-env` keeps working as the verb reads it.
+  `--password-env` comes out too when a value was lifted: the password flag
+  outranks it (flag, then named variable, then prompt), and a left-behind
+  `--password-env` would flip that order. Without the flag the argv passes
+  through untouched.
   """
   def split_password(argv) do
     case lift(argv, []) do

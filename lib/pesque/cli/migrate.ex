@@ -1,12 +1,9 @@
 defmodule Pesque.Cli.Migrate do
   @moduledoc """
   Moves an existing ATProto account onto this server, automating the
-  scriptable half of the migration guide.
-
-  The move stops at the identity step for a code the account holder receives
-  by email. Interactive where a terminal exists; where none does (a NixOS
-  oneshot), the split is the env-file's: `MIGRATE_PLC_TOKEN` carries the code
-  into the second run, and `--plc-token` names it directly.
+  scriptable half of the migration guide. The move stops at the identity
+  step for a code the account holder receives by email: pass `--plc-token`
+  (or set `MIGRATE_PLC_TOKEN`) on the second run.
   """
 
   alias Pesque.Cli.Input
@@ -56,8 +53,6 @@ defmodule Pesque.Cli.Migrate do
     end
   end
 
-  # The code travels by env in the second run of a headless first run, and
-  # by flag everywhere a terminal can answer the prompt instead.
   defp plc_token(opts) do
     case opts[:plc_token] || System.get_env("MIGRATE_PLC_TOKEN") do
       token when is_binary(token) and token != "" -> {:ok, token}

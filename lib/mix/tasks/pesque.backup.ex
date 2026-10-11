@@ -7,9 +7,9 @@ defmodule Mix.Tasks.Pesque.Backup do
 
       mix pesque.backup [--out DIR]
 
-  Live-safe: the database is snapshotted with VACUUM INTO first, and the
-  file-before-row upload order is what makes the rest safe on a running
-  server.
+  Live-safe: the database is snapshotted with VACUUM INTO first, and blob
+  uploads write the file before the row, so a race with a running upload
+  can only leave an orphan file in the archive.
   """
 
   use Mix.Task

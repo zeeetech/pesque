@@ -1,8 +1,8 @@
 defmodule Pesque.Cli.Invite do
   @moduledoc """
   Mints invite codes for closed registration. The admin gate lives in the
-  XRPC plug, not in the domain function, which is exactly why an operator
-  verb can call it directly.
+  XRPC plug, not in the domain function, so an operator verb can call it
+  directly.
   """
 
   alias Pesque.Accounts
@@ -32,8 +32,6 @@ defmodule Pesque.Cli.Invite do
 
   def run(_argv), do: {:usage, @usage}
 
-  # A group with no account names codes any account can spend; a group with
-  # one names the DID the codes were made for.
   defp print_groups(groups, uses) do
     for %{account: account, codes: codes} <- groups do
       case account do

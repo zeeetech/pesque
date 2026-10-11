@@ -2,10 +2,10 @@ defmodule PesqueWeb.TlsCheckTest do
   @moduledoc """
   The ask endpoint behind Caddy's on-demand TLS.
 
-  Caddy mints a certificate under the wildcard only when this endpoint answers
-  200 for the name, so the answers are the whole security boundary: the server's
-  own hostname and the handles its accounts table carries are allowed, and a
-  name nothing on this server resolves is not.
+  Caddy mints a certificate under the wildcard only when this endpoint
+  answers 200 for the name, so the answers are the whole security boundary:
+  the server's own hostname and the handles its accounts table carries are
+  allowed, and a name nothing on this server resolves is not.
   """
 
   use PesqueWeb.ConnCase, async: false

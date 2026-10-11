@@ -4,20 +4,9 @@ defmodule PesqueWeb.Xrpc.TlsCheckController do
 
   The shipped Caddyfile serves the hostname and every subdomain of it with
   `tls { on_demand }`, so Caddy calls here before it mints any certificate
-  under the wildcard label and treats every non-2xx answer as a refusal. The
-  status is the whole contract: 200 for a name this server owns, 403 for
-  everything else, and the body carries nothing a certificate check needs.
-
-  The allowed names are the server's own hostname and the handles its accounts
-  table carries. Nothing else earns a certificate: a name no client resolves
-  here is a name whose certificate would serve no account, and a wildcard of
-  the hostname is exactly what turns a name a stranger sends into a question
-  about an account row instead of a free certificate.
-
-  There is no auth and no configuration. Handle existence is already public
-  (resolveHandle and the DNS records answer the same question), so a gate here
-  would hide nothing; the route runs behind the read budget, which is the
-  whole cost of one indexed row.
+  and treats every non-2xx answer as a refusal: 200 for a name this server
+  owns, 403 for everything else. There is no auth, because handle existence
+  is already public (resolveHandle answers the same question).
   """
 
   use Phoenix.Controller, formats: [:json]

@@ -8,9 +8,9 @@ defmodule Mix.Tasks.Pesque.Config do
       mix pesque.config template          # the example file, on stdout
       mix pesque.config template --out PATH
 
-  Neither runs a boot: validate reads the file and the environment the way
-  the server will at boot, and template prints the example file the settings
-  table generates.
+  Neither runs a boot: an invalid config would kill one before it could
+  report, so validate reads the file and the environment the way the server
+  will at boot, and template prints the generated example file.
   """
 
   use Mix.Task

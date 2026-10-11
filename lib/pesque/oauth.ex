@@ -2,35 +2,12 @@ defmodule Pesque.OAuth do
   @moduledoc """
   The ATProto OAuth authorization server: PAR, authorize, token, revoke.
 
-  Four pieces of state, in the order a client meets them:
-
-    * A pushed authorization request. The client POSTs the whole request here
-      and gets a `request_uri` back. Everything about the request is validated
-      now, against the client's own published metadata, so the authorize
-      endpoint has nothing left to decide and only has to ask a human.
-    * The request itself, which survives the redirect to the login page. It
-      carries the DPoP key it was pushed with, so the key a session is bound to
-      is decided before anybody logs in.
-    * A code: single use, short lived, minted once an account is approved.
-    * A session: an access token and a refresh token that replaces it, both
-      revocable, both recorded here hashed.
-
-  Four things are load-bearing and are written as they are:
-
-    * The authorize endpoint takes only `client_id` and `request_uri`. A
-      request arriving any other way is refused rather than honoured, which is
-      what `require_pushed_authorization_requests` in the metadata means.
-    * A code is spent by a conditional update, so two exchanges of one code
-      produce one session and one failure.
-    * A refresh token is spent the same way, and rotating it issues a new one
-      under the same session id. Replaying a spent refresh token is treated as
-      compromise and revokes the session.
-    * The DPoP key a request was pushed with has to be the key the token
-      request presents, so a proof captured from one client cannot be carried
-      against another's pushed request.
-
-  Nothing here logs a code, a token, a DPoP proof or a password, and none of
-  them reaches the database in the clear.
+  A pushed request is validated up front against the client's own published
+  metadata and carries the DPoP key it was pushed with, so the key a session
+  is bound to is decided before anybody logs in. Codes are single-use and
+  short-lived; sessions are revocable and recorded here hashed. Nothing logs
+  a code, a token, a DPoP proof or a password, and none of them reaches the
+  database in the clear.
   """
 
   import Ecto.Query
@@ -470,10 +447,8 @@ defmodule Pesque.OAuth do
     end
   end
 
-  # A login_hint is not trusted to name an account that exists, only to name one
-  # the user then has to authenticate as. Accounts.repo_did/1 consults the users
-  # table, so a hint for an account this server does not host is refused before
-  # the login page is shown.
+  # A login_hint is not trusted to name an account that exists, only to name
+  # one the user then has to authenticate as.
   defp check_login_hint(nil), do: :ok
 
   defp check_login_hint(hint) when is_binary(hint) do
@@ -545,9 +520,8 @@ defmodule Pesque.OAuth do
   defp check_code_redirect(_row, _redirect_uri), do: {:error, :invalid_grant}
 
   # The token request must present a proof from the key the request was pushed
-  # with. Without this, a proof captured from one client could be replayed
-  # against another client's pushed request and would bind that session to the
-  # attacker's key.
+  # with: without this, a proof captured from one client could be replayed
+  # against another client's pushed request and bind that session to it.
   defp check_jkt(%{dpop_jkt: jkt}, jkt), do: :ok
   defp check_jkt(_row, _jkt), do: {:error, :invalid_dpop_proof}
 

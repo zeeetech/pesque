@@ -39,15 +39,12 @@ defmodule PesqueWeb.Router do
     plug PesqueWeb.Plugs.RateLimit, bucket: :read, limit: 3_000, window: 300_000
   end
 
-  # The spec puts no limit on writes, so this number is ours and not a
-  # protocol requirement: it is here because a write is the expensive request
-  # on this server (MST rebuild, a signature, an fsync, and SQLite's single
-  # writer lock held for the lot), so it is the one a client loop can turn into
-  # a stall for everyone else. Two per second per account is well clear of what
-  # a posting client does. Change it freely.
-  #
-  # It runs before the auth plug, like every other limit here, so a flood is
-  # refused before it costs a token verification.
+  # The spec puts no limit on writes, so this number is ours: a write is the
+  # expensive request on this server (MST rebuild, a signature, an fsync, and
+  # SQLite's single writer lock held for the lot), the one a client loop can
+  # turn into a stall for everyone else. It runs before the auth plug, like
+  # every other limit here, so a flood is refused before it costs a token
+  # verification.
   pipeline :write_limits do
     plug PesqueWeb.Plugs.RateLimit, bucket: :write, limit: 600, window: 300_000
   end
@@ -61,8 +58,8 @@ defmodule PesqueWeb.Router do
   # Minting invite codes is what decides who gets an account on a closed
   # server, so it is not an account-scoped call: it takes the server's own
   # identity, not any account's. Under :path_multi there is no server identity
-  # and this refuses everyone including the operator, which is why that
-  # topology needs an operator DID list before this is reachable.
+  # and this refuses everyone including the operator, so that topology needs
+  # an operator DID list before this is reachable.
   pipeline :admin do
     plug PesqueWeb.Plugs.Admin
   end
@@ -83,12 +80,11 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.server.describeServer", SessionController, :describe_server
   end
 
-  # What each authenticated route needs, which is what an OAuth token's scope
-  # is checked against: read is the account's own session and service auth,
-  # write is records and blobs, account is the endpoints that manage the
-  # account itself and that transition:generic deliberately does not reach.
-  # A legacy session token is one scope that grants all three, so nothing it
-  # could reach before is behind a permission it does not have.
+  # What each authenticated route needs, matched against an OAuth token's
+  # scope: read is the account's own session and service auth, write is
+  # records and blobs, account is the endpoints that manage the account
+  # itself and that transition:generic deliberately does not reach. A legacy
+  # session token is one scope that grants all three.
   pipeline :auth_read do
     plug PesqueWeb.Plugs.Auth, permission: :read
   end
@@ -131,13 +127,9 @@ defmodule PesqueWeb.Router do
 
   # Account management is a write path like any other, and deleteAccount is the
   # expensive one: it verifies a password with argon2. The permit in Accounts
-  # bounds how many of those run at once, which caps the memory but not the
-  # rate, so without a limit of its own this scope has the cheapest 64 MiB a
-  # token holder can spend, repeatedly and as fast as the network allows.
-  #
-  # The window matches :write_limits so the two write scopes read as one policy,
-  # and it runs before the auth plug so a flood is refused before it costs a
-  # token verification.
+  # caps the memory, not the rate, so without a limit of its own this scope is
+  # the cheapest 64 MiB a token holder can spend. The window matches
+  # :write_limits so the two write scopes read as one policy.
   scope "/xrpc", PesqueWeb.Xrpc do
     pipe_through [:write_limits, :auth_account]
 

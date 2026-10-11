@@ -3,13 +3,9 @@ defmodule Pesque.RepoSupervisor do
 
   use DynamicSupervisor
 
-  # The Registry reaps a dead process's entry from its DOWN, which it handles
-  # asynchronously, so for a moment after a repo stops (or crashes) the entry
-  # still names a pid that is gone. `ensure_started/1` must not hand that pid
-  # back, and a fresh start must not collide with it, so both wait this long, in
-  # one-millisecond steps, for the Registry to catch up. The window is normally
-  # microseconds; the budget is generous only so a loaded scheduler cannot make
-  # a caller fail.
+  # The Registry reaps a dead process's entry asynchronously from its DOWN,
+  # so for a moment after a stop (or crash) the entry still names a pid that
+  # is gone. Both wait this long, in 1 ms steps, for the Registry to catch up.
   @registry_grace_ms 2_000
 
   def start_link(_opts), do: DynamicSupervisor.start_link(__MODULE__, nil, name: __MODULE__)
@@ -20,10 +16,9 @@ defmodule Pesque.RepoSupervisor do
   @doc """
   The pid of the running `RepoServer` for `did`, starting one if none runs.
 
-  The answer is always a process that is alive at the moment it is returned: a
-  registry entry that names a dead pid is a gap the Registry has not closed yet,
-  and is waited out rather than handed to a caller whose next call would fail
-  with `:noproc`.
+  The answer is alive at the moment it is returned: an entry naming a dead
+  pid is a Registry gap, waited out rather than handed to a caller whose
+  next call would fail with `:noproc`.
   """
   def ensure_started(did), do: ensure_started(did, deadline())
 

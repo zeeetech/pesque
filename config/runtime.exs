@@ -130,11 +130,9 @@ repo_import_max_bytes =
       end
   end
 
-# The entryway's two bounds. The timeout is how long a proxied call may take
-# before it is answered 504; the response limit is the largest body the target
-# may send back before it is refused. Both raise on an invalid value, like the
-# blob and import caps, so a misconfigured bound fails boot rather than
-# silently reading as something nobody chose.
+# The entryway's two bounds: the timeout answers 504, the response limit
+# refuses a larger body from the target. Both raise on an invalid value,
+# like the blob and import caps.
 proxy_timeout =
   case get.("proxy_timeout", "15000") do
     raw ->
@@ -201,16 +199,16 @@ config :pesque,
   # server for the port.
   serve: get.("serve", "true") != "false",
   # argon2's m_cost is an exponent of KiB, so the library default of 16 is 64
-  # MiB of memory per hash. That is a defensible number on a box with room and
-  # a fast way to OOM a small one: Accounts caps how many hashes run at once,
-  # so the ceiling is this times that cap, and the cap alone does not make the
-  # default safe. 12 is 4 MiB and still slow enough to be worth attacking.
+  # MiB per hash: a defensible number on a box with room and a fast way to OOM
+  # a small one, since Accounts caps how many hashes run at once, so the
+  # ceiling is this times that cap. 12 is 4 MiB and still slow enough to be
+  # worth attacking.
   argon2_opts: [t_cost: 3, m_cost: 12],
   # Under :path_multi there is no account that is the server, so the operator
   # is named here. Empty means the server identity only, which under
-  # :path_multi means nobody, which is deliberate: a closed server that admits
-  # no one is fixed by adding one line, one that admits the first account to
-  # ask is not fixed at all.
+  # :path_multi means nobody: a closed server that admits no one is fixed by
+  # adding one line, one that admits the first account to ask is not fixed at
+  # all.
   admin_dids: admin_dids
 
 if config_env() == :test do

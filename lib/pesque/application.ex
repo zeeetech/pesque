@@ -42,9 +42,8 @@ defmodule Pesque.Application do
     end
   end
 
-  # A mix task that only talks to the database and the domain (create_account)
-  # sets :serve to false, so it does not stand up an HTTP endpoint it never
-  # answers a request on.
+  # A one-off task sets :serve to false, so it does not stand up an HTTP
+  # endpoint it never answers a request on.
   defp endpoint do
     if Application.get_env(:pesque, :serve, true), do: [PesqueWeb.Endpoint], else: []
   end
@@ -59,10 +58,9 @@ defmodule Pesque.Application do
     :ok
   end
 
-  # The four things worth knowing when a server comes back wrong are which
-  # data directory it opened, which hostname it publishes, which mode it is
-  # in and where it is listening. Everything else in the answer to "why is it
-  # not working" starts with those.
+  # The four things worth knowing when a server comes back wrong: which data
+  # directory it opened, which hostname it publishes, which mode it is in and
+  # where it is listening.
   defp log_boot do
     Logger.info("pesque up",
       data_dir: Pesque.data_dir(),
@@ -75,9 +73,8 @@ defmodule Pesque.Application do
     Enum.each(boot_warnings(), &Logger.warning/1)
   end
 
-  # The failures a self-hoster actually hits are silent ones: the process comes
-  # up and nothing can resolve it. Name them at boot rather than leaving a
-  # client to discover them later.
+  # The failures a self-hoster actually hits are silent ones: the process
+  # comes up and nothing can resolve it. Name them at boot.
   defp boot_warnings do
     if Application.get_env(:pesque, :boot_warnings, true) do
       hostname_warning() ++ scheme_warning() ++ registration_warning()

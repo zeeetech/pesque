@@ -15,10 +15,9 @@ defmodule Pesque.RepoStore do
   alias Pesque.RepoStore.Meta
   alias Pesque.RepoStore.Record
 
-  # A statement may bind at most SQLITE_MAX_VARIABLE_NUMBER parameters (32766 on
-  # the SQLite exqlite bundles), and insert_all binds one per column per row. A
-  # migration writes a whole repo's blocks in one call, tens of thousands of
-  # them, so the rows go in batches that stay well under the ceiling.
+  # A statement may bind at most SQLITE_MAX_VARIABLE_NUMBER parameters (32766
+  # on the SQLite exqlite bundles), and insert_all binds one per column per
+  # row, so the rows go in batches that stay well under the ceiling.
   @blocks_per_insert 2_000
 
   # records
@@ -141,23 +140,19 @@ defmodule Pesque.RepoStore do
   Every CID of `did`, without the bytes behind them.
 
   A CAR stream has to know the whole block order before it writes the header,
-  and a block order is the set of CIDs, not the set of payloads. Selecting only
-  the CID column is what lets getRepo decide its whole answer up front and then
-  read the bytes a batch at a time; blocks_map/1 here would defeat that by
-  pulling the repo in first.
+  and a block order is the set of CIDs, not the set of payloads: selecting
+  only the CID column is what lets getRepo read the bytes a batch at a time,
+  which blocks_map/1 would defeat by pulling the repo in first.
   """
   def block_cids(did) do
     Repo.all(from b in Block, where: b.did == ^did, select: b.cid)
   end
 
   @doc """
-  Which of `cid_strings` this repo already holds.
-
-  Used to pick the incremental block set a `#commit` frame carries, so a frame
-  stays proportional to what the commit added rather than to the size of the
-  commit's closure. It is deliberately not used to decide what to insert: the
-  insert is unconditional, so nothing about a block's storage correctness
-  depends on having read this first.
+  Which of `cid_strings` this repo already holds, to pick the incremental
+  block set a `#commit` frame carries, so a frame stays proportional to what
+  the commit added. Deliberately not used to decide what to insert: the
+  insert is unconditional.
   """
   def existing_cids(did, cid_strings) do
     cid_strings
@@ -172,10 +167,8 @@ defmodule Pesque.RepoStore do
   @doc """
   The stored blocks `cid_strings` names, keyed by CID string.
 
-  A CID this repo does not hold is absent from the map rather than nil: a
-  block either exists or it does not, and the caller is the one that decides
-  what a missing one means. Chunked well under SQLite's bound-variable ceiling,
-  not a tuning knob.
+  A CID this repo does not hold is absent from the map rather than nil: the
+  caller decides what a missing one means.
   """
   def blocks_by_cids(did, cid_strings) do
     cid_strings
@@ -189,16 +182,9 @@ defmodule Pesque.RepoStore do
   @doc """
   The blocks a consumer needs to place `cid_string` in this repo: the MST nodes
   from the current root down to the one holding its entry, plus the block
-  itself.
-
-  The record block alone does not say where it lives. Reaching it from the root
-  is what turns a hash into a position, so the walk follows the same child
-  links sweep_blocks!/1 follows and a tree it cannot finish answers an error
-  rather than a partial path.
-
-  Answers {:error, :no_root} when the repo has no commit, {:error, :not_found}
-  when the tree does not name the block at all, and {:error, :corrupt} when a
-  block on the way is missing or does not decode.
+  itself. A tree the walk cannot finish answers an error rather than a partial
+  path: `{:error, :no_root}` with no commit, `:not_found` when the tree does
+  not name the block, `:corrupt` for a missing or undecodable block on the way.
   """
   def blocks_for_path(did, cid_string) do
     case get_meta("root:" <> did) do
@@ -215,20 +201,15 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
-  Deletes every block of `did` the current MST cannot reach.
+  Deletes every block of `did` the current MST cannot reach: the head commit,
+  the record CIDs the tree points at, and every MST node on the way down are
+  kept. The head commit is named by the meta rows, not the tree, so it is
+  marked by hand.
 
-  The head commit, the record CIDs the tree points at, and every MST node on
-  the way down are reachable and kept. The head commit block in particular is
-  not in the tree at all, it is only named by the meta rows, so it is marked
-  by hand.
-
-  A tree the walk cannot finish is not swept at all. A block the tree names
-  that is missing, or whose bytes do not decode, means the walk cannot say what
-  hangs below it, and everything below it would look unreachable. Deleting on
-  an incomplete walk is how a repo loses records a reader can still ask for by
-  CID, so the answer is to delete nothing and answer 0.
-
-  Answers the number of rows deleted.
+  A tree the walk cannot finish is not swept at all: a missing or undecodable
+  block makes everything below it look unreachable, and deleting on an
+  incomplete walk is how a repo loses records a reader can still ask for by
+  CID. Answers the number of rows deleted.
   """
   def sweep_blocks!(did) do
     blocks = blocks_map(did)
@@ -358,10 +339,8 @@ defmodule Pesque.RepoStore do
 
   The mark is read and written inside the same transaction that inserts the
   event it belongs to, so two writers cannot claim the same number and a
-  rollback takes the mark back with the row it was going to describe.
-
-  A database written before the mark existed has no row here, so the log's own
-  maximum is the floor rather than zero.
+  rollback takes the mark back. A database written before the mark existed
+  has no row here, so the log's own maximum is the floor rather than zero.
   """
   def claim_event_seq, do: event_seq_mark() + 1
 
@@ -421,9 +400,8 @@ defmodule Pesque.RepoStore do
   Deletes every row a DID owns in the repository layer: its records, blocks,
   blob rows and meta rows.
 
-  Event rows are not touched. The firehose log is how a mirror learns the
-  account was deleted, so a repo whose account is gone still has a `#account`
-  frame with its DID on it, and the seq sequence stays gap-free.
+  Event rows are untouched: the firehose log is how a mirror learns the
+  account was deleted, and the seq sequence stays gap-free.
   """
   def delete_repo_data!(did) do
     Repo.delete_all(from r in Record, where: r.did == ^did)
@@ -434,9 +412,9 @@ defmodule Pesque.RepoStore do
   end
 
   # Meta is keyed by "<kind>:<did>", and a DID is not LIKE-safe: did:web
-  # percent-encodes a non-default port, so one can carry a literal % that the
-  # pattern would read as a wildcard and match another repo's rows. Selecting
-  # the keys and deleting exactly those cannot.
+  # percent-encodes a non-default port, so one can carry a literal % that a
+  # LIKE pattern would read as a wildcard and match another repo's rows.
+  # Selecting the keys and deleting exactly those cannot.
   defp delete_meta!(did) do
     keys =
       Repo.all(from m in Meta, select: m.key) |> Enum.filter(&String.ends_with?(&1, did))
@@ -448,11 +426,10 @@ defmodule Pesque.RepoStore do
   @doc """
   Deletes events older than `datetime`, answering how many rows went.
 
-  The seq of the surviving rows is not renumbered, and neither is the sequence
-  itself: the mark the next seq is claimed from lives in meta, so an emptied log
-  still hands out numbers above every one it ever held. A consumer whose cursor
-  falls inside the deleted window already gets an OutdatedCursor frame from the
-  firehose replay, which is exactly what this makes possible.
+  The seq of the surviving rows is never renumbered: the mark the next seq is
+  claimed from lives in meta, so an emptied log still hands out numbers above
+  every one it ever held, and a cursor inside the deleted window already gets
+  an OutdatedCursor frame from the firehose replay.
   """
   def delete_events_before(datetime) do
     {count, _} = Repo.delete_all(from e in Event, where: e.inserted_at < ^datetime)
@@ -517,8 +494,8 @@ defmodule Pesque.RepoStore do
   Every account, ordered by DID, for the operator's account list: the DID,
   the handle, the email, and when the account was deactivated, if it is.
 
-  This is the one read that answers with emails, because the caller is the
-  operator on their own server; every public listing goes through
+  The one read that answers with emails, because the caller is the operator
+  on their own server; every public listing goes through
   Accounts.hosted_dids, which selects the DID alone.
   """
   def list_users do
@@ -549,14 +526,10 @@ defmodule Pesque.RepoStore do
   @doc """
   Writes a consistent snapshot of the database at `db_path` to `target_path`.
 
-  Opens its own connection rather than borrowing the pool: a snapshot must
-  not wait behind (or run inside) a transaction some other process holds,
-  and reading the file while SQLite has writes in flight would not be
-  consistent at all. `VACUUM INTO` is what buys the instant: the copy is the
-  committed state at the moment it runs.
-
-  `:locked` means the wait for the read on a busy database did not come back
-  in time.
+  Opens its own connection rather than borrowing the pool: reading the file
+  while SQLite has writes in flight would not be consistent at all, and
+  `VACUUM INTO` is what makes the copy the committed state at one instant.
+  `:locked` means the wait on a busy database did not come back in time.
   """
   def vacuum_into(db_path, target_path) do
     case Exqlite.Sqlite3.open(db_path) do
@@ -583,11 +556,9 @@ defmodule Pesque.RepoStore do
   Takes the database's write lock and gives it straight back: `:ok` means no
   other process held it, `{:error, :locked}` means one did.
 
-  `BEGIN IMMEDIATE` is the probe: it is the first thing a writer does, so
-  answering it says whether the database is free to take over, which is what
-  a cold restore has to know before it swaps the file. `busy_timeout_ms` is
-  how long the probe waits for a writer in flight to finish before answering
-  :locked.
+  `BEGIN IMMEDIATE` is the probe, because it is the first thing a writer
+  does; `busy_timeout_ms` is how long it waits for a writer in flight before
+  answering :locked.
   """
   def write_lock(db_path, busy_timeout_ms \\ 5_000) do
     case Exqlite.Sqlite3.open(db_path) do

@@ -1,30 +1,15 @@
 defmodule Pesque.Config do
   @moduledoc """
-  The base configuration layer: a small `key = value` file, read once at boot.
-
-  Precedence is environment, then file, then the default in `config/runtime.exs`.
-  The environment wins so container and systemd deployments keep working
-  unchanged, and the file is where a longer list of settings is easier to read
-  than a wall of `-e` flags.
-
-  The grammar is deliberately tiny: `#` starts a comment, blank lines are
-  ignored, and a line is `key = value` with whitespace around either side
-  dropped. A key the server does not know is an error, so a typo fails boot
-  instead of being ignored, and so is a repeated key, whose second value would
-  otherwise silently lose to the first. The environment layer is held to the
-  same rule by `validate_env/0`: an unknown `PDS_*` variable fails boot rather
-  than configuring nothing.
-
-  The path is `PDS_CONFIG`, or `pesque.conf` in the working directory. The
-  container sets it to `/data/pesque.conf`, on the volume, so mounting one file
-  is enough to configure it.
+  A small `key = value` file, read once at boot, behind the environment and
+  ahead of the defaults in `config/runtime.exs`. The grammar is deliberately
+  tiny, and both layers refuse what they cannot read: an unknown key or a
+  misspelled `PDS_*` variable fails boot rather than configuring nothing.
   """
 
-  # The settings table, in the order the template prints them: the key, the
-  # example value it carries, whether the line is live or shown as a
-  # commented default, and the prose above it. `@keys` is derived from this
-  # list, so a key added here is checked by the parser, resolved by get/3's
-  # callers and offered by `config template` in the same change.
+  # The settings table, in the order the template prints them. `@keys` is
+  # derived from this list, so a key added here is checked by the parser,
+  # resolved by get/3's callers and offered by `config template` in the same
+  # change.
   @settings [
     {"hostname", "pds.example.com", :set, "The host this server is reached at."},
     {"mode", "path_multi", :set,
@@ -67,11 +52,9 @@ defmodule Pesque.Config do
 
   @keys for {key, _value, _shown, _prose} <- @settings, do: key
 
-  # The internal PDS_* variables the tooling sets around the server's own
-  # config keys. PDS_SERVE needs no entry (serve is a config key); the
-  # wrapper and image set these three, and nothing else may use the
-  # namespace, because a PDS_* variable nothing reads is a typo that
-  # configured nothing.
+  # Internal PDS_* variables the tooling sets around the server's config
+  # keys. PDS_SERVE needs no entry (serve is a config key), and nothing else
+  # may use the namespace.
   @internal_env ~w(PDS_CONFIG PDS_PUBLIC_IP PDS_TAG)
 
   @template_header """
@@ -125,11 +108,10 @@ defmodule Pesque.Config do
   @doc """
   Fails boot when the environment carries a `PDS_*` variable nothing reads.
 
-  The file layer refuses an unknown key (a typo must fail boot rather than be
-  ignored); until now the environment was the one layer that stayed silent,
-  so a misspelled variable in a unit file or compose environment configured
-  nothing and booted anyway. The allowlist is the config keys plus the
-  internal variables the release tooling sets around them.
+  The file layer refuses an unknown key, so the environment is held to the
+  same rule: a misspelled variable in a unit file or compose environment
+  would configure nothing and boot anyway. The allowlist is the config keys
+  plus the internal variables the release tooling sets.
   """
   def validate_env do
     known = MapSet.new(Enum.map(@keys, &("PDS_" <> String.upcase(&1))) ++ @internal_env)

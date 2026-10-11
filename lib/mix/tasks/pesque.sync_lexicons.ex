@@ -6,18 +6,11 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
 
       mix pesque.sync_lexicons
 
-  This is the only thing that touches the vendored tree, and it is never
-  needed to add a lexicon of your own. Drop a file in `data/lexicons` and
-  restart; it is read alongside the vendored ones, so a sync cannot overwrite
-  it.
-
-  A file already on disk with the same NSID is replaced, so re-syncing is
-  idempotent. Files under `priv/lexicons` that upstream does not publish are
-  left alone rather than deleted, because a reader may have added one to the
-  vendored tree instead of to `data/lexicons`.
-
-  Downloads with `:httpc`, which is why this task starts `:inets` itself. The
-  server never makes outbound requests, so nothing else in it does.
+  The only thing that touches the vendored tree, and never needed to add a
+  lexicon of your own: drop a file in `data/lexicons` and restart, it is read
+  alongside the vendored ones. A file already on disk with the same NSID is
+  replaced, and files upstream does not publish are left alone. Downloads
+  with `:httpc`, so this task starts `:inets` itself.
   """
 
   use Mix.Task

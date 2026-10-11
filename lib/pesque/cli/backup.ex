@@ -1,8 +1,8 @@
 defmodule Pesque.Cli.Backup do
   @moduledoc """
   Writes a backup archive of the data directory. Live-safe: the database is
-  snapshotted first and the file-before-row upload order is what makes the
-  rest safe on a running server.
+  snapshotted first, and blob uploads write the file before the row, so a
+  race with a running upload can only leave an orphan file in the archive.
   """
 
   alias Pesque.Backup

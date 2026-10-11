@@ -24,18 +24,14 @@ defmodule Pesque.Accounts do
 
   @deletion_token_ttl_seconds 24 * 60 * 60
 
-  # The rows for a batch are materialised in memory before the single
-  # insert_all, so codeCount is bounded by what one call may cost rather than
-  # by what SQLite will accept: 1000 codes is a few milliseconds, 100_000 is
-  # seconds and tens of megabytes, and both are one integer from a client.
-  # A hundred single-use codes is a year of accounts on a small server.
+  # Materialised in memory before the single insert_all, so codeCount is
+  # bounded by what one call may cost: 1000 codes is a few milliseconds,
+  # 100_000 is seconds and tens of megabytes, and both are one client integer.
   @max_code_count 1_000
 
-  # useCount multiplies what one code buys rather than what one call costs, so
-  # the bound here is about the size of the promise a single code makes: a
-  # code that admits every account the server will ever hold is closed
-  # registration with one extra step. An operator who wants more mints more
-  # codes.
+  # useCount multiplies what one code buys, so the bound is the size of the
+  # promise a single code makes: a code that admits every account the server
+  # will ever hold is closed registration with one extra step.
   @max_use_count 1_000
 
   @doc "Whether any account exists yet. Drives the first-boot hint."
@@ -44,29 +40,19 @@ defmodule Pesque.Accounts do
   @doc """
   Creates a local account from a handle, an email, and a password.
 
-  The handle is the whole identifier: a client sends alice.example.com and
-  never sends a bare username, so the username is derived from it. Under
-  path_multi the domain must equal the handle domain exactly, so a lookalike
-  domain is rejected rather than normalized into acceptance.
-
-  :invite_code, when given, is claimed for the new account's DID in the same
-  transaction that inserts the account, so a code spent on an account that
-  then fails to insert is spendable again.
+  The handle is the whole identifier: the username is derived from it, and
+  under path_multi the domain must equal the handle domain exactly, so a
+  lookalike domain is rejected rather than normalized into acceptance.
+  :invite_code, when given, is claimed in the same transaction that inserts
+  the account, so a code spent on an insert that failed is spendable again.
 
   The order below is load-bearing. RepoServer.init/1 loads the key for the
   DID it is given, so the key file has to be claimed before the repo starts
-  and the user row has to be committed before that. A failed insert leaves a
-  key file nobody owns, and an orphan there makes the next attempt at the
-  same handle fail on the exclusive create, so it is removed before
-  returning.
-
-  The hash is computed here rather than inside insert/5's transaction. It is a
-  pure function of the password and needs no database, while the transaction
-  holds SQLite's single write lock for as long as it runs: an argon2 hash is
-  tens of milliseconds holding tens of megabytes resident, and under an open
-  registration every unrelated write on the server queues behind it. A wrong
-  invite code is also answered before any hash is burned, which is the other
-  thing moving it out bought.
+  and the user row has to be committed before that; a failed insert removes
+  the key file again, since an orphan there makes the next attempt at the
+  same handle fail on the exclusive create. The hash is computed outside the
+  transaction because argon2 would hold SQLite's single write lock for the
+  whole hash, and a wrong invite code is answered before any hash is burned.
   """
   def create_account(handle, email, password, opts \\ []) do
     with {:ok, identity} <- identity_for(handle),
@@ -91,16 +77,10 @@ defmodule Pesque.Accounts do
   Creates the local account an imported DID lands on, deactivated and empty.
 
   The DID is the caller's, not one derived from the handle: an import moves an
-  identity this server did not mint. Control of it is proven at the endpoint
-  with a service-auth token signed by the DID's key, so all this function
-  checks is the shape of the string and the handle it is being attached to.
-  The key file it claims is this server's, so the account signs with a key it
-  holds from its first write.
-
-  A handle under this server's own handle domain is resolved here and needs no
-  network. Any other handle has to resolve to the imported DID, in both
-  directions, before a row is written: the caller publishes the TXT record or
-  well-known document, and the DID's own document has to claim the handle back.
+  identity this server did not mint, and control of it is proven at the
+  endpoint with a service-auth token signed by the DID's key. A handle under
+  this server's own domain is resolved locally; any other handle has to
+  resolve to the imported DID in both directions before a row is written.
 
   The account starts deactivated, so nothing is served or written until
   activateAccount; the repo is empty until importRepo fills it. The same key
@@ -185,18 +165,10 @@ defmodule Pesque.Accounts do
   answers them grouped by the account they were made for.
 
   A server whose registration is closed has no public way in, so this is how
-  an operator hands accounts out. The codes are random base32, short enough to
-  read over a voice call, and the unique index is what makes a guess against
-  one of them fail rather than collide.
-
-  `for_accounts` restricts the codes to those DIDs and answers one group per
-  DID. A code made for nobody is spendable by any account, and its group names
-  no account, because a code belonging to nobody cannot name one.
-
-  Both counts are bounded. The context is the only place that can be right
-  about it: the endpoint that reaches this is authenticated, and an
-  authenticated caller is not the same thing as the operator, so the numbers
-  are refused here rather than trusted from a caller.
+  an operator hands accounts out. `for_accounts` restricts the codes to those
+  DIDs and answers one group per DID; a code made for nobody is spendable by
+  any account. Both counts are bounded here because an authenticated caller
+  is not the same thing as the operator.
   """
   def create_invite_codes(code_count, use_count, for_accounts \\ [])
 
@@ -252,9 +224,9 @@ defmodule Pesque.Accounts do
 
   # Claims one use of an invite code for `did`. A code with no uses left, one
   # no row names, and one restricted to other DIDs all answer
-  # {:error, :invalid_invite_code}; the conditional update is what makes two
-  # callers racing for the last use of a code produce one account rather than
-  # two, and what makes the restriction and the count one statement.
+  # {:error, :invalid_invite_code}; the conditional update means two callers
+  # racing for the last use of a code produce one account rather than two,
+  # and the restriction and the count are one statement.
   defp consume_invite_code(code, did) when is_binary(code) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
@@ -281,10 +253,9 @@ defmodule Pesque.Accounts do
   @doc """
   Whether an account's repo is served here.
 
-  False for a DID this server does not host, because there is no account whose
-  state could be active. A repo that has never been written to is active: the
-  account exists and is not deactivated, which is a different thing from having
-  no repo behind it and is what the callers answer separately.
+  False for a DID this server does not host: there is no account whose state
+  could be active. A repo that has never been written to is active; the
+  callers answer the empty-repo case separately.
   """
   def repo_active?(did) when is_binary(did) do
     match?(%User{active: true}, get_user(did))
@@ -343,31 +314,20 @@ defmodule Pesque.Accounts do
   @doc """
   The canonical DID of the local account named by an identifier, or {:error, reason}.
 
-  The identifier's syntax and whether its host is ours are settled without a
-  database, so existence is settled here: a DID of the right shape naming no
-  account is {:error, :not_found}, not an invitation.
-
-  A DID is looked up by the string it is stored under, not by re-deriving it
-  from the host and port the server currently runs on. An account's DID was
-  minted once, when it was created, and did:web percent-encodes a non-default
-  port, so re-deriving it turns moving from port 4000 to 443 into a total
-  lockout: the stored rows still match nothing and every read answers
-  RepoNotFound. Handles still go through the derivation, since a handle has to
-  become a DID before it can be looked up.
+  A DID is looked up by the string it is stored under, not re-derived from
+  the host and port the server currently runs on: did:web percent-encodes a
+  non-default port, so re-deriving it turns moving from port 4000 to 443
+  into a total lockout. Handles still go through the derivation, since a
+  handle has to become a DID before it can be looked up.
   """
   def repo_did(identifier) when is_binary(identifier) do
     identifier = String.trim(identifier)
 
     # Matched exactly, not case-folded: a DID is case-sensitive and did:web
     # percent-encodes as uppercase, so folding turns %3A into %3a and matches
-    # nothing. did:plc is minted by the directory and matched the same way,
-    # because re-deriving either from the live config is what this avoids.
-    #
-    # Matched the same way, for the same reason. Deriving the DID from
-    # the live config and then looking that up means the port the server
-    # runs on today decides whether an account created yesterday is
-    # reachable at all. Only stored rows match, so a handle from another
-    # network still answers {:error, :not_found}.
+    # nothing. Also never re-derived from the live config: the port the
+    # server runs on today would decide whether an account created yesterday
+    # is reachable at all. Only stored rows match.
     lookup =
       if String.starts_with?(identifier, "did:") do
         [did: identifier]
@@ -386,15 +346,14 @@ defmodule Pesque.Accounts do
   @doc """
   Whether the authenticated account owns the repo an identifier names.
 
-  Both sides are canonical DIDs by the time they are compared, so no spelling
-  of another account's repo can equal this one's. An unknown repo and another
-  account's repo answer identically, so the write path cannot be used to ask
-  which DIDs this server hosts.
+  Both sides are canonical DIDs by the time they are compared, and an unknown
+  repo and another account's repo answer identically, so the write path
+  cannot be used to ask which DIDs this server hosts.
 
-  A deactivated account owns nothing writable. The check lives here rather than
-  in the RepoServer because this is the one place every write already passes
-  through, so a write stopped by deactivation is stopped by the same gate that
-  decides who owns the repo, and not by a second rule kept somewhere else.
+  A deactivated account owns nothing writable. The check lives here rather
+  than in the RepoServer because this is the one gate every write already
+  passes through, so the deactivation rule is not a second rule kept
+  somewhere else.
   """
   def authorize_write(%User{active: true, did: did}, repo) do
     case repo_did(repo) do
@@ -408,14 +367,11 @@ defmodule Pesque.Accounts do
   @doc """
   Deactivates an account and announces it.
 
-  The repo's rows, blocks and key stay: a deactivated account is still an
-  account, getRepoStatus still answers for it, and activateAccount puts it back
-  without anything having to be rebuilt. What stops is the write path, through
-  authorize_write/2.
-
-  deleteAfter is a recommendation about how long to hold the deactivated
-  account, not an instruction: nothing here deletes anything on a schedule,
-  and delete_account/4 remains the only path that destroys an account.
+  The repo's rows, blocks and key stay: activateAccount puts it back without
+  anything having to be rebuilt. What stops is the write path, through
+  authorize_write/2. deleteAfter is a recommendation about how long to hold
+  the deactivated account, not an instruction: nothing here deletes anything
+  on a schedule, and delete_account/4 remains the only destructive path.
 
   The frame goes out after the row is updated, so a mirror that hears the
   deactivation and immediately asks getRepoStatus already reads it as inactive.
@@ -446,14 +402,12 @@ defmodule Pesque.Accounts do
 
   @doc """
   Announces an already-active account without changing it: the `#account` frame
-  and the empty commit, the announcement activate_account/1 makes after it flips
-  the row.
+  and the empty commit activate_account/1 makes after it flips the row.
 
   Used at the end of a migration, after the account is active here and the old
-  PDS has been deactivated, so this PDS's activation is the last account event
-  for the DID on the wire. A consumer that applies the deactivation the old PDS
-  still emits (the spec says it should not; the AppView does) otherwise ends
-  with the account marked deactivated.
+  PDS deactivated, so this PDS's activation is the last account event for the
+  DID on the wire: a consumer that applies the deactivation the old PDS still
+  emits would otherwise end with the account marked deactivated.
   """
   def announce_active(did) when is_binary(did) do
     Events.emit_account(did, :activated)
@@ -466,10 +420,6 @@ defmodule Pesque.Accounts do
 
   The hash and the teardown are one operation from the operator's point of
   view: a reset that left the attacker's sessions live would not be a reset.
-  The account's refresh tokens are deleted and every OAuth token it was
-  issued is revoked, so the next thing that works is a login with the new
-  password.
-
   The password goes through the same checks and the same hash as
   create_account/4, so a reset cannot weaken the account it is fixing.
   """
@@ -500,10 +450,9 @@ defmodule Pesque.Accounts do
   end
 
   # A did:plc account is activated only once the directory's document names
-  # this server as its PDS: a row activated against a document that points
-  # somewhere else would have every client resolve the account away from here.
-  # A did:web account's document is served here and derived from this server,
-  # so there is nothing to fetch.
+  # this server as its PDS, or every client resolves the account away from
+  # here. A did:web account's document is served and derived here, so there
+  # is nothing to fetch.
   defp verify_identity(%User{did: "did:plc:" <> _} = user), do: Pesque.Plc.verify_pds(user.did)
   defp verify_identity(%User{}), do: :ok
 
@@ -514,13 +463,12 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # The migration spec asks a reactivated account to put a `#commit` next to the
-  # `#account` frame, so a consumer that attached to the firehose live sees the
-  # repo move. Without it a relay that never ingests anything leaves the host at
-  # `offline` forever: the account is active here and invisible on the network,
-  # which is what a migrated account looked like. Best effort, like the frame
-  # above: the account is already active, and a head that cannot advance is a
-  # storage problem to log rather than a failed activation.
+  # The migration spec asks a reactivated account to put a `#commit` next to
+  # the `#account` frame, so a consumer that attached to the firehose live
+  # sees the repo move. Without it a relay that never ingests anything leaves
+  # the host at `offline` forever: the account is active here and invisible
+  # on the network. Best effort, like the frame above: the account is already
+  # active, and a head that cannot advance is a storage problem to log.
   defp announce_head(did) do
     case RepoSupervisor.ensure_started(did) do
       {:ok, pid} ->
@@ -560,20 +508,13 @@ defmodule Pesque.Accounts do
   mode's own syntax and domain rules, and the users table for availability. The
   account's own row is excluded from the availability check, so setting the
   handle an account already has is a no-op rather than a collision with itself.
-
-  A did:plc account may move to a handle on a foreign domain. The PLC operation
-  that publishes the new handle is submitted first, then the handle has to
-  resolve to the account's DID in both directions before the row is written. A
-  local handle needs no network: this server owns its resolution. A did:web
+  A did:plc account may move to a handle on a foreign domain; a did:web
   account keeps a handle under this server's domain, because its document is
   served here.
 
   Only the handle moves. The DID was minted once, when the account was created,
   and every record, block and meta row is keyed by it, so a handle change that
-  re-derived the DID would strand all of them. Under path_multi that means the
-  username stays the one the DID path carries and the handle is the alias that
-  moves, which is what did:web allows: the path names the account, the handle
-  is the name it is known by.
+  re-derived the DID would strand all of them.
   """
   def update_handle(%User{} = user, handle) do
     with {:ok, identity} <- update_handle_identity(user, handle),
@@ -669,40 +610,25 @@ defmodule Pesque.Accounts do
   defp verify_pass(_password, _hash), do: false
 
   # The one place argon2 options are read. Both the real hash and the dummy
-  # verify have to run at the same cost or the timing defence is not one: the
-  # dummy exists to make an unknown identifier cost what a known one costs,
-  # and Comeonin.no_user_verify/1 is hash_pwd_salt("", opts), so it runs at
-  # whatever this returns and not at the library default unless it is the same
-  # value. Prod sets nothing, which means the argon2_elixir defaults of
-  # t_cost 3, m_cost 16 (64 MiB) and 4 lanes.
-  #
-  # The memory ceiling is the reason this is a config decision rather than a
-  # constant: m_cost is read as an exponent of KiB, so m_cost 16 is 65536 KiB
-  # per hash, and with_hash_permit below bounds how many run at once. A
-  # server with 512 MiB to give away wants m_cost 12 (4 MiB) at t_cost 3;
-  # anything above about m_cost 15 wants the permit count looked at again.
+  # verify have to run at the same cost or the timing defence is not one, so
+  # no_user_verify gets the same opts (Comeonin.no_user_verify/1 is
+  # hash_pwd_salt("", opts)). m_cost is an exponent of KiB, so m_cost 16 is
+  # 65536 KiB per hash: configurable because the right number is a function
+  # of the box, and anything above about m_cost 15 wants the permit count
+  # looked at again.
   @doc false
   def argon2_opts, do: Application.get_env(:pesque, :argon2_opts, [])
 
-  # argon2 is memory-hard on purpose: at the defaults one verify holds 64 MiB
-  # for about 26ms, and nothing above this module bounds how many logins a
-  # client has in flight (Bandit takes no connection cap, and the session rate
-  # limit is per hour, so it bounds volume rather than concurrency). A hundred
-  # concurrent createSession calls from one address is several GiB of RSS.
-  #
-  # A semaphore, not a pool: a pool of workers would queue the callers on a
-  # GenServer and the hash would wait behind the queue. :atomics gives a
-  # counting semaphore with no process at all, so a call that gets a permit
-  # pays one atomic add, and there is nothing here to supervise, nothing to
-  # become a bottleneck, and no mailbox to serialise. The waiter sleeps
-  # between attempts rather than spinning: the hashes want the cores, and a
-  # spin loop would take exactly what they are trying to use.
-  #
-  # Sized against the schedulers because argon2 is CPU-bound, so a permit per
-  # core is what keeps throughput flat; the floor of 2 keeps a one-core box
-  # hashing while the caller finishes the rest of its request, and the ceiling
-  # stops a many-core machine reading the permit count as licence to size the
-  # gate by hardware instead of by memory.
+  # argon2 is memory-hard: one verify holds 64 MiB at the defaults, and
+  # nothing above this module bounds how many logins a client has in flight
+  # (Bandit takes no connection cap, and the session rate limit bounds volume
+  # rather than concurrency), so a hundred concurrent createSession calls is
+  # several GiB of RSS. A counting semaphore via :atomics, not a pool of
+  # workers: a permit costs one atomic add, and there is nothing to supervise
+  # and no mailbox to serialise. The waiter sleeps between attempts rather
+  # than spinning; the hashes want the cores. Sized against the schedulers,
+  # floored at 2 for a one-core box, and capped so a many-core machine does
+  # not size the gate by hardware instead of by memory.
   @argon2_permit_floor 2
   @argon2_permit_ceiling 8
   @argon2_permit_retry_ms 5
@@ -820,10 +746,9 @@ defmodule Pesque.Accounts do
 
   The row's own did is compared to the subject rather than assumed. The two
   cannot disagree today, since this server signed the token and the jti is
-  unique, so the check decides nothing today. It is here because this is the
-  one place a subject mismatch would hand one account's session to another,
-  and because the column is written and indexed, so reading it is what makes
-  the index from migration 010 worth anything.
+  unique, but a mismatch here is the one thing that would hand one account's
+  session to another, and the column is written and indexed, so reading it
+  keeps the index from migration 010 worth anything.
   """
   def rotate_session(refresh_jwt) do
     with {:ok, claims} <-
@@ -885,13 +810,9 @@ defmodule Pesque.Accounts do
   failure partway through leaves the account whole rather than a repo with no
   owner. The files go last, after the rows, so a crash between them leaves an
   orphan file no reader can reach rather than a row pointing at bytes that are
-  gone.
-
-  Event rows for the DID are deliberately kept. The firehose log is the record
-  that the account was deleted; pruning the deleted repo's rows out of it would
-  punch a hole in the sequence, and a consumer replaying from a cursor before
-  that hole would never hear about the deletion at all. Retention is by age and
-  already bounds the table.
+  gone. Event rows are kept: the firehose log is the record the account was
+  deleted, and pruning it would punch a hole in the sequence a consumer
+  replaying from before the hole would never hear about.
   """
   def delete_account(%User{} = user, did, password, token) do
     with :ok <- check_did(user, did),
@@ -1002,17 +923,11 @@ defmodule Pesque.Accounts do
   # across both columns: that shape raises MultipleResultsError on a string
   # that is one account's handle and another's email, and login is reachable
   # unauthenticated, so the crash is a denial of service rather than a stack
-  # trace nobody sees.
-  #
-  # The handle wins. It is the account's public name and the one a client
-  # resolves a DID from, and create_account/3 refuses the collision that
-  # would make the order matter for any account it creates. What is left is
-  # rows that predate that check or come in through a path that bypasses it,
-  # and those resolve to the same account on every call.
-  #
-  # The alternative is an account_identifiers table keyed by the identifier
-  # itself, which makes the collision unrepresentable and the order moot.
-  # Until there is an email-edit path it is not worth a third table.
+  # trace nobody sees. The handle wins: create_account/3 refuses the collision
+  # that would make the order matter, so what is left resolves to the same
+  # account on every call. An account_identifiers table would make the
+  # collision unrepresentable, but until there is an email-edit path it is
+  # not worth a third table.
   defp find_by_identifier(identifier) when is_binary(identifier) do
     Repo.get_by(User, handle: identifier) || Repo.get_by(User, email: identifier)
   end
@@ -1070,9 +985,8 @@ defmodule Pesque.Accounts do
   #
   # An identifier is a handle or an email, so a string in one column can
   # collide with a string in the other and leave login unable to say which
-  # account it means. create_account/3 refuses both directions, which keeps
-  # the ambiguity out of the data; the comparison is exact because that is
-  # the comparison find_by_identifier/1 makes.
+  # account it means; create_account/3 refuses both directions, and the
+  # comparison is exact because that is the one find_by_identifier/1 makes.
   defp check_available(%{mode: mode} = identity, email) do
     taken =
       Repo.exists?(from u in User, where: u.did == ^identity.did or u.handle == ^identity.handle)
@@ -1085,9 +999,8 @@ defmodule Pesque.Accounts do
   end
 
   # A cross-column collision check: one account's handle must not become
-  # another's email. Ecto refuses to build `== nil` from a pin, and the
-  # conformant_single account has no handle, so each side is only compared
-  # when present. Email itself is NOT NULL on the users table.
+  # another's email. Ecto refuses to build `== nil` from a pin, so each side
+  # is compared only when present; email is NOT NULL on the users table.
   defp check_identifier(identity, email) do
     cond do
       email != nil and Repo.exists?(from u in User, where: u.handle == ^email) ->
@@ -1222,13 +1135,10 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # alsoKnownAs is taken from the row rather than left to Did.did_document/2's
+  # alsoKnownAs is taken from the row rather than Did.did_document/2's
   # derivation from the username: updateHandle/2 moves the handle and the DID
-  # path it is served at does not move with it, so the derivation would publish
-  # a handle the account no longer answers to.
-  #
-  # A did:plc account's document is published by the directory, so it is keyed
-  # by the stored DID rather than derived from the hostname.
+  # path it is served at does not move with it. A did:plc account's document
+  # is published by the directory, so it is keyed by the stored DID.
   defp document(%User{did: "did:plc:" <> _} = user) do
     Did.plc_document(%{
       did: user.did,

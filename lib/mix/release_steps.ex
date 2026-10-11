@@ -2,12 +2,10 @@ defmodule Pesque.Mix.ReleaseSteps do
   @moduledoc """
   Custom release steps, run by `mix release` after `:assemble`.
 
-  The release is the single source of truth for the operations API (D1): the
-  stock `bin/pesque` stays byte-identical as `bin/pesque.core`, and the
+  The stock `bin/pesque` stays byte-identical as `bin/pesque.core`, and the
   wrapper installed at `bin/pesque` dispatches the verb commands through one
-  fixed eval into `Pesque.Cli.main()`. Every other call runs the stock
-  script, so `start`, `daemon`, `eval`, `version` and the rest keep working
-  exactly as the release generated them.
+  fixed eval into `Pesque.Cli.main()`. Every other call (`start`, `daemon`,
+  `eval`, `version` and the rest) runs the stock script.
   """
 
   @doc """

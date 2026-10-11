@@ -1,8 +1,8 @@
 defmodule Pesque.Cli.InputTest do
   @moduledoc """
-  The input order (D3): the flag, then the environment, then a prompt -
-  checked by watching the prompt, which is a seam, so a flag or an
-  environment value that answers first is visible as a prompt never asked.
+  The input order: the flag, then the environment, then a prompt, checked by
+  watching the prompt, which is a seam, so a flag or an environment value
+  that answers first is visible as a prompt never asked.
   """
 
   use ExUnit.Case, async: false

@@ -179,10 +179,10 @@ defmodule Pesque.Release do
     IO.puts("  pesque doctor")
   end
 
-  # A did:web account is the server, which serves its own handle at
-  # /.well-known/atproto-did, so only the host record is needed. A path_multi
-  # account gets its handle resolved at _atproto.<handle>, which nothing else
-  # publishes, so the TXT carries the DID the directory minted.
+  # A did:web account serves its own handle at /.well-known/atproto-did, so
+  # only the host record is needed. A path_multi account is resolved at
+  # _atproto.<handle>, which nothing else publishes, so the TXT carries the
+  # DID the directory minted.
   defp dns_lines(%{did: "did:plc:" <> _} = account) do
     [host_line(), "  _atproto.#{account.handle}   TXT    \"did=#{account.did}\""]
   end

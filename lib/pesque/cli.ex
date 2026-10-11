@@ -1,11 +1,9 @@
 defmodule Pesque.Cli do
   @moduledoc """
   Release-side verb dispatch: `bin/pesque <verb> <argv>` arrives here through
-  one fixed eval (D1), and the answer is the exit code alone (D4): 0 ok, 1
-  domain failure, 2 usage. The host-side CLI parses nothing from verb stdout.
-
-  Mix tasks run the same verbs through `run/1`, which answers instead of
-  halting, so tests exercise dispatch without leaving the VM.
+  one fixed eval, and the answer is the exit code alone: 0 ok, 1 domain
+  failure, 2 usage. Mix tasks run the same verbs through `run/1`, which
+  answers instead of halting, so tests exercise dispatch without leaving the VM.
   """
 
   alias Pesque.Cli.{Account, Backup, Config, Crawl, Doctor, Health, Invite, Migrate, Restore}
@@ -44,8 +42,8 @@ defmodule Pesque.Cli do
   def run([unknown | _]), do: {:usage, "unknown command: #{unknown}\n\n" <> usage()}
 
   @doc """
-  The verb menu. The passwords line is the contract that matters: no
-  `--password VALUE` exists anywhere in this surface (D3).
+  The verb menu. The passwords line is the contract: no `--password VALUE`
+  exists anywhere in this surface.
   """
   def usage do
     """
