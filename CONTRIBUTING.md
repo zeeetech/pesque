@@ -43,7 +43,4 @@ wins.
 ## Commits and pull requests
 
 Conventional Commits with an optional scope (`feat(core):`, `fix(auth):`),
-lower-case after the type, no trailing period. One-line subject unless the
-change genuinely needs future archaeology. No `Co-Authored-By` or other
-generated trailers. Plain prose in bodies and PR text: no marketing
-adjectives, no em-dashes.
+lower-case after the type.
