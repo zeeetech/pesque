@@ -511,6 +511,26 @@ defmodule Pesque.RepoStore do
     end)
   end
 
+  # metrics
+
+  # Both answers are one indexed aggregate a scrape can afford, which is what
+  # keeps the blob bytes out of the filesystem: the sizes are the ones the
+  # rows already carry, and a scrape never walks the blobs directory.
+  @doc "The number of hosted accounts, in any state."
+  def account_count do
+    Repo.one(from u in User, select: count(u.did)) || 0
+  end
+
+  @doc """
+  The blob rows and their total bytes, in one aggregate.
+
+  A file the rows do not name is not counted, on the same footing as the
+  fetch path: a blob this store cannot answer for does not exist.
+  """
+  def blob_totals do
+    Repo.one(from b in Blob, select: {count(b.cid), coalesce(sum(b.size), 0)}) || {0, 0}
+  end
+
   # operator surface
 
   @doc """

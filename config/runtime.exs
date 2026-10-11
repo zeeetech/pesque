@@ -159,6 +159,12 @@ proxy_response_limit =
 privacy_policy_url = get.("privacy_policy_url", "")
 terms_of_service_url = get.("terms_of_service_url", "")
 
+# The token GET /metrics requires before it answers with the server's own
+# exposition. Empty (the default) turns the endpoint off, which is the right
+# default: a server that answers /metrics at all has told a stranger where
+# its seams are. See Metrics and monitoring in docs/guides/operations.md.
+metrics_token = get.("metrics_token", "")
+
 config :pesque, Pesque.Repo,
   database: Path.join(data_dir, "pesque.db"),
   journal_mode: :wal,
@@ -196,6 +202,7 @@ config :pesque,
   proxy_response_limit: proxy_response_limit,
   privacy_policy_url: privacy_policy_url,
   terms_of_service_url: terms_of_service_url,
+  metrics_token: metrics_token,
   # Whether to start the HTTP endpoint. A one-off task container
   # (create_account, doctor) sets this false so it does not fight the running
   # server for the port.

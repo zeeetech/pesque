@@ -1,0 +1,16 @@
+# Scrapes the PDS's /metrics over the compose network, where the server is
+# reachable as `pesque`. The bearer token is the same one the server's
+# metrics_token carries; the monitoring compose writes it to the file this
+# refers to at boot, because Prometheus reads a token only from a file.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: pesque
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["pesque:4000"]
+    authorization:
+      type: Bearer
+      credentials_file: /run/pesque-token

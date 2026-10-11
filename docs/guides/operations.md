@@ -252,6 +252,85 @@ Log metadata is an allowlist (`did`, `handle`, `route`, `reason`, `path`,
 `count`, `records`, `hostname`, `mode`, `registration`, `data_dir`); add keys
 in `config/config.exs`.
 
+## Metrics and monitoring
+
+`GET /metrics` answers the server's own Prometheus exposition (`text/plain`,
+no dependencies added for it). It is **off by default**: with no token
+configured the route answers 404, the same answer a path with no route gets.
+Setting a token turns it on:
+
+```
+metrics_token = <a long random string>     # or PDS_METRICS_TOKEN
+```
+
+From then on the route requires `Authorization: Bearer <that token>` and
+answers 401 otherwise. The token is the whole gate: the endpoint is for your
+own collector, it is not published by Caddy (the shipped Caddyfile only
+proxies what the server advertises, and you should keep it that way), and it
+runs behind the read budget like every other GET, so a scrape flood is
+refused by the rate limiter before it costs a render.
+
+What it exposes, and what each series can be labelled by:
+
+| Metric | Type | Labels | Where it comes from |
+| --- | --- | --- | --- |
+| `pesque_http_requests_total` | counter | `route` (path template), `status` (code) | the endpoint's own `[:phoenix, :endpoint, :stop]` event |
+| `pesque_rate_limit_rejections_total` | counter | none | the rate limiter, when it refuses |
+| `pesque_firehose_commit_frames_total` | counter | none | `#commit` frames pushed to the firehose log |
+| `pesque_firehose_subscribers` | gauge | none | sockets currently on the firehose |
+| `pesque_accounts_total` | gauge | none | one indexed count of the users table |
+| `pesque_blobs_total` / `pesque_blobs_bytes` | gauge | none | one aggregate over the blob rows, not a walk of the blobs directory |
+
+The labels are bounded by construction: `route` is a template out of the
+router (never a request path, never a DID, handle or address), so the series
+set cannot grow with the traffic. A response an exception rendered (a 404 on
+a path outside every route, a 500 from a crash) is not counted; every
+response a controller built is.
+
+A scrape looks like this:
+
+```yaml
+scrape_configs:
+  - job_name: pesque
+    scheme: http
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["pesque:4000"]
+    authorization:
+      type: Bearer
+      credentials_file: /run/pesque-token
+```
+
+### The optional monitoring stack
+
+`docker-compose.monitoring.yml` brings up Prometheus (LTS image, 30 days
+retention) and Grafana with the datasource and a small read-only Pesque
+dashboard provisioned, so nothing needs setting up by hand:
+
+```bash
+echo "PDS_METRICS_TOKEN=<the same token as in pesque.conf>" >> .env
+echo "GRAFANA_PASSWORD=<a password for the Grafana UI>" >> .env
+docker compose -f docker-compose.monitoring.yml up -d
+```
+
+Run it from the same directory as `docker-compose.yml`: it joins that
+project's network so Prometheus reaches the server as `pesque:4000`, and it
+never touches the server's own stack. Prometheus cannot read a bearer token
+from an environment variable, only from a file, so the compose entrypoint
+writes the token to a file inside the container at boot.
+
+**Both ports bind `127.0.0.1` only, and both are for the operator.** Reach
+them over an SSH tunnel and never open them on the firewall:
+
+```bash
+ssh -L 9090:127.0.0.1:9090 -L 3000:127.0.0.1:3000 the.host
+```
+
+Then Prometheus's console is at http://127.0.0.1:9090 and Grafana at
+http://127.0.0.1:3000. A metrics endpoint on the open internet tells a
+stranger where your server's seams are, and a Grafana on the open internet
+is a liability that outlives every password policy.
+
 ## Retention
 
 | What | Rule |

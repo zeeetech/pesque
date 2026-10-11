@@ -1,0 +1,62 @@
+# An OPTIONAL monitoring stack for the PDS, separate from the server's own
+# compose file, which this never touches. Run it from the same directory as
+# docker-compose.yml so it joins that project's network and `pesque` resolves:
+#
+#   docker compose -f docker-compose.monitoring.yml up -d
+#
+# It assumes the metrics endpoint is on: `metrics_token = <a long random
+# string>` in pesque.conf (or PDS_METRICS_TOKEN), and the same token in the
+# environment below. Prometheus cannot read a bearer token out of an
+# environment variable, only out of a credentials file, so the entrypoint
+# writes the token to a file inside the container at boot; it never lands in
+# an image layer or a volume.
+#
+# BOTH PORTS BELOW BIND 127.0.0.1 ONLY. These panels are for the operator:
+# reach them over an SSH tunnel (ssh -L 9090:127.0.0.1:9090 -L 3000:127.0.0.1:3000
+# the.host) and never open these ports on the firewall. Neither tool has any
+# business being reachable from outside the host.
+#
+# Images are pinned so an upgrade is a decision: prom/prometheus v3.13.4 is
+# the current LTS, and grafana/grafana 13.2.3 the current stable release.
+services:
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "printf '%s' \"$$PDS_METRICS_TOKEN\" > /run/pesque-token && exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.retention.time=30d"
+    environment:
+      PDS_METRICS_TOKEN: ${PDS_METRICS_TOKEN:?set PDS_METRICS_TOKEN to the same value as metrics_token in pesque.conf}
+    volumes:
+      - ./contrib/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Loopback only. See the note above; an open 9090 is a query console
+      # over everything the server records.
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      # The operator's sign-in. The datasource and the dashboard are
+      # provisioned read-only, so there is nothing to set up by hand.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD to a password for the Grafana UI}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./contrib/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./contrib/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # Loopback only. Same note; a Grafana on the open internet is a
+      # liability that outlives every password policy.
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  prometheus-data:
+  grafana-data:
