@@ -31,7 +31,7 @@
     });
 
     # Runs it as a systemd service, no container runtime, plus the doctor,
-    # account and migrate oneshots. See nix/module.nix.
+    # account, migrate and backup oneshots. See nix/module.nix.
     nixosModules = {
       pesque = import ./nix/module.nix;
       default = self.nixosModules.pesque;
