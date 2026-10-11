@@ -172,5 +172,8 @@ curl -s -X POST https://old.example.com/xrpc/com.atproto.server.deactivateAccoun
   not this server, whose signing key is not the account's, or whose
   `alsoKnownAs` does not claim the account's handle.
 - `getRecommendedDidCredentials` mints the rotation key on the first ask.
-- A wildcard DNS record and a certificate for `*.<handle-domain>` are needed
-  only for handles this server itself hosts. A TXT record avoids that.
+- A handle this server itself hosts needs a DNS record for the name (a wildcard
+  `*.<handle-domain>` or one per handle). The shipped Caddyfile issues the
+  certificate on demand, so there is no wildcard certificate to buy and no
+  DNS-01 provider to wire up. A handle on a domain you do not control is
+  verified by a TXT record instead.
