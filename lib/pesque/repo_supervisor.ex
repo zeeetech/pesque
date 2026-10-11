@@ -3,22 +3,63 @@ defmodule Pesque.RepoSupervisor do
 
   use DynamicSupervisor
 
+  # The Registry reaps a dead process's entry from its DOWN, which it handles
+  # asynchronously, so for a moment after a repo stops (or crashes) the entry
+  # still names a pid that is gone. `ensure_started/1` must not hand that pid
+  # back, and a fresh start must not collide with it, so both wait this long, in
+  # one-millisecond steps, for the Registry to catch up. The window is normally
+  # microseconds; the budget is generous only so a loaded scheduler cannot make
+  # a caller fail.
+  @registry_grace_ms 2_000
+
   def start_link(_opts), do: DynamicSupervisor.start_link(__MODULE__, nil, name: __MODULE__)
 
   @impl true
   def init(_opts), do: DynamicSupervisor.init(strategy: :one_for_one)
 
-  def ensure_started(did) do
+  @doc """
+  The pid of the running `RepoServer` for `did`, starting one if none runs.
+
+  The answer is always a process that is alive at the moment it is returned: a
+  registry entry that names a dead pid is a gap the Registry has not closed yet,
+  and is waited out rather than handed to a caller whose next call would fail
+  with `:noproc`.
+  """
+  def ensure_started(did), do: ensure_started(did, deadline())
+
+  defp ensure_started(did, deadline) do
     case Registry.lookup(Pesque.RepoRegistry, did) do
       [{pid, _value}] ->
-        {:ok, pid}
+        if Process.alive?(pid), do: {:ok, pid}, else: await_registry(did, deadline)
 
       [] ->
-        case DynamicSupervisor.start_child(__MODULE__, {Pesque.RepoServer, did}) do
-          {:ok, pid} -> {:ok, pid}
-          {:error, {:already_started, pid}} -> {:ok, pid}
-          {:error, reason} -> {:error, reason}
-        end
+        start(did, deadline)
     end
   end
+
+  defp start(did, deadline) do
+    case DynamicSupervisor.start_child(__MODULE__, {Pesque.RepoServer, did}) do
+      {:ok, pid} ->
+        {:ok, pid}
+
+      # The via-registration collided with the stale entry, which still names
+      # the dead pid; wait for the Registry to drop it, then try again.
+      {:error, {:already_started, pid}} ->
+        if Process.alive?(pid), do: {:ok, pid}, else: await_registry(did, deadline)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp await_registry(did, deadline) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      {:error, :unavailable}
+    else
+      Process.sleep(1)
+      ensure_started(did, deadline)
+    end
+  end
+
+  defp deadline, do: System.monotonic_time(:millisecond) + @registry_grace_ms
 end
