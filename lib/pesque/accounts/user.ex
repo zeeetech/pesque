@@ -24,8 +24,10 @@ defmodule Pesque.Accounts.User do
 
     # Not cast by changeset/1: whether an account is deactivated is not
     # something a create request decides, and the only way to move it is
-    # deactivate_account/activate_account.
+    # deactivate_account/activate_account, which stamps (and clears) the
+    # time it happened.
     field :active, :boolean, default: true
+    field :deactivated_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end
@@ -69,7 +71,22 @@ defmodule Pesque.Accounts.User do
     |> unique_constraint(:handle)
   end
 
+  # Moving active also moves deactivated_at: the timestamp is the answer to
+  # "since when", so activating clears it rather than leaving a time the
+  # account was no longer deactivated for. The clear is forced, not compared:
+  # a caller holding the row from before the deactivation would otherwise
+  # compare nil against nil and leave the old time standing.
   def active_changeset(%__MODULE__{} = row, active) do
-    change(row, active: active)
+    stamp = if active, do: nil, else: DateTime.truncate(DateTime.utc_now(), :second)
+
+    row
+    |> change(active: active)
+    |> force_change(:deactivated_at, stamp)
+  end
+
+  # A reset writes the hash and nothing else: the password is the only thing
+  # the operator is replacing, and the sessions it kills are separate rows.
+  def password_changeset(%__MODULE__{} = row, password_hash) do
+    change(row, password_hash: password_hash)
   end
 end

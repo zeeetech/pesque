@@ -307,6 +307,21 @@ defmodule Pesque.OAuth do
   end
 
   @doc """
+  Revokes every token an account holds, access and refresh alike.
+
+  A password reset goes through here after the row is updated: a reset that
+  left the sessions it was killing live would not be a reset. Answers the
+  number of rows marked revoked.
+  """
+  def revoke_all(did) do
+    {count, _} =
+      from(t in Token, where: t.did == ^did and t.revoked == false)
+      |> Repo.update_all(set: [revoked: true])
+
+    count
+  end
+
+  @doc """
   The claims a live access token carries, or {:error, :invalid_token}.
 
   The signature is checked against this server's published key, then the jti is

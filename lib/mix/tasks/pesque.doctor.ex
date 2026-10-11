@@ -15,17 +15,5 @@ defmodule Mix.Tasks.Pesque.Doctor do
   use Mix.Task
 
   @impl Mix.Task
-  def run(_argv) do
-    Mix.Task.run("app.config")
-
-    # No endpoint: the checks read the server's identity and fetch its public
-    # URLs, they never answer a request.
-    Application.put_env(:pesque, :serve, false)
-
-    Mix.Task.run("app.start")
-
-    if Pesque.Doctor.run() == :error do
-      Mix.raise("doctor found problems")
-    end
-  end
+  def run(argv), do: Mix.Pesque.run(["doctor" | argv])
 end

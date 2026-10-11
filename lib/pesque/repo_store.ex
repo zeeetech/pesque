@@ -5,6 +5,7 @@ defmodule Pesque.RepoStore do
 
   require Logger
 
+  alias Pesque.Accounts.User
   alias Pesque.CID
   alias Pesque.Mst
   alias Pesque.Repo
@@ -508,5 +509,106 @@ defmodule Pesque.RepoStore do
         _other -> acc
       end
     end)
+  end
+
+  # operator surface
+
+  @doc """
+  Every account, ordered by DID, for the operator's account list: the DID,
+  the handle, the email, and when the account was deactivated, if it is.
+
+  This is the one read that answers with emails, because the caller is the
+  operator on their own server; every public listing goes through
+  Accounts.hosted_dids, which selects the DID alone.
+  """
+  def list_users do
+    Repo.all(
+      from u in User,
+        order_by: [asc: u.did],
+        select: %{
+          did: u.did,
+          handle: u.handle,
+          email: u.email,
+          deactivated_at: u.deactivated_at
+        }
+    )
+  end
+
+  @doc """
+  Asks the database a question and waits for the answer: the smallest thing a
+  boot that claims to work can be wrong about. The `health` verb answers
+  from here.
+  """
+  def health_check do
+    case Repo.query("SELECT 1") do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:sqlite, reason}}
+    end
+  end
+
+  @doc """
+  Writes a consistent snapshot of the database at `db_path` to `target_path`.
+
+  Opens its own connection rather than borrowing the pool: a snapshot must
+  not wait behind (or run inside) a transaction some other process holds,
+  and reading the file while SQLite has writes in flight would not be
+  consistent at all. `VACUUM INTO` is what buys the instant: the copy is the
+  committed state at the moment it runs.
+
+  `:locked` means the wait for the read on a busy database did not come back
+  in time.
+  """
+  def vacuum_into(db_path, target_path) do
+    case Exqlite.Sqlite3.open(db_path) do
+      {:ok, conn} ->
+        try do
+          with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, "VACUUM INTO ?"),
+               :ok <- Exqlite.Sqlite3.bind(stmt, [target_path]),
+               :done <- Exqlite.Sqlite3.step(conn, stmt) do
+            :ok
+          else
+            :busy -> {:error, :locked}
+            {:error, reason} -> {:error, {:sqlite, reason}}
+          end
+        after
+          :ok = Exqlite.Sqlite3.close(conn)
+        end
+
+      {:error, reason} ->
+        {:error, {:sqlite, reason}}
+    end
+  end
+
+  @doc """
+  Takes the database's write lock and gives it straight back: `:ok` means no
+  other process held it, `{:error, :locked}` means one did.
+
+  `BEGIN IMMEDIATE` is the probe: it is the first thing a writer does, so
+  answering it says whether the database is free to take over, which is what
+  a cold restore has to know before it swaps the file. `busy_timeout_ms` is
+  how long the probe waits for a writer in flight to finish before answering
+  :locked.
+  """
+  def write_lock(db_path, busy_timeout_ms \\ 5_000) do
+    case Exqlite.Sqlite3.open(db_path) do
+      {:ok, conn} ->
+        try do
+          with :ok <- Exqlite.Sqlite3.execute(conn, "PRAGMA busy_timeout = #{busy_timeout_ms}"),
+               {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, "BEGIN IMMEDIATE"),
+               :ok <- Exqlite.Sqlite3.bind(stmt, []),
+               :done <- Exqlite.Sqlite3.step(conn, stmt) do
+            _ = Exqlite.Sqlite3.execute(conn, "ROLLBACK")
+            :ok
+          else
+            :busy -> {:error, :locked}
+            {:error, reason} -> {:error, {:sqlite, reason}}
+          end
+        after
+          :ok = Exqlite.Sqlite3.close(conn)
+        end
+
+      {:error, reason} ->
+        {:error, {:sqlite, reason}}
+    end
   end
 end

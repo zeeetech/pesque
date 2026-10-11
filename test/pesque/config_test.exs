@@ -87,4 +87,88 @@ defmodule Pesque.ConfigTest do
       assert_raise RuntimeError, ~r/#{Regex.escape(path)}.*line 1/, fn -> Config.load!() end
     end
   end
+
+  describe "validate_env/0" do
+    test "a known config key and the internal variables pass" do
+      System.put_env("PDS_PORT", "9000")
+      System.put_env("PDS_CONFIG", "somewhere.conf")
+      System.put_env("PDS_PUBLIC_IP", "203.0.113.7")
+
+      on_exit(fn ->
+        System.delete_env("PDS_PORT")
+        System.delete_env("PDS_CONFIG")
+        System.delete_env("PDS_PUBLIC_IP")
+      end)
+
+      assert Config.validate_env() == :ok
+    end
+
+    test "an unknown PDS_ variable fails, naming it" do
+      System.put_env("PDS_HOSTNMAE", "typo.example.com")
+      on_exit(fn -> System.delete_env("PDS_HOSTNMAE") end)
+
+      assert {:error, {:unknown_env, ["PDS_HOSTNMAE"]}} = Config.validate_env()
+    end
+
+    test "a typo the file layer would refuse is refused here too" do
+      # The file grammar refuses an unknown key; the environment layer is
+      # held to the same rule, or a misspelled variable in a unit file
+      # configures nothing and boots anyway.
+      System.put_env("PDS_NOT_A_REAL_KEY", "1")
+      on_exit(fn -> System.delete_env("PDS_NOT_A_REAL_KEY") end)
+
+      assert {:error, {:unknown_env, ["PDS_NOT_A_REAL_KEY"]}} = Config.validate_env()
+    end
+
+    test "variables of other namespaces are none of this layer's business" do
+      System.put_env("PESQUE_BACKEND", "compose")
+      on_exit(fn -> System.delete_env("PESQUE_BACKEND") end)
+
+      assert Config.validate_env() == :ok
+    end
+  end
+
+  describe "resolution/0" do
+    test "every key answers with the layer that decided it" do
+      System.put_env("PDS_PORT", "9000")
+      on_exit(fn -> System.delete_env("PDS_PORT") end)
+
+      path =
+        Path.join(System.tmp_dir!(), "pesque-where-#{System.unique_integer([:positive])}.conf")
+
+      File.write!(path, "hostname = file.example.com\n")
+      on_exit(fn -> File.rm(path) end)
+
+      previous = System.get_env("PDS_CONFIG")
+      System.put_env("PDS_CONFIG", path)
+      on_exit(fn -> restore_config(previous) end)
+
+      assert {:ok, entries} = Config.resolution()
+      assert {"port", {:env, "PDS_PORT", "9000"}} in entries
+      assert {"hostname", {:file, 1, "file.example.com"}} in entries
+      assert {"mode", :default} in entries
+    end
+  end
+
+  describe "template/0" do
+    test "the committed example is the template, so the two cannot drift" do
+      assert File.read!("pesque.conf.example") == Config.template()
+    end
+
+    test "the template's live lines parse as the config they document" do
+      assert {:ok, values} = Config.parse(Config.template())
+
+      assert values == %{
+               "hostname" => "pds.example.com",
+               "mode" => "path_multi",
+               "identity" => "plc",
+               "handle_domain" => "example.com",
+               "registration" => "closed"
+             }
+    end
+  end
+
+  defp restore_config(previous) do
+    if previous, do: System.put_env("PDS_CONFIG", previous), else: System.delete_env("PDS_CONFIG")
+  end
 end

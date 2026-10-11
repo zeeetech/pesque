@@ -1,5 +1,10 @@
 import Config
 
+# An unknown PDS_* variable is a typo that configured nothing and booted
+# anyway: the file layer refuses those (Pesque.Config.load!), so the
+# environment layer refuses them too.
+Pesque.Config.validate_env!()
+
 # Settings come from the environment first, then pesque.conf, then the defaults
 # here. Pesque.Config.get/3 is the one place that order lives.
 file = Pesque.Config.load!()

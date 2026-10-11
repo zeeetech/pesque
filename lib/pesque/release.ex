@@ -126,15 +126,113 @@ defmodule Pesque.Release do
       :email_required ->
         "an email address is required"
 
+      :email_taken ->
+        "another account already uses that email"
+
       :disallowed_handle ->
         "that handle is not allowed on this server"
+
+      :not_found ->
+        "no account with that DID or handle on this server"
+
+      :invalid_password ->
+        "that is not this account's password"
+
+      :account_not_updated ->
+        "the account row could not be updated"
+
+      :no_input ->
+        "nothing was read from the prompt; run this where the question can be answered, " <>
+          "or pass the value by flag or environment"
+
+      {:password_env_empty, name} ->
+        "#{name} is not set in the environment, or it is empty"
+
+      :doctor_failed ->
+        "doctor found problems; fix the failures above and run it again"
+
+      :no_crawler_configured ->
+        "no relay is configured to ask; set crawler = https://bsky.network"
+
+      {:missing_option, key} ->
+        "the migration is missing #{key}; give it by flag or environment"
+
+      {:unknown_env, names} ->
+        "unknown PDS_ variables in the environment: " <>
+          Enum.join(names, ", ") <>
+          ". A variable the server reads is a config key uppercased with a PDS_ prefix " <>
+          "(pesque.conf.example lists them all); the internal ones the tooling sets are " <>
+          "PDS_CONFIG, PDS_PUBLIC_IP and PDS_TAG"
+
+      {:unknown_key, key, line} ->
+        "the config file names an unknown key #{inspect(key)} on line #{line}"
+
+      {:duplicate_key, key, line} ->
+        "the config file repeats #{inspect(key)} on line #{line}"
+
+      {:invalid_line, line} ->
+        "the config file has a line that is not a comment, blank, or key = value on line #{line}"
+
+      {:missing_value, line} ->
+        "the config file has a key with no value on line #{line}"
+
+      {:unreadable, path, reason} ->
+        "cannot read #{path}: #{inspect(reason)}"
+
+      {:unwritable, path, reason} ->
+        "cannot write #{path}: #{inspect(reason)}"
+
+      {:missing_data_dir_entries, missing} ->
+        "the data directory is missing " <>
+          Enum.join(missing, ", ") <>
+          "; " <>
+          "a server that has never booted has nothing to back up"
+
+      {:tar, reason} ->
+        "could not write the archive: #{inspect(reason)}"
+
+      {:sqlite, reason} ->
+        "the database answered: #{inspect(reason)}"
+
+      :locked ->
+        "the database is locked; stop the server (the driver does this) and run restore again"
+
+      {:bad_archive, :no_manifest} ->
+        "the archive carries no manifest.json, so it is not a pesque backup"
+
+      {:bad_archive, :manifest_not_json} ->
+        "the archive's manifest.json does not decode, so it is not a pesque backup"
+
+      {:bad_archive, :unknown_format} ->
+        "the archive's manifest names another format, so it is not a pesque backup"
+
+      {:bad_archive, reason} ->
+        "the archive could not be read: #{inspect(reason)}"
+
+      {:unsupported_backup_version, version} ->
+        "the archive is backup version #{version}; this server writes and restores " <>
+          "version 1, so upgrade pesque to restore it"
+
+      {:missing_entry, name} ->
+        "the archive is missing #{name}, so it is not a complete pesque backup"
+
+      {:missing_staged, name} ->
+        "the restore is missing its staged #{name}; the previous state is in the .old files"
+
+      {:swap_failed, name, reason} ->
+        "the restore could not move #{name}: #{inspect(reason)}; " <>
+          "the previous state is in the .old files"
 
       other ->
         inspect(other)
     end
   end
 
-  defp print_account(account) do
+  @doc """
+  Prints the account and what to do next, the part of account creation the
+  account verbs and create_account_from_env share.
+  """
+  def print_account(account) do
     IO.puts("")
     IO.puts("Account created.")
     IO.puts("  handle  #{account.handle}")

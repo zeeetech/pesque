@@ -9,7 +9,19 @@ defmodule Pesque.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
+      releases: releases(),
       deps: deps()
+    ]
+  end
+
+  # The verb wrapper (D1): the release step keeps the stock bin/pesque as
+  # bin/pesque.core and installs a wrapper that dispatches the verb commands
+  # through one fixed eval into Pesque.Cli.main().
+  defp releases do
+    [
+      pesque: [
+        steps: [:assemble, &Pesque.Mix.ReleaseSteps.cli/1]
+      ]
     ]
   end
 

@@ -13,6 +13,7 @@ defmodule Pesque.Accounts do
   alias Pesque.HandleResolver
   alias Pesque.Identity
   alias Pesque.Keys
+  alias Pesque.OAuth
   alias Pesque.Repo
   alias Pesque.RepoServer
   alias Pesque.RepoStore
@@ -437,6 +438,44 @@ defmodule Pesque.Accounts do
       Events.emit_account(user.did, :activated)
       {:ok, user.did}
     end
+  end
+
+  @doc """
+  Replaces an account's password and ends every session it holds.
+
+  The hash and the teardown are one operation from the operator's point of
+  view: a reset that left the attacker's sessions live would not be a reset.
+  The account's refresh tokens are deleted and every OAuth token it was
+  issued is revoked, so the next thing that works is a login with the new
+  password.
+
+  The password goes through the same checks and the same hash as
+  create_account/4, so a reset cannot weaken the account it is fixing.
+  """
+  def reset_password(%User{} = user, password) do
+    with :ok <- check_password(password),
+         {:ok, password_hash} <- hash_password(password),
+         {:ok, _row} <- update_password(user, password_hash) do
+      revoke_sessions(user.did)
+      Logger.info("password reset", did: user.did)
+      :ok
+    end
+  end
+
+  defp update_password(user, password_hash) do
+    case User.password_changeset(user, password_hash) |> Repo.update() do
+      {:ok, updated} -> {:ok, updated}
+      {:error, _changeset} -> {:error, :account_not_updated}
+    end
+  end
+
+  # Sessions are dead the moment their rows are: a refresh token whose row is
+  # gone fails the lookup, and an OAuth token marked revoked fails its own.
+  # Both tables are keyed by DID, so one pass each is the whole teardown.
+  defp revoke_sessions(did) do
+    Repo.delete_all(from t in RefreshToken, where: t.did == ^did)
+    _count = OAuth.revoke_all(did)
+    :ok
   end
 
   # A did:plc account is activated only once the directory's document names

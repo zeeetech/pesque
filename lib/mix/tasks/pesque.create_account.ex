@@ -1,126 +1,19 @@
 defmodule Mix.Tasks.Pesque.CreateAccount do
-  @shortdoc "Provisions a local account, the path taken when registration is closed."
+  @shortdoc "Provisions a local account (pesque.account create)"
 
   @moduledoc """
-  Creates an account through Pesque.Accounts.create_account/3, the same
-  function the HTTP endpoint calls, so there is one code path that creates an
-  account rather than two that can drift.
+  The old name of `mix pesque.account create`, kept so existing guides and
+  scripts keep working.
 
       mix pesque.create_account --handle alice.example.com --email a@example.com --password-env PESQUE_PASSWORD
 
-  Password resolution order: `--password`, then `--password-env` (the name of
-  an environment variable holding it), then a no-echo prompt. Prefer the env
-  var; `--password` lands in your shell history and in `ps`, so treat it as
-  the convenience path for throwaway local accounts.
-
-  Runs with the endpoint not serving, so it works against a data directory the
-  live server already has open instead of failing on the port.
+  Creates an account through Pesque.Accounts.create_account/3, the same
+  function the HTTP endpoint calls, so there is one code path that creates an
+  account rather than two that can drift.
   """
 
   use Mix.Task
 
-  defp password(opts) do
-    cond do
-      opts[:password] ->
-        opts[:password]
-
-      opts[:password_env] ->
-        case System.get_env(opts[:password_env]) do
-          nil -> Mix.raise("#{opts[:password_env]} is not set in the environment")
-          "" -> Mix.raise("#{opts[:password_env]} is empty")
-          value -> value
-        end
-
-      true ->
-        read_password()
-    end
-  end
-
-  # :io.get_password/1 takes an io device, not a prompt, so the prompt is
-  # written first and the read asks the group leader. The no-echo primitive is
-  # OTP 28 and up and needs a terminal, so an older runtime or a non-terminal
-  # stdin falls back to an echoed prompt rather than failing.
-  defp read_password do
-    case no_echo_read("password: ") do
-      {:ok, value} -> String.trim(value)
-      :fallback -> read_line()
-    end
-  end
-
-  # The prompt was already written; read a line without printing another.
-  defp read_line do
-    case IO.gets("") do
-      :eof -> Mix.raise("no password was read")
-      line -> String.trim(line)
-    end
-  end
-
-  defp no_echo_read(prompt) do
-    if function_exported?(:io, :get_password, 0) do
-      IO.write(prompt)
-
-      try do
-        case :io.get_password() do
-          answer when is_list(answer) or is_binary(answer) -> {:ok, to_string(answer)}
-          _no_data -> :fallback
-        end
-      rescue
-        _ -> :fallback
-      catch
-        _kind, _reason -> :fallback
-      end
-    else
-      :fallback
-    end
-  end
-
   @impl Mix.Task
-  def run(argv) do
-    Mix.Task.run("app.config")
-
-    # No endpoint: this task writes a row and a key file, it never answers a
-    # request, so it does not stand one up.
-    Application.put_env(:pesque, :serve, false)
-
-    Mix.Task.run("app.start")
-
-    {opts, _args} =
-      OptionParser.parse!(argv,
-        strict: [handle: :string, email: :string, password: :string, password_env: :string]
-      )
-
-    handle = opts[:handle] || Mix.shell().prompt("handle")
-    email = opts[:email] || Mix.shell().prompt("email")
-    password = password(opts)
-
-    case Pesque.Accounts.create_account(handle, email, password) do
-      {:ok, user} ->
-        Mix.shell().info("created #{user.handle} (#{user.did})")
-
-      {:error, :handle_not_available} ->
-        Mix.raise(handle_not_available(handle))
-
-      {:error, :password_too_short} ->
-        Mix.raise("could not create account: the password must be at least 8 characters")
-
-      {:error, reason} ->
-        Mix.raise("could not create account: #{inspect(reason)}")
-    end
-  end
-
-  # conformant_single serves exactly one account and its handle is the server's
-  # own, so a named handle is refused rather than silently ignored. Name the
-  # handle that works, and how to host a named account instead.
-  defp handle_not_available(handle) do
-    case Pesque.mode() do
-      :conformant_single ->
-        "could not create account: :handle_not_available\n" <>
-          "conformant_single serves one account whose handle is the server's own " <>
-          "(#{Pesque.Identity.handle()}).\n" <>
-          "Pass --handle #{Pesque.Identity.handle()}, or set mode = path_multi to host #{handle}."
-
-      _ ->
-        "could not create account: :handle_not_available"
-    end
-  end
+  def run(argv), do: Mix.Pesque.run(["account", "create" | argv])
 end
