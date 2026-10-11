@@ -155,22 +155,32 @@ jobs:
           path: pesque-server-x86_64-linux.tar.gz
 
   # Assemble everything onto the GitHub release, with one SHA256SUMS covering
-  # the CLI binaries and the server tarball.
+  # the CLI binaries, the server tarball, and the bootstrap files. install.sh
+  # and the compose bundle ride on the release itself so that
+  # releases/latest/download/install.sh resolves and install.sh can fetch the
+  # bundle (and verify it) against the same tag it was installed from.
   release-assets:
     name: Upload release assets
     needs: [release-please, cli, tarball]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
+      - name: Collect the bootstrap files
+        run: cp install.sh docker-compose.yml docker-compose.build.yml Caddyfile dist/
+
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum pesque-* > SHA256SUMS
+          sha256sum pesque-* install.sh docker-compose.yml docker-compose.build.yml Caddyfile > SHA256SUMS
           cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
@@ -179,3 +189,7 @@ jobs:
           files: |
             dist/SHA256SUMS
             dist/pesque-*
+            dist/install.sh
+            dist/docker-compose.yml
+            dist/docker-compose.build.yml
+            dist/Caddyfile

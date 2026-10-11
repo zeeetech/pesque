@@ -25,33 +25,36 @@ The name sounds like PDS and means "go fish" in Portuguese.
 
 ## Deploy it
 
-One droplet, TLS handled for you, no toolchain:
+One line, then one command:
 
 ```bash
-git clone https://github.com/zeeetech/pesque
-cd pesque
-scripts/pesque setup
+curl -fsSL https://github.com/zeeetech/pesque/releases/latest/download/install.sh | sh
+cd pesque && pesque setup
 ```
 
-Setup asks for the domain clients will use and whether the server hosts one
-account or several, pulls the prebuilt image, starts Pesque behind Caddy, waits
-until it is healthy, creates the first account, and prints the DNS records to
-add. After DNS propagates:
+Run the installer from an empty directory: it verifies and installs the
+`pesque` CLI and the compose bundle (Docker + Caddy on the same droplet),
+then hands off. Setup asks for the domain clients will use and whether the
+server hosts one account or several, pulls the prebuilt image, waits until it
+is healthy, creates the first account, and prints the DNS records to add.
+After DNS propagates:
 
 ```bash
-scripts/pesque doctor    # federation preflight
-scripts/pesque account   # create another account
-scripts/pesque migrate   # move an existing account onto this server
-scripts/pesque update    # pull a new image and restart
-scripts/pesque logs      # follow the server logs
+pesque doctor          # federation preflight
+pesque account create --handle alice.example.com --email alice@example.com
+pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
+pesque update          # pull a new image and restart
+pesque logs -f         # follow the server logs
 ```
 
-`account` and `migrate` prompt for the password when `PASSWORD` is not set, so
-it does not land in your shell history. `PESQUE_BUILD=1` builds the image from
-source instead of pulling it. Raw Docker, releases, TLS without Caddy and every
-configuration knob are in the [installation guide](docs/guides/installation.md).
-Without compose the same wrapper drives a container you already run
-(`PESQUE_BACKEND=docker`), and the flake ships `services.pesque` for NixOS.
+`account create` and `migrate` prompt for the password with echo off, so it
+does not land in your shell history. Flags cover the rest: `--backend
+systemd` installs a plain systemd service instead of the compose stack,
+`--backend docker` prints the mount-a-conf path for a container you run
+yourself, and `--hostname`, `--mode`, `--tag`, `--dir` and `--yes` make the
+whole thing scriptable. Raw Docker, releases, TLS without Caddy and every
+configuration knob are in the [installation guide](docs/guides/installation.md),
+and the flake ships `services.pesque` for NixOS.
 
 ## Run it from source
 
