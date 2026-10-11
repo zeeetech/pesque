@@ -14,9 +14,8 @@ defmodule Pesque.MixProject do
     ]
   end
 
-  # The verb wrapper (D1): the release step keeps the stock bin/pesque as
-  # bin/pesque.core and installs a wrapper that dispatches the verb commands
-  # through one fixed eval into Pesque.Cli.main().
+  # The release step keeps the stock bin/pesque as bin/pesque.core and installs
+  # a wrapper that dispatches verb commands into Pesque.Cli.main().
   defp releases do
     [
       pesque: [
