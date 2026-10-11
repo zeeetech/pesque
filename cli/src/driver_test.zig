@@ -126,7 +126,7 @@ test "docker run_once: -t on a tty" {
     try testutil.Ctx.expectArg(inv, "-t");
 }
 
-test "systemd run_once as root: -p User=pesque, bare -E, env mirror" {
+test "systemd run_once as root: -p User=pesque, secrets via the root-only env file" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     proc.Host.root_override = true;
@@ -147,16 +147,42 @@ test "systemd run_once as root: -p User=pesque, bare -E, env mirror" {
     try testutil.Ctx.expectArg(inv, "User=pesque");
     try testutil.Ctx.expectArg(inv, "-p");
     try testutil.Ctx.expectArg(inv, "Group=pesque");
-    try testutil.Ctx.expectArg(inv, "-E");
-    try testutil.Ctx.expectArg(inv, "ACCOUNT_PASSWORD");
+    // No -E at all: the bare name-only form is missing on old systemd
+    // (Debian 11, RHEL 8), and KEY=VALUE would put the secret on argv.
+    var saw_secret_in_file = false;
     var saw_mirror = false;
     for (inv) |a| {
         if (std.mem.eql(u8, a, "ENVFILE:PDS_DATA_DIR=/var/lib/pesque")) saw_mirror = true;
-        if (std.mem.eql(u8, a, "ENVFILE:PDS_SERVE=false")) saw_mirror = saw_mirror;
+        if (std.mem.eql(u8, a, "ENVFILE:ACCOUNT_PASSWORD='" ++ secret ++ "'")) saw_secret_in_file = true;
+        try testing.expect(!std.mem.eql(u8, a, "-E"));
         try testing.expect(!std.mem.startsWith(u8, a, "ACCOUNT_PASSWORD="));
     }
     try testing.expect(saw_mirror);
+    try testing.expect(saw_secret_in_file);
     try testutil.Ctx.expectTail(inv, &.{ "/opt/pesque/bin/pesque", "account", "list" });
+}
+
+test "systemd run_once as root: a secret with a quote survives the env file" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    proc.Host.root_override = true;
+    const d = driver.Driver{ .systemd = .{ .unit = "pesque" } };
+
+    _ = try d.runOnce(ctx.host, .{
+        .verb = "account",
+        .argv = &.{"list"},
+        .env = &.{.{ .key = "ACCOUNT_PASSWORD", .value = "it's a s3cr3t" }},
+        .interactive = true,
+    });
+
+    const inv = try ctx.lastInvocation();
+    // The embedded ' is written as '"'"' so systemd's env-file parser hands
+    // the value back verbatim.
+    var saw_quoted_secret = false;
+    for (inv) |a| {
+        if (std.mem.eql(u8, a, "ENVFILE:ACCOUNT_PASSWORD='it'\"'\"'s a s3cr3t'")) saw_quoted_secret = true;
+    }
+    try testing.expect(saw_quoted_secret);
 }
 
 test "systemd run_once as non-root: direct exec of the release" {
@@ -345,7 +371,7 @@ test "fetch: latest tag parses from the GitHub API body" {
     try testing.expectEqualStrings("v1.4.0", try fetch.latestTag(ctx.host));
 }
 
-test "fetch: download argv pins curl -fsSL --max-time 30" {
+test "fetch: downloads get the 600s cap, API GETs keep 30s" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     const dest = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "x" });
@@ -353,9 +379,16 @@ test "fetch: download argv pins curl -fsSL --max-time 30" {
     const inv = try ctx.lastInvocation();
     try testutil.Ctx.expectArg(inv, "-fsSL");
     try testutil.Ctx.expectArg(inv, "--max-time");
-    try testutil.Ctx.expectArg(inv, "30");
+    try testutil.Ctx.expectArg(inv, "600");
     try testutil.Ctx.expectArg(inv, "-o");
     try testutil.Ctx.expectArg(inv, dest);
+
+    // The latest-tag GET is an API call: the short cap stays.
+    try ctx.env.put("PESQUE_FAKE_CURL_BODY", "{\"tag_name\":\"v1.0.0\"}");
+    _ = try fetch.latestTag(ctx.host);
+    const get_inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(get_inv, "--max-time");
+    try testutil.Ctx.expectArg(get_inv, "30");
 }
 
 test "fetch: unpackTarGz extracts a gzipped tar with exec bits" {

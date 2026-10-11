@@ -39,7 +39,7 @@ const usage_text =
     \\  account activate --did D | --handle H
     \\  account reset-password --did D | --handle H
     \\  invite create [--count N] [--uses N] [--for DID]
-    \\  migrate --old-pds URL --handle H --email E [--plc-token T]
+    \\  migrate --old-pds URL --handle H --email E
     \\  doctor                     run the federation preflight
     \\  backup [--out DIR]         live-safe backup (VACUUM INTO + blobs)
     \\  restore <archive.tar.gz>   cold restore (stops the service)
@@ -47,10 +47,13 @@ const usage_text =
     \\  crawl request              ask the relay to crawl this server
     \\
     \\Passwords never take a --password VALUE flag: use --password-env VAR, the
-    \\ACCOUNT_PASSWORD/MIGRATE_PASSWORD environment, or a no-echo prompt.
+    \\ACCOUNT_PASSWORD/MIGRATE_PASSWORD environment, or a no-echo prompt. The
+    \\PLC token is no different: no --plc-token flag, set MIGRATE_PLC_TOKEN in
+    \\the environment.
     \\
     \\Environment: PESQUE_BACKEND PESQUE_ROOT PESQUE_CONTAINER PESQUE_IMAGE
     \\  PESQUE_TAG PESQUE_BUILD PESQUE_RESTART_CMD PESQUE_SERVICE PESQUE_RELEASE
+    \\  MIGRATE_PLC_TOKEN
     \\
 ;
 
@@ -461,7 +464,6 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
     var old_pds: ?[]const u8 = null;
     var handle: ?[]const u8 = null;
     var email: ?[]const u8 = null;
-    var plc_token: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--old-pds")) {
@@ -471,7 +473,9 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
         } else if (std.mem.eql(u8, args[i], "--email")) {
             email = try valueFlag(host, args, &i, "--email");
         } else if (std.mem.eql(u8, args[i], "--plc-token")) {
-            plc_token = try valueFlag(host, args, &i, "--plc-token");
+            // No secret on argv (the CLI's own doctrine): the token goes
+            // through the same bare-env mechanism as the passwords.
+            return failInput(host, "--plc-token would put the token on the command line. Set MIGRATE_PLC_TOKEN in the environment instead; it is forwarded to the verb like the passwords.", .{});
         } else {
             return usage(host, "unknown option '{s}' for 'migrate'", .{args[i]});
         }
@@ -484,13 +488,13 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
     var env: std.ArrayList(proc.Env) = .empty;
     defer env.deinit(host.gpa);
     try env.append(host.gpa, password);
-    if (plc_token == null and host.get("MIGRATE_PLC_TOKEN") != null) {
+    // The PLC token is a secret: bare passthrough only, like the passwords.
+    if (host.get("MIGRATE_PLC_TOKEN") != null) {
         try env.append(host.gpa, .{ .key = "MIGRATE_PLC_TOKEN" });
     }
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(host.gpa);
     try argv.appendSlice(host.gpa, &.{ "--old-pds", old_pds.?, "--handle", handle.?, "--email", email.? });
-    if (plc_token) |t| try argv.appendSlice(host.gpa, &.{ "--plc-token", t });
     return runDomain(host, "migrate", argv.items, env.items);
 }
 
@@ -500,6 +504,15 @@ fn absPath(host: *proc.Host, path: []const u8) Error![]const u8 {
         host.err("path '{s}' does not exist (or is not accessible).", .{path});
         return error.DriverFailed;
     };
+}
+
+/// Same, for a path that may not exist yet (`config template --out` writes
+/// the file): realpath the parent directory and re-join the basename. The
+/// parent must exist.
+fn absPathCreating(host: *proc.Host, path: []const u8) Error![]const u8 {
+    const dir = std.fs.path.dirname(path) orelse ".";
+    const abs_dir = try absPath(host, dir);
+    return std.fs.path.join(host.gpa, &.{ abs_dir, std.fs.path.basename(path) }) catch error.OutOfMemory;
 }
 
 fn backup(host: *proc.Host, args: []const []const u8) Error!u8 {
@@ -538,17 +551,25 @@ fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
     } else {
         host.note("the service is not managed by this CLI: if the archive restore refuses a locked database, stop the container and run this again.", .{});
     }
-    const code = try d.runOnce(host, .{
+    const outcome = d.runOnce(host, .{
         .verb = "restore",
         .argv = &.{abs},
         .mounts = &.{.{ .source = abs, .target = abs }},
         .interactive = true,
     });
-    // The server comes back even when the restore itself failed.
+    // The server comes back even when the restore itself failed, and a
+    // failed bring-up must not be swallowed: exiting 0 with the service
+    // down is exactly the state the operator cannot see.
     if (stopped) {
-        _ = d.up(host) catch 3;
+        const up_code: u8 = d.up(host) catch 3;
+        if (up_code != 0) {
+            host.err("the service did not come back up after the restore; run 'pesque up' and check 'pesque logs'.", .{});
+            if (outcome) |c| {
+                if (c == 0) return up_code;
+            } else |_| {}
+        }
     }
-    return code;
+    return outcome;
 }
 
 fn configVerb(host: *proc.Host, args: []const []const u8) Error!u8 {
@@ -569,7 +590,8 @@ fn configVerb(host: *proc.Host, args: []const []const u8) Error!u8 {
             }
         }
         const path = out_path orelse return runDomain(host, "config", &.{"template"}, &.{});
-        const abs = try absPath(host, path);
+        // The file is being created; only its parent has to exist.
+        const abs = try absPathCreating(host, path);
         // The template is written through a same-path mount of its parent dir.
         const parent = std.fs.path.dirname(abs) orelse ".";
         return runDomainWith(host, "config", &.{ "template", "--out", abs }, &.{}, &.{.{ .source = parent, .target = parent }});
@@ -606,10 +628,123 @@ fn setup(host: *proc.Host, yes: bool, args: []const []const u8) Error!u8 {
     }
 }
 
-fn writeDotEnv(host: *proc.Host, project_dir: []const u8, hostname: []const u8, mode: []const u8) Error!void {
+fn writeDotEnv(host: *proc.Host, project_dir: []const u8, hostname: []const u8, mode: []const u8, yes: bool) Error!void {
     const path = std.fs.path.join(host.gpa, &.{ project_dir, ".env" }) catch return error.OutOfMemory;
-    const content = std.fmt.allocPrint(host.gpa, "PDS_HOSTNAME={s}\nPDS_MODE={s}\n", .{ hostname, mode }) catch return error.OutOfMemory;
-    Io.Dir.cwd().writeFile(host.io, .{ .sub_path = path, .data = content }) catch {
+    // .env is the operator's file: COMPOSE_PROFILES=auto-update, PESQUE_TAG
+    // pins and friends live here (the rollback path in docs/guides/
+    // operations.md) and must survive a re-run. Setup owns only the two keys
+    // below.
+    const existing = try readFileOpt(host, path);
+    defer if (existing) |c| host.gpa.free(c);
+    const owned = [_]Owned{
+        .{ .key = "PDS_HOSTNAME", .value = hostname },
+        .{ .key = "PDS_MODE", .value = mode },
+    };
+    try writeOwnedConfig(host, path, existing, "=", &owned, yes);
+}
+
+/// One key setup owns in a config file it rewrites.
+const Owned = struct { key: []const u8, value: []const u8 };
+
+/// Read a small text file, or null when it does not exist yet.
+fn readFileOpt(host: *proc.Host, path: []const u8) Error!?[]u8 {
+    return Io.Dir.cwd().readFileAlloc(host.io, path, host.gpa, .limited(1 << 20)) catch |e| switch (e) {
+        error.FileNotFound => null,
+        else => {
+            host.err("could not read {s}.", .{path});
+            return error.DriverFailed;
+        },
+    };
+}
+
+/// Write `path` as `<key><eq><value>` lines: the owned keys are updated in
+/// place (missing ones appended) and every other line — operator keys,
+/// comments — survives byte-for-byte. When an owned key already holds a
+/// different value, refuse unless --yes: re-running setup must not silently
+/// reconfigure a provisioned server.
+fn writeOwnedConfig(host: *proc.Host, path: []const u8, existing: ?[]const u8, eq: []const u8, owned: []const Owned, yes: bool) Error!void {
+    const g = host.gpa;
+    if (existing) |content| {
+        var bad_key: ?[]const u8 = null;
+        var bad_old: []const u8 = "";
+        var bad_new: []const u8 = "";
+        var scan = std.mem.splitScalar(u8, content, '\n');
+        while (scan.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t\r");
+            const at = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+            const key = std.mem.trim(u8, trimmed[0..at], " \t");
+            var value = std.mem.trim(u8, trimmed[at + 1 ..], " \t");
+            // compose strips surrounding quotes from .env values; compare
+            // unquoted so a quoted old value is not a false conflict.
+            if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or
+                (value[0] == '\'' and value[value.len - 1] == '\'')))
+            {
+                value = value[1 .. value.len - 1];
+            }
+            for (owned) |o| {
+                if (!std.mem.eql(u8, key, o.key)) continue;
+                if (!std.mem.eql(u8, value, o.value) and bad_key == null) {
+                    bad_key = o.key;
+                    bad_old = value;
+                    bad_new = o.value;
+                }
+            }
+        }
+        if (bad_key) |k| {
+            if (!yes) {
+                host.err("{s} already sets {s}={s}, but setup would write {s}={s}.", .{ path, k, bad_old, k, bad_new });
+                host.printTo(.stderr,
+                    \\
+                    \\  Re-running setup must not silently reconfigure a provisioned server.
+                    \\  Pass --yes to apply the new values anyway (setup only rewrites its own
+                    \\  keys; every other line in the file is kept), or edit the file by hand.
+                    \\
+                , .{});
+                return error.DriverFailed;
+            }
+            host.note("{s}: updating {s}={s} to {s}={s}.", .{ path, k, bad_old, k, bad_new });
+        }
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(g);
+    const done = g.alloc(bool, owned.len) catch return error.OutOfMemory;
+    defer g.free(done);
+    @memset(done, false);
+    if (existing) |content| {
+        var it = std.mem.splitScalar(u8, content, '\n');
+        var first = true;
+        while (it.next()) |line| {
+            if (!first) out.append(g, '\n') catch return error.OutOfMemory;
+            first = false;
+            var replaced = false;
+            const trimmed = std.mem.trim(u8, line, " \t\r");
+            if (std.mem.indexOfScalar(u8, trimmed, '=')) |at| {
+                const key = std.mem.trim(u8, trimmed[0..at], " \t");
+                for (owned, 0..) |o, i| {
+                    if (!std.mem.eql(u8, key, o.key)) continue;
+                    out.appendSlice(g, o.key) catch return error.OutOfMemory;
+                    out.appendSlice(g, eq) catch return error.OutOfMemory;
+                    out.appendSlice(g, o.value) catch return error.OutOfMemory;
+                    done[i] = true;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) out.appendSlice(g, line) catch return error.OutOfMemory;
+        }
+    }
+    for (owned, 0..) |o, i| {
+        if (done[i]) continue;
+        if (out.items.len > 0 and out.items[out.items.len - 1] != '\n') {
+            out.append(g, '\n') catch return error.OutOfMemory;
+        }
+        out.appendSlice(g, o.key) catch return error.OutOfMemory;
+        out.appendSlice(g, eq) catch return error.OutOfMemory;
+        out.appendSlice(g, o.value) catch return error.OutOfMemory;
+        out.append(g, '\n') catch return error.OutOfMemory;
+    }
+    Io.Dir.cwd().writeFile(host.io, .{ .sub_path = path, .data = out.items }) catch {
         host.err("could not write {s}.", .{path});
         return error.DriverFailed;
     };
@@ -657,7 +792,7 @@ fn setupCompose(host: *proc.Host, yes: bool, c: driver.Compose) Error!u8 {
 
     try dnsNote(host, asked.hostname);
     const env_file = std.fs.path.join(host.gpa, &.{ c.project_dir, ".env" }) catch return error.OutOfMemory;
-    try writeDotEnv(host, c.project_dir, asked.hostname, if (asked.multi) "path_multi" else "conformant_single");
+    try writeDotEnv(host, c.project_dir, asked.hostname, if (asked.multi) "path_multi" else "conformant_single", yes);
     host.out("Wrote {s} (PDS_HOSTNAME={s}).", .{ env_file, asked.hostname });
 
     _ = try d.up(host);
@@ -719,11 +854,15 @@ fn setupDocker(host: *proc.Host, yes: bool, c: driver.Docker) Error!u8 {
 
     const conf_dir = try searchCwd(host);
     const conf_path = std.fs.path.join(host.gpa, &.{ conf_dir, "pesque.conf" }) catch return error.OutOfMemory;
-    const content = std.fmt.allocPrint(host.gpa, "hostname = {s}\nmode = {s}\n", .{ asked.hostname, if (asked.multi) "path_multi" else "conformant_single" }) catch return error.OutOfMemory;
-    Io.Dir.cwd().writeFile(host.io, .{ .sub_path = conf_path, .data = content }) catch {
-        host.err("could not write {s}.", .{conf_path});
-        return error.DriverFailed;
+    // pesque.conf can carry many operator keys (see pesque.conf.example);
+    // setup owns only hostname and mode, and a re-run preserves the rest.
+    const existing = try readFileOpt(host, conf_path);
+    defer if (existing) |content| host.gpa.free(content);
+    const owned = [_]Owned{
+        .{ .key = "hostname", .value = asked.hostname },
+        .{ .key = "mode", .value = if (asked.multi) "path_multi" else "conformant_single" },
     };
+    try writeOwnedConfig(host, conf_path, existing, " = ", &owned, yes);
     host.out("Wrote {s} (hostname={s}).", .{ conf_path, asked.hostname });
     host.printTo(.stdout,
         \\
@@ -822,4 +961,111 @@ test {
     _ = @import("proc_test.zig");
     _ = @import("driver_test.zig");
     _ = @import("main_test.zig");
+}
+
+// --- setup config rewrite -----------------------------------------------------
+
+test "setup .env: fresh write, operator keys kept, conflict refused unless --yes" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var env_map = std.process.Environ.Map.init(arena);
+    var host = proc.Host{ .gpa = arena, .io = testing.io, .environ = &env_map, .stdout_to_stderr = true };
+
+    const tmp_rel = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    const base = Io.Dir.cwd().realPathFileAlloc(testing.io, tmp_rel, arena) catch unreachable;
+    const env_path = try std.fs.path.join(arena, &.{ base, ".env" });
+
+    const owned = [_]Owned{
+        .{ .key = "PDS_HOSTNAME", .value = "pds.example.com" },
+        .{ .key = "PDS_MODE", .value = "conformant_single" },
+    };
+
+    // Fresh write: exactly the owned lines.
+    try writeOwnedConfig(&host, env_path, null, "=", &owned, false);
+    var got = try Io.Dir.cwd().readFileAlloc(testing.io, env_path, arena, .limited(1 << 20));
+    try testing.expectEqualStrings("PDS_HOSTNAME=pds.example.com\nPDS_MODE=conformant_single\n", got);
+
+    // Re-run over an operator's file, same values: nothing changes. The
+    // rollback keys (COMPOSE_PROFILES, PESQUE_TAG) survive untouched.
+    const with_operator_keys = "# mine\nCOMPOSE_PROFILES=auto-update\nPESQUE_TAG=v1.4.2\nPDS_HOSTNAME=pds.example.com\nPDS_MODE=conformant_single\n";
+    try Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = env_path, .data = with_operator_keys });
+    try writeOwnedConfig(&host, env_path, with_operator_keys, "=", &owned, false);
+    got = try Io.Dir.cwd().readFileAlloc(testing.io, env_path, arena, .limited(1 << 20));
+    try testing.expectEqualStrings(with_operator_keys, got);
+
+    // Quoted old values compare unquoted (compose strips them): no conflict.
+    try Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = env_path, .data = "PDS_HOSTNAME=\"pds.example.com\"\nPDS_MODE=conformant_single\n" });
+    try writeOwnedConfig(&host, env_path, "PDS_HOSTNAME=\"pds.example.com\"\nPDS_MODE=conformant_single\n", "=", &owned, false);
+
+    // Different values: refuse without --yes, and write nothing.
+    const different = [_]Owned{
+        .{ .key = "PDS_HOSTNAME", .value = "other.example.com" },
+        .{ .key = "PDS_MODE", .value = "conformant_single" },
+    };
+    try Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = env_path, .data = with_operator_keys });
+    try testing.expectError(error.DriverFailed, writeOwnedConfig(&host, env_path, with_operator_keys, "=", &different, false));
+    got = try Io.Dir.cwd().readFileAlloc(testing.io, env_path, arena, .limited(1 << 20));
+    try testing.expectEqualStrings(with_operator_keys, got);
+
+    // --yes: owned keys update in place, every other line is kept.
+    try writeOwnedConfig(&host, env_path, with_operator_keys, "=", &different, true);
+    got = try Io.Dir.cwd().readFileAlloc(testing.io, env_path, arena, .limited(1 << 20));
+    try testing.expectEqualStrings("# mine\nCOMPOSE_PROFILES=auto-update\nPESQUE_TAG=v1.4.2\nPDS_HOSTNAME=other.example.com\nPDS_MODE=conformant_single\n", got);
+}
+
+test "setup pesque.conf: same rewrite rules with the spaced separator" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var env_map = std.process.Environ.Map.init(arena);
+    var host = proc.Host{ .gpa = arena, .io = testing.io, .environ = &env_map, .stdout_to_stderr = true };
+
+    const tmp_rel = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    const base = Io.Dir.cwd().realPathFileAlloc(testing.io, tmp_rel, arena) catch unreachable;
+    const conf_path = try std.fs.path.join(arena, &.{ base, "pesque.conf" });
+
+    const owned = [_]Owned{
+        .{ .key = "hostname", .value = "pds.example.com" },
+        .{ .key = "mode", .value = "conformant_single" },
+    };
+    const operator_conf = "# pesque configuration.\nidentity = plc\nhostname = pds.example.com\nmode = conformant_single\n";
+    try writeOwnedConfig(&host, conf_path, operator_conf, " = ", &owned, false);
+    const got = try Io.Dir.cwd().readFileAlloc(testing.io, conf_path, arena, .limited(1 << 20));
+    try testing.expectEqualStrings(operator_conf, got);
+}
+
+test "absPathCreating: the file being created need not exist, its parent does" {
+    const testing = std.testing;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var env_map = std.process.Environ.Map.init(arena);
+    var host = proc.Host{ .gpa = arena, .io = testing.io, .environ = &env_map, .stdout_to_stderr = true };
+
+    const tmp_rel = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    const base = Io.Dir.cwd().realPathFileAlloc(testing.io, tmp_rel, arena) catch unreachable;
+    const dir = try std.fs.path.join(arena, &.{ base, "newdir" });
+    try Io.Dir.cwd().createDirPath(testing.io, dir);
+
+    // The file does not exist; the resolved path is parent + basename.
+    const abs = try absPathCreating(&host, try std.fs.path.join(arena, &.{ dir, "pesque.conf" }));
+    try testing.expectEqualStrings(try std.fs.path.join(arena, &.{ dir, "pesque.conf" }), abs);
+
+    // A missing parent is still refused.
+    try testing.expectError(error.DriverFailed, absPathCreating(&host, try std.fs.path.join(arena, &.{ base, "nope", "pesque.conf" })));
 }

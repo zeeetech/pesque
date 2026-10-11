@@ -8,6 +8,11 @@ const Error = proc.Error;
 
 const curl_flags = [_][]const u8{ "-fsSL", "--max-time", "30" };
 
+// Downloads get a cap an ordinary connection survives: `systemd.pull` pulls
+// a 25-60 MB BEAM release through here, and a 30s API timeout would kill
+// `pesque update` on slow links. install.sh uses the same 600s for assets.
+const download_flags = [_][]const u8{ "-fsSL", "--max-time", "600" };
+
 /// The GitHub repo releases are fetched from.
 pub fn releaseRepo(host: *proc.Host) []const u8 {
     return host.get("PESQUE_REPO") orelse "zeeetech/pesque";
@@ -26,12 +31,13 @@ pub fn get(host: *proc.Host, url: []const u8) Error![]u8 {
     return host.gpa.dupe(u8, cap.stdout) catch error.OutOfMemory;
 }
 
-/// Download a URL to a file.
+/// Download a URL to a file (release assets, not API GETs: the generous cap
+/// above applies).
 pub fn downloadTo(host: *proc.Host, url: []const u8, dest: []const u8) Error!void {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(host.gpa);
     try argv.appendSlice(host.gpa, &.{host.progs.curl});
-    try argv.appendSlice(host.gpa, &curl_flags);
+    try argv.appendSlice(host.gpa, &download_flags);
     try argv.appendSlice(host.gpa, &.{ "-o", dest });
     try argv.append(host.gpa, url);
     const cap = host.capture(argv.items) catch |e| return e;

@@ -96,13 +96,19 @@ pub fn runOnce(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error
     return directExec(self, host, ro);
 }
 
-/// euid 0: a transient unit as the `pesque` user. The unit's PDS_* world is
-/// mirrored into a root-only EnvironmentFile (nothing secret on the command
-/// line); verb inputs go in as bare `-E KEY`, values inherited from this
-/// process's environment (kept out of `ps`).
+/// euid 0: a transient unit as the `pesque` user. The unit's PDS_* world and
+/// the verb's secret inputs are mirrored into one root-only EnvironmentFile
+/// (nothing secret on the command line, no `-E KEY=VALUE` either): the
+/// manager reads the file in the host namespace, so the values cross the
+/// boundary without ever appearing in `ps` or argv.
 fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!u8 {
     const g = host.gpa;
-    const tmp_dir = host.makeTempDir() catch |e| return e;
+    // /run, not $TMPDIR: the manager resolves the EnvironmentFile path in the
+    // host namespace, where a service's private /tmp (PrivateTmp=true, as in
+    // contrib/systemd/pesque-update.service) does not exist. The file only
+    // has to outlive the unit's start-up read, so it is cleaned up after
+    // `--wait` returns.
+    const tmp_dir = makeRunOnceDir(host) catch |e| return e;
     defer host.removeTempDir(tmp_dir);
 
     var pairs: std.StringHashMap([]const u8) = .init(g);
@@ -122,7 +128,23 @@ fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!
             content.appendSlice(g, entry.value_ptr.*) catch return error.OutOfMemory;
             content.append(g, '\n') catch return error.OutOfMemory;
         }
+        // Verb inputs (passwords, tokens): the values came from the prompt,
+        // --password-env, or the bare passthrough, all validated into this
+        // process's environment by resolveEnv. Single-quoted: no escapes, no
+        // expansion, any bytes verbatim (an embedded ' is written '"'"').
+        for (ro.env) |e| {
+            const value = host.environ.get(e.key) orelse continue;
+            content.appendSlice(g, e.key) catch return error.OutOfMemory;
+            content.append(g, '=') catch return error.OutOfMemory;
+            appendQuoted(g, &content, value) catch return error.OutOfMemory;
+            content.append(g, '\n') catch return error.OutOfMemory;
+        }
         Io.Dir.cwd().writeFile(host.io, .{ .sub_path = env_file, .data = content.items }) catch return error.DriverFailed;
+        if (builtin.os.tag != .windows) {
+            // Defense in depth: the 0700 parent already keeps other users
+            // out; make the file itself root-only too.
+            Io.Dir.cwd().setFilePermissions(host.io, env_file, .fromMode(0o600), .{}) catch {};
+        }
     }
 
     var argv: std.ArrayList([]const u8) = .empty;
@@ -133,16 +155,36 @@ fn systemdRun(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!
         "-p",                   "User=pesque", "-p",     "Group=pesque",
         "-p",                   env_file_flag,
     });
-    for (ro.env) |e| {
-        // Bare: systemd-run takes the value from its own environment (added
-        // in systemd v211), so it never appears in `ps`.
-        try argv.appendSlice(g, &.{ "-E", e.key });
-    }
     const release_bin = std.fs.path.join(g, &.{ self.release, "bin", "pesque" }) catch return error.OutOfMemory;
     try argv.append(g, release_bin);
     try argv.append(g, ro.verb);
     try argv.appendSlice(g, ro.argv);
     return host.run(argv.items);
+}
+
+/// The run-once mirror's parent: /run on Linux (see systemdRun), the test
+/// sandbox when overridden, or the ordinary temp dir elsewhere (root CLI on a
+/// non-Linux host is not a real deployment; keep the old behavior there).
+fn makeRunOnceDir(host: *proc.Host) Error![]const u8 {
+    if (proc.Host.run_once_base) |base| return host.makeTempDirUnder(base, "pesque-run-once-");
+    if (builtin.os.tag == .linux) return host.makeTempDirUnder("/run", "pesque-run-once-");
+    return host.makeTempDir();
+}
+
+/// Append `value` single-quoted for a systemd EnvironmentFile (shell-style
+/// rules): quoted segments concatenate, so an embedded ' is written as '"'"'
+/// and every other byte passes verbatim. Single-quoted values carry no
+/// escape sequences and span newlines, so no secret shape is mangled.
+fn appendQuoted(g: std.mem.Allocator, content: *std.ArrayList(u8), value: []const u8) Error!void {
+    content.append(g, '\'') catch return error.OutOfMemory;
+    for (value) |ch| {
+        if (ch == '\'') {
+            content.appendSlice(g, "'\"'\"'") catch return error.OutOfMemory;
+        } else {
+            content.append(g, ch) catch return error.OutOfMemory;
+        }
+    }
+    content.append(g, '\'') catch return error.OutOfMemory;
 }
 
 /// Not root: exec the release binary directly with the unit's PDS_* world

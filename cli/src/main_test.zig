@@ -109,6 +109,29 @@ test "dispatch: passwords without a source are refused when stdin is not a tty" 
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "create", "--handle", "h", "--email", "e" }));
 }
 
+test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+    try ctx.env.put("MIGRATE_PASSWORD", "from-env");
+    try ctx.env.put("MIGRATE_PLC_TOKEN", "tok");
+
+    // The flag is refused: a secret never lands on argv.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c", "--plc-token", "tok",
+    }));
+
+    // The env token is forwarded bare (key only), like the passwords.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
+        "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c",
+    }));
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c" });
+    try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
+    try testutil.Ctx.expectNoArg(inv, "MIGRATE_PLC_TOKEN=tok");
+}
+
 test "dispatch: backup mounts the out dir at the same path" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();

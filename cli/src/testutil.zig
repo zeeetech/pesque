@@ -74,9 +74,11 @@ pub const Ctx = struct {
             // Keep printed output off the build runner's protocol stream.
             .stdout_to_stderr = true,
         };
-        // Deterministic regardless of the harness.
+        // Deterministic regardless of the harness. The systemd run_once
+        // mirror must not depend on the real /run (tests are not root).
         proc.Host.stdin_tty_override = false;
         proc.Host.root_override = null;
+        proc.Host.run_once_base = tmp_path;
         return .{
             .arena_state = arena_state,
             .tmp = tmp,
@@ -90,6 +92,7 @@ pub const Ctx = struct {
     pub fn deinit(self: *Ctx) void {
         proc.Host.stdin_tty_override = null;
         proc.Host.root_override = null;
+        proc.Host.run_once_base = null;
         self.tmp.cleanup();
         const gpa = self.arena_state.child_allocator;
         self.arena_state.deinit();

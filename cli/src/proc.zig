@@ -53,6 +53,11 @@ pub const Host = struct {
     /// via systemd-run, non-root direct exec).
     pub var root_override: ?bool = null;
 
+    /// Base directory for the systemd run_once env mirror. Null means
+    /// /run on Linux (the one tree the systemd manager sees even under
+    /// PrivateTmp); tests point this at their sandbox.
+    pub var run_once_base: ?[]const u8 = null;
+
     pub fn stdinIsTty(self: *Host) bool {
         if (stdin_tty_override) |t| return t;
         return Io.File.stdin().isTty(self.io) catch false;
@@ -189,11 +194,19 @@ pub const Host = struct {
             .windows => "C:\\Windows\\Temp",
             else => "/tmp",
         };
+        return self.makeTempDirUnder(base, "");
+    }
+
+    /// Same, under an explicit base with a name prefix. The systemd driver
+    /// uses /run (same tree for this process and the systemd manager, even
+    /// under PrivateTmp) with a recognizable prefix.
+    pub fn makeTempDirUnder(self: *Host, base: []const u8, prefix: []const u8) Error![]const u8 {
         var raw: [8]u8 = undefined;
         self.io.random(&raw);
-        var name_buf: [32]u8 = undefined;
+        var name_buf: [40]u8 = undefined;
+        @memcpy(name_buf[0..prefix.len], prefix);
         const hex_chars = "0123456789abcdef";
-        var name_len: usize = 0;
+        var name_len: usize = prefix.len;
         for (raw) |byte| {
             name_buf[name_len] = hex_chars[byte >> 4];
             name_buf[name_len + 1] = hex_chars[byte & 0xf];

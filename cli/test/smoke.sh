@@ -2,8 +2,8 @@
 # End-to-end smoke for the pesque CLI against a real compose stack (spec §9).
 #
 # Needs: docker with the compose plugin, and curl. Builds nothing: it uses the
-# published image (or PESQUE_BUILD=1 to build from source first). Not run in
-# CI; run it by hand from the repo root:
+# published image (or PESQUE_BUILD=1 to build from source first). This is a
+# manual smoke, run by hand from the repo root; CI does not run it:
 #
 #   cli/test/smoke.sh
 #
@@ -26,24 +26,27 @@ cp "$root/Caddyfile" "$work/"
 cd "$work"
 
 export PESQUE_ROOT="$work"
-export PESQUE_HOSTNAME="${PESQUE_HOSTNAME:-localhost}"
+# The CLI reads the hostname and mode from PDS_HOSTNAME / PDS_MODE.
+export PDS_HOSTNAME="${PDS_HOSTNAME:-localhost}"
 export PDS_MODE=conformant_single
 
 echo '==> setup'
-"$cli" setup --yes
+# setup creates the first account, which is the domain handle in this mode;
+# its email is prompted (by hand), the password comes from the environment.
+ACCOUNT_PASSWORD="${SMOKE_PASSWORD:-smoke-test-password-1}" "$cli" --yes setup
 
 echo '==> doctor'
 "$cli" doctor
 
-echo '==> account create'
-ACCOUNT_PASSWORD="${SMOKE_PASSWORD:-smoke-test-password-1}" "$cli" account create \
-  --handle "alice.$PESQUE_HOSTNAME" --email alice@example.com
-
 echo '==> account list'
+# No separate `account create` here: in conformant_single the handle under
+# this server is exactly the one setup just created, so a second create with
+# it is refused.
 "$cli" account list
 
 echo '==> backup'
 "$cli" backup --out "$work"
+# shellcheck disable=SC2012  # the glob is ours; newest archive wins
 archive="$(ls -t "$work"/pesque-backup-*.tar.gz 2>/dev/null | head -1 || true)"
 [ -n "$archive" ] || { echo "no backup archive found in $work"; exit 1; }
 
