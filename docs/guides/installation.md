@@ -348,7 +348,6 @@ docker compose restart pesque
 | `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `path_multi` |
 | `PDS_PRIVACY_POLICY_URL` | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
 | `PDS_TERMS_OF_SERVICE_URL` | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
-| `PDS_METRICS_TOKEN` | `metrics_token` | empty | Bearer token `GET /metrics` requires. Empty (the default) turns the endpoint off: it answers 404. See [Operations](operations.md#metrics-and-monitoring) |
 
 `port` is where the process binds; `url_scheme` and `url_port` are what it
 advertises. Behind a proxy, listening on 4000 and advertising 443 is correct.

@@ -98,7 +98,7 @@ Os guias são só em inglês. Este README tem espelho em
 - **Como consigo um servidor?** O instalador: [Faz o deploy](#faz-o-deploy).
   Compose com Caddy por padrão, systemd ou Docker cru como flags.
 - **Como adiciono outra conta?**
-  `pesque account create --handle alice.example.com --email alice@example.com` -
+  `pesque account create --handle alice.example.com --email alice@example.com`;
   pede a senha com echo desligado.
 - **Como faço backup e restauro?** `pesque backup [--out DIR]` roda com o
   servidor no ar; `pesque restore ARQUIVO.tar.gz` pede o servidor parado.
@@ -109,8 +109,6 @@ Os guias são só em inglês. Este README tem espelho em
   [Migração](docs/guides/migration.md) tem a dança completa.
 - **Como movo uma conta pra fora?** Ainda não dá: este PDS não assina a
   mudança (`signPlcOperation`).
-- **Onde fica o endpoint de métricas?** `GET /metrics`, formato Prometheus.
-  404 até `metrics_token` ser configurado, e o Caddy nunca publica.
 - **Onde fica o código?** Aqui. As primitivas de protocolo moram em
   `lib/pesque` de propósito; [Arquitetura](docs/reference/architecture.md) é o
   mapa.

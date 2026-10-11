@@ -98,7 +98,7 @@ The guides are English only. This README is mirrored in
 - **How do I get a server?** The installer: [Deploy it](#deploy-it). Compose
   with Caddy by default, systemd or raw Docker as flags.
 - **How do I add another account?**
-  `pesque account create --handle alice.example.com --email alice@example.com` -
+  `pesque account create --handle alice.example.com --email alice@example.com`;
   it prompts for the password with echo off.
 - **How do I back up and restore?** `pesque backup [--out DIR]` runs with the
   server up; `pesque restore ARCHIVE.tar.gz` is cold, stop the server first.
@@ -110,8 +110,6 @@ The guides are English only. This README is mirrored in
   has the full dance.
 - **How do I move an account out?** Not implemented yet: this PDS can't sign
   the move (`signPlcOperation`).
-- **Where is the metrics endpoint?** `GET /metrics`, Prometheus format. 404
-  until `metrics_token` is set, and Caddy never publishes it.
 - **Where is the code?** Here. The protocol primitives live in `lib/pesque` on
   purpose; [Architecture](docs/reference/architecture.md) is the map.
 
