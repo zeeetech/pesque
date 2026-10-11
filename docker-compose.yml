@@ -11,6 +11,9 @@
 # To build from source instead, add the override:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# Auto-updates are opt-in through the auto-update profile; see the Upgrades
+# section of docs/guides/operations.md.
 services:
   pesque:
     image: ghcr.io/zeeetech/pesque:${PESQUE_TAG:-latest}
@@ -27,6 +30,34 @@ services:
       - pesque-data:/data
     expose:
       - "4000"
+    # Inert unless the watchtower service below is running (it filters on
+    # this label), so enabling auto-update needs no edit to this file.
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Opt-in auto-updates: started only when the auto-update profile is active,
+  # by putting COMPOSE_PROFILES=auto-update in .env (or --profile). A plain
+  # `docker compose up -d` never starts it, and that is deliberate: the
+  # service needs the Docker socket, and that socket is root on the host by
+  # another name, so the operator has to choose to run it. It watches only
+  # the containers carrying the enable label, which leaves Caddy alone.
+  # The schedule sits away from the round hour because GHCR's shared bucket
+  # is empty for the first minutes of one, and midnight is when every cron
+  # in the world arrives. The image is pinned: upstream containrrr/watchtower
+  # was archived in late 2025; this is its maintained fork.
+  watchtower:
+    image: nickfedor/watchtower:1.23.0
+    restart: unless-stopped
+    profiles: [auto-update]
+    environment:
+      WATCHTOWER_SCHEDULE: "0 17 3 * * *"
+      # Enabling the profile should bring a stale server current right away,
+      # not wait for the next window.
+      WATCHTOWER_UPDATE_ON_START: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
     image: caddy:2
