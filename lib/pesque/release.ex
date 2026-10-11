@@ -176,7 +176,7 @@ defmodule Pesque.Release do
     IO.puts("")
     IO.puts("Check that everything is reachable from outside:")
     IO.puts("")
-    IO.puts("  scripts/pesque doctor")
+    IO.puts("  pesque doctor")
   end
 
   # A did:web account is the server, which serves its own handle at
