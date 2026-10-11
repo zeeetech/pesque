@@ -3,21 +3,30 @@
 # pesque.conf in the store and pointed at with PDS_CONFIG, the same file the
 # server reads in every other deployment.
 #
-# The one-off operator tasks (doctor, account, migrate) are declared as
-# oneshot units that run against the same data directory:
+# The one-off operator tasks (doctor, account, migrate, backup) are declared
+# as oneshot units that run the release verbs against the same data directory:
 #
 #   systemctl start pesque-doctor
 #   systemctl start pesque-account    # reads /var/lib/pesque/account.env
 #   systemctl start pesque-migrate    # reads /var/lib/pesque/migrate.env
+#   systemctl start pesque-backup     # writes pesque-backup-<stamp>.tar.gz
+#                                     # into the data directory
 #
 # The account and migrate env files keep the password out of the Nix store;
 # create them with `install -m600 /dev/null /var/lib/pesque/account.env` and
-# fill in ACCOUNT_HANDLE, ACCOUNT_EMAIL and ACCOUNT_PASSWORD (or MIGRATE_*).
+# fill in ACCOUNT_HANDLE, ACCOUNT_EMAIL and ACCOUNT_PASSWORD (or the
+# MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD set).
 #
 # The move stops at the PLC step for a code the account holder gets by email.
 # A oneshot has no terminal to prompt on, so pesque-migrate is run twice: the
 # first start asks the old PDS to email the code, then MIGRATE_PLC_TOKEN is set
 # in migrate.env and the second start completes the move.
+#
+# There is deliberately no pesque-restore unit: a restore swaps the data
+# directory in place, so it wants the server stopped and an archive path, not
+# a unit. Stop pesque and run the verb by hand as the pesque user, pointing
+# PDS_CONFIG at the same conf the service runs (`systemctl cat pesque` shows
+# both store paths).
 {
   config,
   lib,
@@ -62,9 +71,11 @@ let
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
 
   # A one-off task: the same release, the same config and data directory, the
-  # endpoint off so it does not fight the running server for the port.
+  # endpoint off so it does not fight the running server for the port. The
+  # verbs read their input from the environment, so an env file is all the
+  # wiring a headless run needs.
   taskService =
-    { expr, environmentFiles ? [ ] }:
+    { exec, environmentFiles ? [ ] }:
     {
       description = "pesque one-off task";
       # The data directory is often its own mount (a ZFS dataset, a separate
@@ -80,7 +91,7 @@ let
           "PDS_SERVE=false"
         ];
         EnvironmentFile = environmentFiles;
-        ExecStart = "${cfg.package}/bin/pesque eval '${expr}'";
+        ExecStart = "${cfg.package}/bin/pesque ${exec}";
         ReadWritePaths = [ cfg.dataDir ];
         PrivateTmp = true;
         NoNewPrivileges = true;
@@ -309,19 +320,19 @@ in
       };
     };
 
-    systemd.services.pesque-doctor = taskService {
-      expr = "Pesque.Release.boot!(); Pesque.Doctor.run()";
-    };
+    systemd.services.pesque-doctor = taskService { exec = "doctor"; };
 
     systemd.services.pesque-account = taskService {
-      expr = "Pesque.Release.boot!(); case Pesque.Release.create_account_from_env() do :ok -> :ok; :error -> System.halt(1) end";
+      exec = "account create";
       environmentFiles = [ "-${cfg.dataDir}/account.env" ];
     };
 
     systemd.services.pesque-migrate = taskService {
-      expr = "Pesque.Release.boot!(); case Pesque.Release.migrate_from_env() do :ok -> :ok; :error -> System.halt(1) end";
+      exec = "migrate";
       environmentFiles = [ "-${cfg.dataDir}/migrate.env" ];
     };
+
+    systemd.services.pesque-backup = taskService { exec = "backup"; };
 
     networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.port ];
   };
