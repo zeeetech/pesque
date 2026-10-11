@@ -1,0 +1,25 @@
+#!/bin/sh
+# Fake `systemctl` for the Zig driver tests. Logs argv like the docker shim
+# and answers the probes (cat/show/is-active).
+log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+{
+  for a in "$@"; do printf '%s\n' "$a"; done
+  printf '\n'
+} >>"$log"
+
+case "$1" in
+  cat) exit "${PESQUE_FAKE_UNIT_EXISTS:-0}" ;;
+  is-active) printf '%s\n' "${PESQUE_FAKE_ACTIVE:-active}" ;;
+  show)
+    case "$*" in
+      # Files first: "-p Environment" is a prefix of "-p EnvironmentFiles".
+      *"-p EnvironmentFiles")
+        if [ -n "${PESQUE_FAKE_ENVFILE:-}" ]; then
+          printf 'EnvironmentFiles=%s (ignore=no)\n' "$PESQUE_FAKE_ENVFILE"
+        fi
+        ;;
+      *"-p Environment") printf 'Environment=PDS_DATA_DIR=%s PDS_HOSTNAME=pds.example.com PDS_PORT=%s\n' "${PESQUE_FAKE_DATA_DIR:-/var/lib/pesque}" "${PESQUE_FAKE_PORT:-4000}" ;;
+    esac
+    ;;
+esac
+exit 0

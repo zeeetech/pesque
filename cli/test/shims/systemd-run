@@ -1,0 +1,15 @@
+#!/bin/sh
+# Fake `systemd-run` for the Zig driver tests: logs argv, and echoes the
+# contents of any EnvironmentFile= into the log (prefixed ENVFILE:) so tests
+# can assert the PDS_* mirror crossed the systemd-run boundary.
+log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+{
+  for a in "$@"; do
+    printf '%s\n' "$a"
+    case "$a" in
+      EnvironmentFile=*) sed 's/^/ENVFILE:/' "${a#EnvironmentFile=}" 2>/dev/null ;;
+    esac
+  done
+  printf '\n'
+} >>"$log"
+exit "${PESQUE_FAKE_EXIT:-0}"

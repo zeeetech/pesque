@@ -1,483 +1,61 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# Deprecated: this used to be a bash wrapper driving docker/compose directly.
+# The host-side CLI is now a standalone static binary, distributed through the
+# GitHub releases. This shim downloads it (once) and hands over; there is no
+# offline fallback. It will be deleted after one minor release.
 #
-# A thin wrapper over the container runtime for the common self-hosting actions.
-#
-#   scripts/pesque setup     configure, start, check, and create the first account
-#   scripts/pesque update    pull the new image and restart
-#   scripts/pesque account   create an account
-#   scripts/pesque migrate   move an existing account onto this server
-#   scripts/pesque doctor    run the federation preflight
-#   scripts/pesque logs      follow the server logs
-#
-# Two backends. With a docker-compose.yml beside this script it drives compose,
-# which is the one-droplet install (server + Caddy) and the one `setup` builds.
-# Without one, or with PESQUE_BACKEND=docker, it drives a single container you
-# already run: the one-off tasks go through `docker run --volumes-from`, so no
-# compose file and no clone are needed on the server. Point it at that container
-# with PESQUE_CONTAINER (default: pesque) and PESQUE_IMAGE (default: whatever
-# image the running container was started from).
-#
-# The image is pulled from GHCR, so a deploy needs no toolchain. In compose mode
-# set PESQUE_BUILD=1 to build it from source instead.
-set -euo pipefail
+#   scripts/pesque <command> [args...]
+set -eu
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo="${PESQUE_REPO:-zeeetech/pesque}"
+cache="${PESQUE_CACHE:-$HOME/.cache/pesque}"
+notice="$cache/deprecated-notice"
 
-# --- backend ----------------------------------------------------------------
-
-# compose when this checkout has a compose file and docker compose answers,
-# docker otherwise. PESQUE_BACKEND overrides the guess.
-pick_backend() {
-  if [ -n "${PESQUE_BACKEND:-}" ]; then
-    printf '%s' "$PESQUE_BACKEND"
-    return
-  fi
-  if [ -f "$root/docker-compose.yml" ] && command -v docker >/dev/null 2>&1 &&
-    docker compose version >/dev/null 2>&1; then
-    printf 'compose'
-  else
-    printf 'docker'
-  fi
-}
-
-backend="$(pick_backend)"
-
-case "$backend" in
-  compose | docker) ;;
-  *) printf 'error: PESQUE_BACKEND must be compose or docker, got: %s\n' "$backend" >&2; exit 1 ;;
-esac
-
-if [ "$backend" = "compose" ]; then
-  cd "$root"
-  compose_files=(-f docker-compose.yml)
-  if [ "${PESQUE_BUILD:-0}" = "1" ]; then
-    compose_files+=(-f docker-compose.build.yml)
-  fi
-  dc() { docker compose "${compose_files[@]}" "$@"; }
+# --- deprecation notice (once) ------------------------------------------------
+if [ ! -f "$notice" ]; then
+  printf 'note: scripts/pesque is deprecated. Install the standalone CLI instead:\n' >&2
+  printf '  curl -fsSL https://raw.githubusercontent.com/%s/main/install.sh | sh\n' "$repo" >&2
+  printf 'This shim will be removed after one minor release.\n' >&2
+  mkdir -p "$cache" 2>/dev/null || true
+  : >"$notice" 2>/dev/null || true
 fi
 
-# --- output -----------------------------------------------------------------
-
-step() { printf '\n==> %s\n' "$*"; }
-blank() { printf '\n'; }
-die() {
-  printf 'error: %s\n' "$*" >&2
-  exit 1
-}
-
-# --- preflight --------------------------------------------------------------
-
-check_docker() {
-  command -v docker >/dev/null 2>&1 ||
-    die "Docker is not installed.
-  Install Docker Desktop (macOS/Windows) or Docker Engine (Linux), then run this again."
-
-  docker info >/dev/null 2>&1 ||
-    die "Docker is installed but not running.
-  Start Docker (Docker Desktop, or 'sudo systemctl start docker'), then run this again."
-
-  if [ "$backend" = "compose" ]; then
-    docker compose version >/dev/null 2>&1 ||
-      die "this needs Docker Compose v2 ('docker compose').
-  Update Docker Desktop, or install the compose plugin. To drive a container you
-  already run instead, set PESQUE_BACKEND=docker."
-  fi
-}
-
-container() { printf '%s' "${PESQUE_CONTAINER:-pesque}"; }
-
-# The image the running container was started from, so a one-off task matches
-# the code the live server runs. Falls back to the published tag when the
-# container does not exist yet (setup, or a first run).
-image() {
-  if [ -n "${PESQUE_IMAGE:-}" ]; then
-    printf '%s' "$PESQUE_IMAGE"
-    return
-  fi
-  local found
-  found="$(docker inspect "$(container)" --format '{{.Config.Image}}' 2>/dev/null || true)"
-  printf '%s' "${found:-ghcr.io/zeeetech/pesque:latest}"
-}
-
-check_container() {
-  docker inspect "$(container)" >/dev/null 2>&1 ||
-    die "no container named '$(container)' is running.
-  Set PESQUE_CONTAINER to the Pesque container's name, or PESQUE_BACKEND=compose
-  if you meant the compose stack."
-}
-
-# Warn, do not fail: a re-run finds the stack's own containers holding the
-# ports, and a proxy the operator meant to keep is not an error.
-check_ports() {
-  if [ "$backend" != "compose" ]; then return 0; fi
-  if [ -n "$(dc ps -q 2>/dev/null)" ]; then return 0; fi
-  command -v lsof >/dev/null 2>&1 || return 0
-  for port in 80 443; do
-    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-      printf 'note: port %s is already in use. If that is not this stack or a proxy\n' "$port"
-      printf '      you meant to keep, stop the other service before starting.\n'
-    fi
-  done
-}
-
-resolves() {
-  local host="$1"
-  if command -v dig >/dev/null 2>&1; then
-    [ -n "$(dig +short "$host" A 2>/dev/null)" ] && return 0
-  fi
-  if command -v getent >/dev/null 2>&1; then
-    getent hosts "$host" >/dev/null 2>&1 && return 0
-  fi
-  host "$host" >/dev/null 2>&1
-}
-
-check_dns() {
-  local host="$1"
-  resolves "$host" && return 0
-  printf 'note: %s does not resolve yet. Create its A record first, or TLS will\n' "$host"
-  printf '      not be issued until DNS propagates.\n'
-}
-
-public_ip() {
-  curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null ||
-    curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null ||
-    true
-}
-
-# --- running a one-off task -------------------------------------------------
-
-# eval runs a fresh release VM in a one-off container. boot! starts the
-# application, which eval does not do on its own; PDS_SERVE=false keeps it from
-# binding the port the running server already holds.
-#
-# compose uses `dc run`, which reuses the service's image, volume and
-# environment. Plain docker has no service to reuse, so `--volumes-from` mounts
-# the running container's data volume and `--env-file` mirrors its PDS_* config,
-# which keeps the one-off on the same data directory the live server reads.
-compose_eval() {
-  local expr="$1"
-  shift || true
-  dc run --rm "$@" --no-deps -e PDS_SERVE=false pesque \
-    /app/bin/pesque eval "$expr"
-}
-
-docker_env_file=""
-cleanup() {
-  if [ -n "$docker_env_file" ]; then rm -f "$docker_env_file"; fi
-}
-trap cleanup EXIT
-
-# A temp file holding the running container's PDS_* variables, so the one-off
-# reads the same hostname, mode and identity. Anything the image sets itself
-# (PDS_DATA_DIR, PDS_CONFIG, PDS_PORT) is already in the image. Sets the global
-# rather than printing, so cleanup can remove the file on exit.
-docker_env() {
-  if [ -z "$docker_env_file" ]; then
-    docker_env_file="$(mktemp)"
-    docker inspect "$(container)" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null |
-      grep -E '^PDS_' >>"$docker_env_file" || true
-  fi
-}
-
-docker_eval() {
-  local expr="$1"
-  shift || true
-  docker_env
-  docker run --rm "$@" \
-    --volumes-from "$(container)" \
-    --env-file "$docker_env_file" \
-    -e PDS_SERVE=false \
-    "$(image)" /app/bin/pesque eval "$expr"
-}
-
-# eval_expr <expr> [extra docker/compose run flags...]. The flags carry the
-# task's inputs by name (-e ACCOUNT_HANDLE), so values stay out of the argument
-# list a bystander can read from `ps`.
-eval_expr() {
-  case "$backend" in
-    compose) compose_eval "$@" ;;
-    docker) docker_eval "$@" ;;
-  esac
-}
-
-# The password and the handle go in by name, not by value.
-create_account() {
-  local handle="$1" email="$2" password="$3" ip="${4:-}"
-  ACCOUNT_HANDLE="$handle" ACCOUNT_EMAIL="$email" ACCOUNT_PASSWORD="$password" PDS_PUBLIC_IP="$ip" \
-    eval_expr \
-    'Pesque.Release.boot!(); case Pesque.Release.create_account_from_env() do :ok -> :ok; :error -> System.halt(1) end' \
-    -e ACCOUNT_HANDLE -e ACCOUNT_EMAIL -e ACCOUNT_PASSWORD -e PDS_PUBLIC_IP
-}
-
-# --- compose stack ----------------------------------------------------------
-
-wait_for_health() {
-  local id status
-  id="$(dc ps -q pesque)"
-  printf 'waiting for the server to become healthy'
-  for _ in $(seq 1 45); do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo unknown)"
-    case "$status" in
-      healthy)
-        blank
-        return 0
-        ;;
-      unhealthy)
-        blank
-        return 1
-        ;;
-    esac
-    printf '.'
-    sleep 2
-  done
-  blank
-  return 1
-}
-
-start_stack() {
-  if [ "${PESQUE_BUILD:-0}" = "1" ]; then
-    dc up -d --build
-  else
-    dc pull || die "could not pull the image. Set PESQUE_BUILD=1 to build from source instead."
-    dc up -d
-  fi
-}
-
-# --- commands ---------------------------------------------------------------
-
-setup() {
-  check_docker
-
-  if [ "$backend" = "docker" ]; then
-    setup_docker
-    return
-  fi
-
-  step "Configuration"
-  local hostname mode choice
-  read -rp "Domain clients will use to reach this server (e.g. pds.example.com): " hostname
-  [ -n "$hostname" ] || die "a domain is required"
-
-  blank
-  printf 'Will this server host:\n'
-  printf '  1) just your own account (simplest)\n'
-  printf '  2) accounts for several people\n'
-  read -rp "choose [1]: " choice
-  case "${choice:-1}" in
-    2) mode=path_multi ;;
-    *) mode=conformant_single ;;
-  esac
-
-  check_dns "$hostname"
-  check_ports
-
-  printf 'PDS_HOSTNAME=%s\nPDS_MODE=%s\n' "$hostname" "$mode" >.env
-  blank
-  printf 'Wrote .env (PDS_HOSTNAME=%s, PDS_MODE=%s).\n' "$hostname" "$mode"
-
-  step "Starting the server"
-  start_stack
-
-  if ! wait_for_health; then
-    blank
-    printf 'The server did not come up. Recent logs:\n\n'
-    dc logs --tail 40 pesque
-    die "startup failed; see the logs above"
-  fi
-  printf 'The server is up.\n'
-
-  step "First account"
-  local username handle email password
-  if [ "$mode" = "path_multi" ]; then
-    read -rp "Username for your account (e.g. alice): " username
-    [ -n "$username" ] || die "a username is required"
-    handle="$username.$hostname"
-  else
-    handle="$hostname"
-  fi
-  read -rp "Email for your account: " email
-  [ -n "$email" ] || die "an email is required"
-  read -rsp "Password (at least 8 characters, not shown): " password
-  blank
-  [ -n "$password" ] || die "a password is required"
-
-  create_account "$handle" "$email" "$password" "$(public_ip)"
-
-  step "Federation preflight"
-  eval_expr 'Pesque.Release.boot!(); Pesque.Doctor.run()' || true
-
-  blank
-  printf 'Done. Your server is at https://%s.\n' "$hostname"
-}
-
-# Docker mode does not own the container: it is declared in your systemd unit or
-# NixOS config, not by this script. So setup writes the config file and prints
-# how to point the container at it, rather than starting anything.
-setup_docker() {
-  local hostname mode choice
-  read -rp "Domain clients will use to reach this server (e.g. pds.example.com): " hostname
-  [ -n "$hostname" ] || die "a domain is required"
-
-  blank
-  printf 'Will this server host:\n'
-  printf '  1) just your own account (simplest)\n'
-  printf '  2) accounts for several people\n'
-  read -rp "choose [1]: " choice
-  case "${choice:-1}" in
-    2) mode=path_multi ;;
-    *) mode=conformant_single ;;
-  esac
-
-  check_dns "$hostname"
-
-  printf 'hostname = %s\nmode = %s\n' "$hostname" "$mode" >pesque.conf
-  blank
-  printf 'Wrote pesque.conf (hostname=%s, mode=%s).\n' "$hostname" "$mode"
-  blank
-  printf 'Mount it at /data/pesque.conf and start the container, for example:\n\n'
-  printf '  docker run -d --name %s -p 4000:4000 \\\n' "$(container)"
-  printf '    -v pesque-data:/data \\\n'
-  printf '    -v "$PWD/pesque.conf:/data/pesque.conf" \\\n'
-  printf '    %s\n' "$(image)"
-  blank
-  printf 'Or set PDS_HOSTNAME and PDS_MODE as environment variables on the service.\n'
-  blank
-  printf 'Once it is running:\n\n'
-  printf '  scripts/pesque doctor\n'
-  printf '  scripts/pesque account --handle alice.%s --email you@%s\n' "$hostname" "$hostname"
-}
-
-update() {
-  check_docker
-
-  if [ "$backend" = "compose" ]; then
-    start_stack
-    return
-  fi
-
-  docker pull "$(image)"
-  if [ -z "${PESQUE_RESTART_CMD:-}" ]; then
-    die "pulled the image, but did not replace the running container.
-  Restarting an existing container keeps the old image; it has to be recreated.
-  Set PESQUE_RESTART_CMD to the command that does that, for example:
-
-    PESQUE_RESTART_CMD='systemctl restart pesque' scripts/pesque update
-
-  Under NixOS with services.pesque, that is 'systemctl restart pesque'."
-  fi
-  sh -c "$PESQUE_RESTART_CMD"
-}
-
-account() {
-  local handle="" email=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --handle)
-        handle="${2:-}"
-        shift $(($# >= 2 ? 2 : 1))
-        ;;
-      --email)
-        email="${2:-}"
-        shift $(($# >= 2 ? 2 : 1))
-        ;;
-      *) die "unknown option: $1" ;;
-    esac
-  done
-  [ -n "$handle" ] || die "--handle is required"
-  [ -n "$email" ] || die "--email is required"
-
-  if [ -z "${PASSWORD:-}" ]; then
-    read -rsp "Password for $handle (not shown): " PASSWORD
-    blank
-  fi
-  [ -n "$PASSWORD" ] || die "a password is required"
-
-  create_account "$handle" "$email" "$PASSWORD" "$(public_ip)"
-}
-
-doctor() {
-  check_docker
-  if [ "$backend" = "docker" ]; then check_container; fi
-  eval_expr 'Pesque.Release.boot!(); Pesque.Doctor.run()'
-}
-
-migrate() {
-  local old_pds="" handle="" email=""
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --old-pds)
-        old_pds="${2:-}"
-        shift $(($# >= 2 ? 2 : 1))
-        ;;
-      --handle)
-        handle="${2:-}"
-        shift $(($# >= 2 ? 2 : 1))
-        ;;
-      --email)
-        email="${2:-}"
-        shift $(($# >= 2 ? 2 : 1))
-        ;;
-      *) die "unknown option: $1" ;;
-    esac
-  done
-  [ -n "$old_pds" ] || die "--old-pds is required"
-  [ -n "$handle" ] || die "--handle is required"
-  [ -n "$email" ] || die "--email is required"
-
-  if [ -z "${PASSWORD:-}" ]; then
-    read -rsp "Password for $handle (not shown): " PASSWORD
-    blank
-  fi
-  [ -n "$PASSWORD" ] || die "a password is required"
-
-  check_docker
-  if [ "$backend" = "docker" ]; then check_container; fi
-
-  # -i keeps stdin attached: the identity step prompts for the code the old
-  # PDS emails.
-  MIGRATE_OLD_PDS="$old_pds" MIGRATE_HANDLE="$handle" MIGRATE_EMAIL="$email" MIGRATE_PASSWORD="$PASSWORD" \
-    eval_expr \
-    'Pesque.Release.boot!(); case Pesque.Migrate.run(old_pds: System.get_env("MIGRATE_OLD_PDS"), handle: System.get_env("MIGRATE_HANDLE"), email: System.get_env("MIGRATE_EMAIL"), password: System.get_env("MIGRATE_PASSWORD")) do :ok -> IO.puts("migration complete"); {:error, reason} -> IO.puts(:stderr, "migration failed: " <> Pesque.Release.describe_error(reason)); System.halt(1) end' \
-    -i -e MIGRATE_OLD_PDS -e MIGRATE_HANDLE -e MIGRATE_EMAIL -e MIGRATE_PASSWORD
-}
-
-logs() {
-  check_docker
-  if [ "$backend" = "compose" ]; then
-    dc logs -f pesque
-  else
-    docker logs -f "$(container)"
-  fi
-}
-
-usage() {
-  cat >&2 <<'EOF'
-usage: scripts/pesque <command>
-
-  setup     configure, start, check, and create the first account
-  update    pull the new image and restart
-  account   create an account       (--handle H --email E, PASSWORD=... or prompt)
-  migrate   move an account here    (--old-pds URL --handle H --email E)
-  doctor    run the federation preflight
-  logs      follow the server logs
-
-  PESQUE_BUILD=1 builds the image from source instead of pulling it (compose).
-
-  Without a docker-compose.yml this drives a container you already run, named by
-  PESQUE_CONTAINER (default: pesque) from PESQUE_IMAGE (default: its own image).
-  PESQUE_BACKEND=compose|docker forces the choice; PESQUE_RESTART_CMD is the
-  command that recreates the container for `update`.
-EOF
-  exit 2
-}
-
-case "${1:-}" in
-  setup) setup ;;
-  update) update ;;
-  account) account "${@:2}" ;;
-  migrate) migrate "${@:2}" ;;
-  doctor) doctor ;;
-  logs) logs ;;
-  help | --help | -h) usage ;;
-  *) usage ;;
+# --- platform -> release target ------------------------------------------------
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64) target=aarch64-macos ;;
+  Darwin/x86_64) target=x86_64-macos ;;
+  Linux/x86_64) target=x86_64-linux-musl ;;
+  Linux/aarch64) target=aarch64-linux-musl ;;
+  *) printf 'error: no release for %s/%s\n' "$(uname -s)" "$(uname -m)" >&2; exit 3 ;;
 esac
+
+# --- resolve latest tag ----------------------------------------------------------
+tag_url="https://api.github.com/repos/$repo/releases/latest"
+tag="$(curl -fsSL --max-time 30 "$tag_url" |
+  sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+[ -n "$tag" ] || { printf 'error: could not resolve the latest release from %s\n' "$tag_url" >&2; exit 3; }
+
+# --- download (cached per tag) and verify ----------------------------------------
+bin="$cache/pesque-$tag"
+if [ ! -x "$bin" ]; then
+  base="https://github.com/$repo/releases/download/$tag"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  curl -fsSL --max-time 30 -o "$tmp/pesque-$target" "$base/pesque-$target"
+  curl -fsSL --max-time 30 -o "$tmp/SHA256SUMS" "$base/SHA256SUMS"
+  want="$(sed -n "s/^\\([0-9a-fA-F]\\{64\\}\\)[[:space:]].*pesque-$target\$/\\1/p" "$tmp/SHA256SUMS")"
+  [ -n "$want" ] || { printf 'error: no checksum for pesque-%s in SHA256SUMS\n' "$target" >&2; exit 3; }
+  if command -v sha256sum >/dev/null 2>&1; then
+    got="$(sha256sum "$tmp/pesque-$target" | cut -d' ' -f1)"
+  elif command -v shasum >/dev/null 2>&1; then
+    got="$(shasum -a 256 "$tmp/pesque-$target" | cut -d' ' -f1)"
+  else
+    printf 'error: need sha256sum or shasum to verify the download\n' >&2; exit 3
+  fi
+  [ "$got" = "$want" ] || { printf 'error: checksum mismatch for pesque-%s\n' "$target" >&2; exit 3; }
+  mkdir -p "$cache"
+  mv "$tmp/pesque-$target" "$bin"
+  chmod +x "$bin"
+fi
+
+exec "$bin" "$@"
