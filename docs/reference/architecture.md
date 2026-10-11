@@ -29,7 +29,6 @@ lib/pesque/did.ex               DID and handle derivation, DID documents
 lib/pesque/commit.ex            the commit protocol, and the frames
 lib/pesque/event_frames.ex      the #identity and #account frames
 lib/pesque/record.ex            what a record must satisfy before commit
-lib/pesque/grapheme.ex          UAX #29 segmentation
 lib/pesque/plc/operation.ex     PLC operations: construction, signing, the DID
 lib/pesque/oauth/jwt.ex         ES256 JWS and the RFC 7638 thumbprint
 lib/pesque/oauth/dpop.ex        DPoP proof verification
@@ -73,6 +72,10 @@ lib/pesque/oauth/token.ex       one issued access or refresh token
 lib/pesque/oauth/client.ex      client_id resolution and metadata validation
 lib/pesque/oauth/fetch.ex       the outbound HTTPS request, SSRF-hardened
 lib/pesque/oauth/client_assertion.ex  private_key_jwt verification
+lib/pesque/config.ex            the pesque.conf layer: environment, file, default
+lib/pesque/backup.ex            the tar backup, live-safe, and the cold restore
+lib/pesque/ops.ex               the host-side driver contract, implemented in cli/ (Zig)
+lib/pesque/cli.ex               verb dispatch: bin/pesque <verb> and the mix tasks
 ```
 
 `Pesque.RepoStore` is the only module allowed to write SQL, and the only place
@@ -111,10 +114,14 @@ Pesque.Supervisor (one_for_one)
 └── PesqueWeb.Endpoint           Bandit
 ```
 
-Before the tree starts, `Pesque.Application.start/2` runs, in order:
+`config/runtime.exs` runs before any of it: settings resolve environment
+first, then the config file (`PDS_CONFIG`, or `pesque.conf` in the working
+directory), then the defaults in `runtime.exs`. An unknown `PDS_*` variable
+in the environment, or an unknown or repeated key in the config file, kills
+boot there. Then `Pesque.Application.start/2` runs, in order:
 `Storage.init!/0`, `Secret.load!/0`, `Identity.load!/0`, `OAuth.Keys.load!/0`,
 `Lexicon.Registry.reload/0`, `Release.migrate/0`. Then a boot log line and, if
-`PDS_CRAWLER` is set, a task that asks each relay to crawl this server.
+any relay is configured, a task that asks each relay to crawl this server.
 
 ### One process per repository
 
@@ -135,7 +142,7 @@ account with no writes costs one `users` row.
 ```
 data/
 ├── pesque.db
-│   ├── users              did, handle, username, pubkey_multibase, email, password_hash, plc_operation
+│   ├── users              did, handle, username, pubkey_multibase, email, password_hash, plc_operation, active, deactivated_at
 │   ├── records            did, collection, rkey, cid, data        (latest version per key)
 │   ├── blocks             did, cid, data                          (every version ever written)
 │   ├── events             did, seq, payload                       (firehose frames, pre-encoded)
@@ -165,7 +172,7 @@ payload already CBOR-encoded, so a crash cannot leave an empty-payload row.
 | Protocol code written here | A reference implementation should show the protocol | Every spec detail is yours to track |
 | SQLite | One file, no server, transactional | Single writer. Fine for one PDS, wrong for a big one |
 | `did:web` by default | No dependency on the PLC directory | The identity dies with the domain. `did:plc` is opt-in |
-| One blob directory | Backup is one `tar` | No CDN, no replication, no dedup across accounts |
+| One blob directory | `pesque backup` writes one tar.gz | No CDN, no replication, no dedup across accounts |
 | Both session kinds | OAuth clients and legacy clients both work | Two token formats and two keys to keep apart |
 | Outbound HTTPS to PLC, handle resolution, OAuth metadata and crawlers | Each is a profile requirement | Each is where a stranger picks a URL this server fetches. See `Pesque.OAuth.Fetch` |
 | Incremental MST update, rebuild as fallback | Canonical output stays a pure function of the entry set | A tree that cannot be walked costs a full rebuild |
@@ -278,10 +285,13 @@ Each module below has one invariant that is easy to get wrong.
 - **JWT** (`Pesque.Token`): HS256 legacy sessions. `verify/3` folds a bad
   signature, a wrong scope and an expired token into one `{:error, :invalid_token}`,
   because distinguishing them tells an attacker which half they got right.
-- **Grapheme segmentation** (`Pesque.Grapheme`): UAX #29 extended grapheme
-  clusters, for `maxGraphemes`. The generated tables are committed, so the server
-  never fetches the UCD at runtime. Rebuild them when the pinned Unicode version
-  moves with `mix pesque.gen_unicode` (or `mix pesque.gen_unicode path/to/ucd`).
+- **Grapheme counting** (`String.length/1`): `maxGraphemes` counts extended
+  grapheme clusters, which is what `String.length/1` counts through the UAX #29
+  support in the Erlang runtime. There are no vendored tables and nothing to
+  regenerate: the Unicode version is the OTP release's. The count diverges from
+  the reference segmenter on the GB9c conjunct scripts (Khmer, Myanmar,
+  Balinese) and one ZWJ case; that was the trade for dropping the hand-rolled
+  segmenter and its 2,000 lines of committed tables.
 - **Varint, base32, base58**: unsigned LEB128 (`decode/1` raises on a truncated or
   over-64-bit varint, which stops a crafted CID from being an unbounded shift); RFC
   4648 base32 lowercased and unpadded, `[a-z2-7]`, which is what makes a CID safe

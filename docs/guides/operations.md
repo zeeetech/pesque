@@ -4,27 +4,54 @@ Running a server that has real data in it.
 
 ## Backup and restore
 
-`PDS_DATA_DIR` is the whole server. Stop, copy, start:
+`PDS_DATA_DIR` is the whole server: the database, the keys, the blobs and the
+secret. Every verb has two spellings: `pesque <verb>`, the host CLI, which
+stops and starts the service when a verb needs that, and `bin/pesque <verb>`
+from the release directory. `mix pesque.<verb>` runs the same code in dev.
+
+`pesque backup [--out DIR]` writes `pesque-backup-<stamp>.tar.gz` and is safe
+to run while the server is up. The database is snapshotted with `VACUUM INTO`
+first, so the archive holds the committed state at one instant; the keys, the
+blobs, the secret and, when the server has minted one, `server.identity.json`
+are read straight out of the data directory after. That is safe on a running
+server because an upload writes the file before the row that serves it: the
+worst a race with a running upload can do is put an orphan file in the
+archive, never a row whose bytes are missing. The verb refuses a data
+directory that is missing a piece every booted server has: an archive that
+looks complete and restores into a server that cannot boot is worse than a
+refused backup.
 
 ```bash
-systemctl stop pesque
-tar czf pesque-$(date +%F).tar.gz -C /var/lib pesque
-systemctl start pesque
+pesque backup --out /backups
+```
+
+Restore is cold. The host CLI stops the service before the verb runs and
+starts it again after; running `bin/pesque restore` directly means stopping
+the service yourself, and either way the verb refuses while another process
+holds the database's write lock. The archive is extracted into a staging
+directory inside the data directory and verified against its manifest before
+anything moves, then swapped in one entry at a time: every current file moves
+to `<name>.old` before its replacement takes its name, and the old database's
+WAL sidecars move with it. A crash mid-swap leaves the previous state next to
+the new one: rename the `.old` files back, or run restore again. A completed
+swap removes them; the archive itself is the way back.
+
+```bash
+pesque restore /backups/pesque-backup-20261011T123456Z.tar.gz
 ```
 
 Migrations run at boot, so restoring onto a newer binary is fine; a newer data
-directory onto an older binary is not. A `cp -r` of a running server can leave a
-row whose file never landed or a file whose row never committed: the first
-answers `BlobNotFound`, the second is an orphan, and both clear on the next
-sweep. The one file where a partial copy matters is `data/server.secret`: lose it
-and every legacy session dies.
+directory onto an older binary is not. The archive carries `server.secret`, so
+treat it as you would the data directory: lose it and every legacy session
+dies.
 
 ## The data directory
 
 ```
 data/
-├── pesque.db            SQLite: accounts, records, blocks, events, invites, OAuth state
+├── pesque.db            SQLite: accounts, records, blocks, blobs, events, invites, preferences, OAuth state
 ├── server.secret        HMAC secret for legacy session tokens
+├── server.identity.json the server's minted did:plc, only under identity = plc
 ├── keys/<digest>.key            secp256k1 signing key per DID
 ├── keys/<digest>.rotation.key   did:plc rotation key, the account's only recovery path
 ├── keys/oauth.p256.key          P-256 key OAuth tokens and the JWKS are signed with
@@ -67,10 +94,18 @@ domain at the server.
 
 ## Upgrades
 
-1. `bin/pesque stop` (clean `SIGTERM`)
-2. Replace the release directory
-3. `bin/pesque start`, migrations run at boot
-4. `curl /xrpc/_health`, which reads a table, so it is the migration check
+1. `pesque backup` (live-safe; no stop needed)
+2. `bin/pesque stop` (clean `SIGTERM`)
+3. Replace the release directory
+4. `bin/pesque start`, migrations run at boot
+5. `curl /xrpc/_health`, which reads a table, so it is the migration check
+
+`pesque config validate` boots nothing: it reads the environment and
+`pesque.conf` the way the server will at boot, then prints every resolved
+setting with the layer that decided it, the environment variable,
+`pesque.conf:LINE`, or `(default)`. Run it after replacing the release: an
+unknown `PDS_*` variable or config key fails boot, and this names it without
+a failed boot.
 
 There is no down migration; rolling back means restoring a pre-upgrade backup.
 
@@ -85,8 +120,9 @@ At boot:
 [info] pesque up data_dir=/var/lib/pesque hostname=pds.example.com mode=conformant_single registration=closed
 ```
 
-Log metadata is an allowlist (`did`, `handle`, `route`, `reason`, `hostname`,
-`mode`, `registration`, `data_dir`); add keys in `config/config.exs`.
+Log metadata is an allowlist (`did`, `handle`, `route`, `reason`, `path`,
+`count`, `records`, `hostname`, `mode`, `registration`, `data_dir`); add keys
+in `config/config.exs`.
 
 ## Retention
 
@@ -152,6 +188,11 @@ existence is public**: `listRepos` enumerates every hosted DID.
 ## Troubleshooting
 
 - **`_health` returns 503.** Check `PDS_DATA_DIR`, write permission, migrations.
+- **Boot dies on `unknown PDS_ variables` or `unknown key`.** The environment
+  and the config file are both strict: a name the server does not read is
+  refused, not ignored. `pesque config validate` names the offenders; the
+  internal variables the tooling sets are `PDS_CONFIG`, `PDS_PUBLIC_IP` and
+  `PDS_TAG`.
 - **A `did:web` with a port does not resolve.** The port is only encoded for
   loopback and private hosts; fix the proxy.
 - **The AppView shows nothing.** `path_multi` DIDs are ignored by ATProto
