@@ -110,13 +110,8 @@ defmodule Pesque.AccountIdentifierTest do
     assert key_files() == before
   end
 
-  # There is no --password flag: the value would land in shell history and in
-  # ps, so the password goes in by the name of a variable that holds it.
   defp run_task(args) do
-    System.put_env("PESQUE_TEST_PASSWORD", @password)
-    on_exit(fn -> System.delete_env("PESQUE_TEST_PASSWORD") end)
-
-    Mix.Tasks.Pesque.CreateAccount.run(args ++ ["--password-env", "PESQUE_TEST_PASSWORD"])
+    Mix.Tasks.Pesque.CreateAccount.run(args ++ ["--password", @password])
   end
 
   defp insert_account(name, email \\ nil) do
