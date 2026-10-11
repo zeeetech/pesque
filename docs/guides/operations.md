@@ -264,9 +264,10 @@ metrics_token = <a long random string>     # or PDS_METRICS_TOKEN
 ```
 
 From then on the route requires `Authorization: Bearer <that token>` and
-answers 401 otherwise. The token is the whole gate: the endpoint is for your
-own collector, it is not published by Caddy (the shipped Caddyfile only
-proxies what the server advertises, and you should keep it that way), and it
+answers 401 otherwise. The token is the whole gate, and it has to be: the
+shipped Caddyfile proxies the whole host to the server, `/metrics` included,
+so nothing but the token (and, until you set one, the 404) stands between a
+stranger and the exposition. The endpoint is for your own collector, and it
 runs behind the read budget like every other GET, so a scrape flood is
 refused by the rate limiter before it costs a render.
 
