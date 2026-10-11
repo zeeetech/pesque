@@ -58,6 +58,6 @@ defmodule Pesque.MetricsTest do
     on_exit(fn -> System.delete_env("PDS_METRICS_TOKEN") end)
 
     assert Config.validate_env() == :ok
-    assert Config.template() =~ "# metrics_token = "
+    assert Config.template() =~ "# metrics_token ="
   end
 end
