@@ -19,6 +19,7 @@ defmodule Pesque.Migrate do
   alias Pesque.Blob
   alias Pesque.Car
   alias Pesque.Crawl
+  alias Pesque.Events
   alias Pesque.Migrate.Http
   alias Pesque.Plc
   alias Pesque.RepoImport
@@ -65,6 +66,7 @@ defmodule Pesque.Migrate do
            move_identity(client, old_pds, session.access_jwt, credentials, prompt, plc_token),
          :ok <- note(log, "submitting the plc operation"),
          {:ok, _did} <- Plc.submit_operation(user, operation),
+         :ok <- announce_identity(user, log),
          :ok <- activate(client, old_pds, session.access_jwt, did, log),
          :ok <- announce_crawl(log) do
       :ok
@@ -221,6 +223,17 @@ defmodule Pesque.Migrate do
       %User{} = user -> {:ok, user}
       nil -> {:error, :account_missing}
     end
+  end
+
+  # The spec pairs the identity update with an #identity event once the DID
+  # document names this server: a consumer keyed on the handle would otherwise
+  # keep pointing the old one at the old PDS. The PLC operation is submitted
+  # above, so this server is the DID's current host by the time the frame goes
+  # out, which is the condition the spec puts on the event.
+  defp announce_identity(user, log) do
+    Events.emit_identity(user.did, user.handle)
+    log.("announced the identity for #{user.handle}")
+    :ok
   end
 
   defp activate(client, old_pds, access_jwt, did, log) do

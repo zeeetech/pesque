@@ -69,6 +69,20 @@ defmodule Pesque.MigrateTest do
     refute last["status"]
   end
 
+  # The spec pairs the identity update with an #identity event, so a consumer
+  # keyed on the handle moves it to this server.
+  test "the identity update is announced with an #identity frame" do
+    did = old_did()
+    handle = unique("ivan") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok = run(handle)
+
+    assert {_header, body} = did |> identity_events() |> List.last()
+    assert body["handle"] == handle
+  end
+
   test "a supplied PLC token is used instead of asking for a new code" do
     did = old_did()
     handle = unique("dave") <> ".localhost"
@@ -234,10 +248,13 @@ defmodule Pesque.MigrateTest do
     end
   end
 
-  defp account_events(did) do
+  defp account_events(did), do: events_for(did, "#account")
+  defp identity_events(did), do: events_for(did, "#identity")
+
+  defp events_for(did, type) do
     RepoStore.events_after(0)
     |> Enum.map(&decode/1)
-    |> Enum.filter(fn {header, body} -> header["t"] == "#account" and body["did"] == did end)
+    |> Enum.filter(fn {header, body} -> header["t"] == type and body["did"] == did end)
   end
 
   defp decode(frame) do
