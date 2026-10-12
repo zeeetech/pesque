@@ -211,7 +211,7 @@ systemctl start pesque-backup    # writes pesque-backup-<stamp>.tar.gz into /var
 `services.pesque` also puts the host-side `pesque` CLI on PATH, built from
 `cli/` with a pinned Zig. It reads the release and the config from the running
 unit, so the verbs the oneshots do not cover (restore, account list/delete/
-reset-password/plc-token, invite, config) are `sudo pesque <verb>`. The lifecycle verbs
+reset-password/plc-token/email-token/reset-token, invite, config) are `sudo pesque <verb>`. The lifecycle verbs
 no-op here, since NixOS owns the unit.
 
 Create the env file first, so the password never lands in the Nix store:

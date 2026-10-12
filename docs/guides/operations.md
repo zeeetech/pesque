@@ -92,6 +92,24 @@ Secrets are `0600` and `keys/` is `0700`; the data directory takes your umask.
   minutes and single use; `signPlcOperation` spends it. The signed operation is
   the answer, not a submission: hand it to the client, which submits it to the
   PLC directory or to the PDS the account is moving to.
+- `com.atproto.server.requestEmailConfirmation` / `confirmEmail` prove an
+  account's email, and `com.atproto.server.requestPasswordReset` /
+  `resetPassword` replace a password with a code. Both are two-step, and both
+  codes reach the operator the way the PLC code does: logged when a client
+  asks, and mintable on demand with `pesque account email-token --did D |
+  --handle H` or `pesque account reset-token --did D | --handle H`. Each is
+  good for 15 minutes and single use; `confirmEmail` / `resetPassword` spend
+  it. `requestPasswordReset` is anonymous, so its code is never in the response
+  body: a stranger cannot reset an account whose log they do not read. A
+  `confirmEmail` stamps the time the address was proven; a `resetPassword` also
+  ends every session the account held.
+- `com.atproto.server.updateEmail` moves an account to a new address. A
+  confirmed address takes a code from `com.atproto.server.requestEmailUpdate`,
+  which answers `tokenRequired` and logs the code (or mints nothing when the
+  address was never confirmed, so the move needs no token). The code is the
+  same kind `confirmEmail` spends and reaches the operator the same way
+  (`pesque account email-token`). The new address starts unconfirmed: its own
+  `confirmEmail` code is what proves it.
 - App passwords (`com.atproto.server.createAppPassword` and friends) are
   named, revocable credentials an account's apps log in with. A plain one
   opens a reduced session (records, blobs, preferences, non-chat rpc); a
