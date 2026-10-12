@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/zeeetech/pesque/compare/pesque-v1.8.0...pesque-v1.8.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* nix module FOD deps hash ([230eefb](https://github.com/zeeetech/pesque/commit/230eefb657437e0916d06d8cb55f88bddf0ef647))
+
 ## [1.8.0](https://github.com/zeeetech/pesque/compare/pesque-v1.7.0...pesque-v1.8.0) (2026-10-12)
 
 
