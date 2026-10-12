@@ -8,8 +8,10 @@ defmodule PesqueWeb.Plugs.Auth do
 
     * an OAuth access token, ES256 over the key published in the JWKS, bound
       to a DPoP key, and gated on the grants its scope string computes to
-    * a legacy session token, HS256 over this server's secret, one scope
-      that reaches everything
+    * a legacy session token, HS256 over this server's secret, carrying its
+      tier in the scope claim (the account password's full access, or one of
+      the two app-password tiers), and gated on the grants that claim
+      computes to
 
   Which is which is decided by the `alg` in the token's own header rather than
   by trying one verifier and falling back to the other. A fallback would mean
@@ -63,11 +65,10 @@ defmodule PesqueWeb.Plugs.Auth do
 
   require Logger
 
-  # A legacy session token is one scope that reaches everything, which is
-  # what it was issued as, so it is checked against this grant and never
-  # narrowed. It is also what lands in :grants, so the session controller's
-  # email gate reads the same field for both kinds of token.
-  @full_grants [%Permission{resource: :atproto}]
+  # The scopes a legacy session token can carry: the account password's full
+  # access, and the two app-password tiers. The tier travels in the claim,
+  # the way an OAuth token's scopes do, so one verify path covers all three.
+  @access_scopes ["com.atproto.access", "com.atproto.appPass", "com.atproto.appPassPrivileged"]
 
   # The shapes a request fact must have before this plug is willing to answer
   # 403 on it. A fact that is absent or malformed is the controller's 400 to
@@ -161,7 +162,7 @@ defmodule PesqueWeb.Plugs.Auth do
   end
 
   defp session(token) do
-    case Token.verify(token, Secret.get(), "com.atproto.access") do
+    case Token.verify(token, Secret.get(), @access_scopes) do
       {:ok, claims} -> {:ok, :session, claims}
       {:error, _reason} -> {:error, :rejected_token}
     end
@@ -195,10 +196,42 @@ defmodule PesqueWeb.Plugs.Auth do
 
   defp secure_equal?(_left, _right), do: false
 
-  # A legacy token is one scope that reaches everything, which is what it was
-  # issued as, so it is not narrowed here. An OAuth token is narrowed to what
-  # it was actually granted.
-  defp authorize(:session, _claims, _require, _conn), do: {:ok, @full_grants}
+  # App password management is a legacy-session surface, so it is answered by
+  # the credential kind before any grant is computed: an OAuth token is refused
+  # however broad its grants, because minting credentials that outlive the
+  # session that made them is the one escalation no permission in the grammar
+  # names, and a privileged app password is refused on create because creating
+  # credentials is what the account password is for.
+  defp authorize(:session, %{"scope" => "com.atproto.access"} = claims, :full_session, _conn),
+    do: {:ok, Grants.from_session_scope(claims["scope"])}
+
+  defp authorize(:session, _claims, :full_session, _conn),
+    do: {:error, {:insufficient_scope, "app passwords are created with the account password"}}
+
+  defp authorize(:session, claims, :app_password_management, _conn) do
+    grants = Grants.from_session_scope(claims["scope"])
+
+    if account_management?(grants) do
+      {:ok, grants}
+    else
+      {:error, {:insufficient_scope, "app password management (a privileged credential)"}}
+    end
+  end
+
+  defp authorize(:session, claims, require, conn) do
+    grants = Grants.from_session_scope(claims["scope"])
+
+    case satisfied?(grants, require, conn) do
+      :ok -> {:ok, grants}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp authorize(:oauth, _claims, :full_session, _conn),
+    do: {:error, {:insufficient_scope, "OAuth tokens do not manage app passwords"}}
+
+  defp authorize(:oauth, _claims, :app_password_management, _conn),
+    do: {:error, {:insufficient_scope, "OAuth tokens do not manage app passwords"}}
 
   defp authorize(:oauth, claims, require, conn) do
     grants = grants_from(claims)

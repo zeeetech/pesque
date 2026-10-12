@@ -214,18 +214,27 @@ defmodule PesqueWeb.Xrpc.SessionController do
   # request is what separates them now, not whether an account exists.
   def create_session(conn, %{"identifier" => identifier, "password" => password})
       when is_binary(identifier) and is_binary(password) do
-    case Accounts.verify_login(identifier, password) do
-      {:ok, user} ->
-        {:ok, session} = Accounts.issue_session(user.did)
+    case Accounts.verify_session_credentials(identifier, password) do
+      {:ok, user, app_password} ->
+        {:ok, session} = Accounts.issue_session(user.did, app_password: app_password)
 
-        json(conn, %{
+        body = %{
           "accessJwt" => session.access_jwt,
           "refreshJwt" => session.refresh_jwt,
           "handle" => user.handle,
           "did" => user.did,
-          "email" => user.email,
           "active" => true
-        })
+        }
+
+        # The email is sensitive account state: a non-privileged app password
+        # never sees it, here or in getSession, or the getSession gate would be
+        # decorative.
+        body =
+          if app_password == nil or app_password.privileged,
+            do: Map.put(body, "email", user.email),
+            else: body
+
+        json(conn, body)
 
       :error ->
         Xrpc.error(
@@ -286,6 +295,52 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
   defp for_accounts(%{"forAccounts" => [did | _] = dids}) when is_binary(did), do: dids
   defp for_accounts(_params), do: []
+
+  # App passwords. Creating one names the privilege for every session it will
+  # ever open, so it is the account password's to make; listing and revoking
+  # are the management a privileged credential itself reaches.
+  def create_app_password(conn, %{"name" => name} = params) when is_binary(name) do
+    # Only a literal true is privileged: a string "true" from a sloppy client is
+    # not a promise this server makes.
+    privileged = params["privileged"] == true
+
+    case Accounts.create_app_password(conn.assigns.current_user, name, privileged) do
+      {:ok, app_password} ->
+        json(conn, %{
+          "name" => app_password.name,
+          "password" => app_password.password,
+          "createdAt" => DateTime.to_iso8601(app_password.created_at),
+          "privileged" => app_password.privileged
+        })
+
+      {:error, reason} ->
+        Xrpc.error(conn, reason)
+    end
+  end
+
+  def create_app_password(conn, _params),
+    do: Xrpc.error(conn, 400, "InvalidRequest", "a name is required")
+
+  def list_app_passwords(conn, _params) do
+    passwords =
+      for row <- Accounts.list_app_passwords(conn.assigns.did) do
+        %{
+          "name" => row.name,
+          "createdAt" => DateTime.to_iso8601(row.inserted_at),
+          "privileged" => row.privileged
+        }
+      end
+
+    json(conn, %{"passwords" => passwords})
+  end
+
+  def revoke_app_password(conn, %{"name" => name}) when is_binary(name) do
+    :ok = Accounts.revoke_app_password(conn.assigns.current_user, name)
+    json(conn, %{})
+  end
+
+  def revoke_app_password(conn, _params),
+    do: Xrpc.error(conn, 400, "InvalidRequest", "a name is required")
 
   # The lexicon has this token delivered by email and answers an empty object.
   # There is no mail here, so it is answered in the body: a token that was

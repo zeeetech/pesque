@@ -184,6 +184,15 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:session_not_issued),
     do: {500, "InternalServerError", "the session could not be issued"}
 
+  def to_xrpc(:app_password_name_taken),
+    do: {400, "InvalidRequest", "an app password with that name already exists"}
+
+  def to_xrpc(:app_password_name_required),
+    do: {400, "InvalidRequest", "a name is required"}
+
+  def to_xrpc(:app_password_not_created),
+    do: {500, "InternalServerError", "the app password could not be created"}
+
   def to_xrpc(:password_too_short),
     do: {400, "InvalidRequest", "password must be at least 8 characters"}
 

@@ -83,7 +83,8 @@ defmodule PesqueWeb.Router do
   # What each authenticated route needs, matched against an OAuth token's
   # grants by the auth plug. One pipeline per requirement, verbose on purpose:
   # a route says what it needs to reach, and the requirement is grep-able from
-  # here. A legacy session token is one scope that reaches everything.
+  # here. A legacy session token carries its tier in the scope claim, and the
+  # plug computes the grants from it.
   pipeline :auth_session do
     plug PesqueWeb.Plugs.Auth, require: :session
   end
@@ -138,6 +139,14 @@ defmodule PesqueWeb.Router do
 
   pipeline :auth_account_management do
     plug PesqueWeb.Plugs.Auth, require: :account_management
+  end
+
+  pipeline :auth_full_session do
+    plug PesqueWeb.Plugs.Auth, require: :full_session
+  end
+
+  pipeline :auth_app_password_management do
+    plug PesqueWeb.Plugs.Auth, require: :app_password_management
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
@@ -220,6 +229,30 @@ defmodule PesqueWeb.Router do
     pipe_through [:write_limits, :auth_account_management, :admin]
 
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
+  end
+
+  # App passwords. Creating one takes the account password itself (:full_session),
+  # because a credential that outlives the session that made it is the one thing
+  # no permission in the grammar names; listing and revoking are management, so a
+  # privileged app password reaches them and a plain one does not. OAuth tokens
+  # are refused on all three: an OAuth session is managed in the OAuth surface,
+  # not here.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_full_session]
+
+    post "/com.atproto.server.createAppPassword", SessionController, :create_app_password
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:read_limits, :auth_app_password_management]
+
+    get "/com.atproto.server.listAppPasswords", SessionController, :list_app_passwords
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_app_password_management]
+
+    post "/com.atproto.server.revokeAppPassword", SessionController, :revoke_app_password
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do

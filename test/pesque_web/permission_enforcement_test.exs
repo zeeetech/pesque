@@ -71,7 +71,9 @@ defmodule PesqueWeb.PermissionEnforcementTest do
       identity: oauth_token(user, "atproto identity:handle"),
       importer: oauth_token(user, "atproto account:repo?action=manage"),
       rpc_prefs: oauth_token(user, "atproto rpc:app.bsky.actor.getPreferences?aud=#{@appview}"),
-      session_token: token(user)
+      session_token: token(user),
+      app_token: app_password_session(user, false),
+      app_privileged_token: app_password_session(user, true)
     }
   end
 
@@ -86,10 +88,19 @@ defmodule PesqueWeb.PermissionEnforcementTest do
     assert Client.json(session_get(ctx.session_token))["email"]
 
     # The generic transition is an app password, and an app password never
-    # saw the email.
+    # saw the email. The legacy session tier is the same shape: the
+    # non-privileged app-password scope computes to transition:generic, so
+    # its gate answers identically, and the privileged tier is the full
+    # grant, as a password login is.
     generic = session_get(ctx.generic)
     assert generic.status == 200
     refute Map.has_key?(Client.json(generic), "email")
+
+    app = session_get(ctx.app_token)
+    assert app.status == 200
+    refute Map.has_key?(Client.json(app), "email")
+
+    assert Client.json(session_get(ctx.app_privileged_token))["email"]
   end
 
   test "getSession with no token is 401" do
@@ -451,6 +462,52 @@ defmodule PesqueWeb.PermissionEnforcementTest do
     assert session_get(ctx.session_token).status == 200
   end
 
+  # The app-password tiers over the plug: a non-privileged one is exactly
+  # transition:generic, so every row the generic OAuth token answers 403 to
+  # answers 403 to it, and a privileged one is the full grant, so it goes
+  # where a password login goes.
+
+  test "an app-password session writes records as its tier says", ctx do
+    conn = create_record(ctx.app_token, ctx.user.did, "app.bsky.feed.post")
+
+    assert conn.status == 200
+    assert Client.json(conn)["uri"]
+
+    assert create_record(ctx.app_privileged_token, ctx.user.did, "app.bsky.feed.post").status ==
+             200
+  end
+
+  test "account management answers 403 to the non-privileged app-password tier", ctx do
+    for path <- [
+          "/xrpc/com.atproto.server.requestAccountDelete",
+          "/xrpc/com.atproto.server.deactivateAccount"
+        ] do
+      conn = xrpc_post(path, %{}, ctx.app_token)
+
+      assert conn.status == 403, path
+
+      assert Client.json(conn)["message"] ==
+               "this token does not grant account management (the atproto scope)"
+    end
+
+    assert xrpc_post("/xrpc/com.atproto.server.deactivateAccount", %{}, ctx.app_privileged_token).status ==
+             200
+  end
+
+  test "identity answers 403 to the non-privileged app-password tier", ctx do
+    conn = xrpc_get("/xrpc/com.atproto.identity.getRecommendedDidCredentials", ctx.app_token)
+
+    assert conn.status == 403
+    assert Client.json(conn)["message"] == "this token does not grant identity:handle"
+
+    conn = xrpc_post("/xrpc/com.atproto.server.createInviteCodes", %{}, ctx.app_token)
+
+    assert conn.status == 403
+
+    assert Client.json(conn)["message"] ==
+             "this token does not grant account management (the atproto scope)"
+  end
+
   # fixtures and helpers
 
   # Each target answers {:ok, document}, the shape DidResolver passes on.
@@ -487,6 +544,19 @@ defmodule PesqueWeb.PermissionEnforcementTest do
       token: Client.json(granted.token_conn)["access_token"],
       nonce: Client.nonce_from(granted.token_conn)
     }
+  end
+
+  # An app-password session token, minted the way the domain mints one: the
+  # credential row decides the tier, the same path createSession runs.
+  defp app_password_session(user, privileged) do
+    {:ok, credential} = Accounts.create_app_password(user, "matrix" <> unique("tier"), privileged)
+
+    row =
+      Enum.find(Accounts.list_app_passwords(user.did), &(&1.name == credential.name)) ||
+        flunk("the credential row is gone")
+
+    {:ok, session} = Accounts.issue_session(user.did, app_password: row)
+    session.access_jwt
   end
 
   defp challenge(conn) do
