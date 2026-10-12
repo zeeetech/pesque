@@ -75,6 +75,29 @@ defmodule Pesque.OAuth.PermissionSetsTest do
       assert "app.bsky.feed.post" in collections
     end
 
+    test "the vendored userinput set expands to its five collections" do
+      # A set this server does not fetch from anyone: it is vendored beside the
+      # Bluesky ones so a client that asks for it by include: resolves without
+      # an aggregator configured.
+      assert document = Registry.get("app.userinput.authBasic")
+      include = include("app.userinput.authBasic", nil)
+      [repo] = PermissionSets.expand(include, document)
+
+      assert %Permission{
+               resource: :repo,
+               action: nil,
+               collection: collections
+             } = repo
+
+      assert collections == [
+               "app.userinput.discussion",
+               "app.userinput.reply",
+               "app.userinput.upvote",
+               "app.userinput.downvote",
+               "app.userinput.edit"
+             ]
+    end
+
     test "the chat set expands inside its own namespace" do
       assert document = Registry.get("chat.bsky.authFullChatClient")
       include = include("chat.bsky.authFullChatClient", "did:web:chat.example.com#svc")
