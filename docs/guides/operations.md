@@ -121,7 +121,16 @@ Secrets are `0600` and `keys/` is `0700`; the data directory takes your umask.
   every session opened with it. That is the recovery path when a user reports
   a compromised or forgotten app password: a password reset revives the
   account password but leaves the app-password rows alone.
-- `com.atproto.server.createInviteCodes` mints codes, operator-only (see below).
+- `com.atproto.server.createInviteCodes` mints codes, operator-only (see below),
+  and `com.atproto.server.getAccountInviteCodes` lists the codes earmarked for
+  the calling account (`for_accounts` names it). pesque's codes are minted by
+  the operator, so a code created for nobody is returned to no one, and
+  `includeUsed: false` drops codes with no uses left.
+- `com.atproto.temp.checkHandleAvailability` answers whether a handle is free
+  and, when it is not, suggests available ones, using the request's email for
+  one of them. It is public: handle availability is the same fact `listRepos`
+  already publishes. The session endpoints also carry `emailConfirmed` next to
+  the email, wherever the email itself is visible.
 
 ## Replace the legal pages
 
