@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.7.0](https://github.com/zeeetech/pesque/compare/pesque-v1.6.0...pesque-v1.7.0) (2026-10-12)
+
+
+### Features
+
+* **accounts:** answer handle availability and an account's invite codes ([a435184](https://github.com/zeeetech/pesque/commit/a435184cf67aa81893aef5ab1171de5e71981baf))
+* **accounts:** mint and spend email and password reset codes ([0486719](https://github.com/zeeetech/pesque/commit/0486719c787a5c1d078000e6556d73a23f36d92f))
+* **cli:** expose account email-token and reset-token ([09252f1](https://github.com/zeeetech/pesque/commit/09252f137d6a5123182f1ed38aa19e1ae0dcb671))
+* **server:** serve handle availability, invite codes and emailConfirmed ([6188243](https://github.com/zeeetech/pesque/commit/618824302e29e86ff92348643e886079c7eb01b2))
+* **server:** serve the email and password endpoints ([9071251](https://github.com/zeeetech/pesque/commit/90712517b8478486fcda042b77966831ef7a9f39))
+
+
+### Bug Fixes
+
+* **accounts:** resolve the login identifier as the login_hint check does ([c2ee422](https://github.com/zeeetech/pesque/commit/c2ee422501dec487f939fb6d5a46fda31477f061))
+* **identity:** lowercase handle_domain so stored handles resolve ([640aa97](https://github.com/zeeetech/pesque/commit/640aa97b86788f52fc01f081362d80ba36363e23))
+
 ## [1.6.0](https://github.com/zeeetech/pesque/compare/pesque-v1.5.1...pesque-v1.6.0) (2026-10-12)
 
 
