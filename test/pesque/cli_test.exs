@@ -127,15 +127,26 @@ defmodule Pesque.CliTest do
       assert output =~ "no app passwords for #{user.handle}"
     end
 
-    test "revoke-app-password reads the name from the flag, then the environment", %{user: user} do
-      # No flag, no env, and a closed stdin: the prompt is unanswerable, so
-      # the verb refuses naming it.
-      assert {:error, :no_input} = Cli.run(["account", "revoke-app-password", "--did", user.did])
+    test "revoke-app-password takes the name from the environment, then the prompt",
+         %{user: user} do
+      # The prompt is the last source, fed here rather than left to whatever
+      # stdin the runner has: on a terminal it would block waiting for a line,
+      # so the test must not depend on stdin being closed.
+      previous = System.get_env("APP_PASSWORD_NAME")
+      System.delete_env("APP_PASSWORD_NAME")
+      on_exit(fn -> if previous, do: System.put_env("APP_PASSWORD_NAME", previous) end)
+
+      {:ok, _} = Accounts.create_app_password(user, "typed", false)
+
+      output =
+        ExUnit.CaptureIO.capture_io(:stdio, "typed\n", fn ->
+          assert :ok = Cli.run(["account", "revoke-app-password", "--did", user.did])
+        end)
+
+      assert output =~ "revoked app password typed"
 
       {:ok, _} = Accounts.create_app_password(user, "envnamed", false)
-
       System.put_env("APP_PASSWORD_NAME", "envnamed")
-      on_exit(fn -> System.delete_env("APP_PASSWORD_NAME") end)
 
       output =
         ExUnit.CaptureIO.capture_io(fn ->
