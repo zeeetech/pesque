@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.6.0](https://github.com/zeeetech/pesque/compare/pesque-v1.5.1...pesque-v1.6.0) (2026-10-12)
+
+
+### Features
+
+* **accounts:** add named app-password credentials ([2300347](https://github.com/zeeetech/pesque/commit/2300347edabdeb6372b48c8f331779bad238b767))
+* **accounts:** mint, rotate and revoke app-password sessions ([2a9cee2](https://github.com/zeeetech/pesque/commit/2a9cee24b78574cae66708625f42ad8605607f94))
+* **cli:** expose account app-passwords and revoke-app-password ([4ec5b98](https://github.com/zeeetech/pesque/commit/4ec5b98842ea512006366593983ee949e92b1de4))
+* **cli:** expose account plc-token through the host cli ([60a9459](https://github.com/zeeetech/pesque/commit/60a9459184acc1c98e984e902c113971e17c795b))
+* **config:** make the lexicon aggregator a config key ([0b64394](https://github.com/zeeetech/pesque/commit/0b643948b319c613cf6160187fabbe4a153c5678))
+* **identity:** sign a hosted did:plc account's move out ([06ead21](https://github.com/zeeetech/pesque/commit/06ead21eebe355e451532ff8d27d199df4b1f9bf))
+* **lexicon:** resolve permission sets from the registry or an aggregator ([d2cbf5c](https://github.com/zeeetech/pesque/commit/d2cbf5cab07a64c48b4e815da85a108fa1967e1d))
+* **lexicon:** vendor the userinput.app authBasic permission set ([2557312](https://github.com/zeeetech/pesque/commit/25573127f56b01a19bbd2abd5c8de29371f14904))
+* **oauth:** add the permission grammar and grant set core ([f278c8f](https://github.com/zeeetech/pesque/commit/f278c8faac88aed004011f1ef607adb40100d34e))
+* **oauth:** enforce granular permissions and accept granular scopes ([28569d3](https://github.com/zeeetech/pesque/commit/28569d3f600001b5cce9dd75c0c0b4e5c52be037))
+* **oauth:** map legacy session scopes onto the grant grammar ([b847556](https://github.com/zeeetech/pesque/commit/b8475567f57b2108e307cfdda3e898ccfd353fa5))
+* **oauth:** resolve permission sets and store the expansion on access tokens ([9a0c11d](https://github.com/zeeetech/pesque/commit/9a0c11dfa8f6679cddb262d22f6b8de7a6f1769f))
+* **oauth:** show permission sets on the consent page ([0a6468b](https://github.com/zeeetech/pesque/commit/0a6468b3abdf4cfee630d47aceb77482a1947b3c))
+* **oauth:** store the granted scope and narrow it on the consent page ([4d23037](https://github.com/zeeetech/pesque/commit/4d23037510e8c5cc3169479cb97c557a32b8a952))
+* **server:** serve the app-password endpoints behind the grant tiers ([274762b](https://github.com/zeeetech/pesque/commit/274762b64907d4e40d94f61327f7cf47dd0140ff))
+
+
+### Bug Fixes
+
+* **ops:** close the reviewed gaps on the write, backup and cli paths ([b5a12af](https://github.com/zeeetech/pesque/commit/b5a12af71ad78611e348870a8182fa2a5c78a249))
+
 ## [1.5.1](https://github.com/zeeetech/pesque/compare/pesque-v1.5.0...pesque-v1.5.1) (2026-10-12)
 
 
