@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.8.2](https://github.com/zeeetech/pesque/compare/pesque-v1.8.1...pesque-v1.8.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* gettext stale line extraction ([9ce5b3d](https://github.com/zeeetech/pesque/commit/9ce5b3d923a9fa8dd99dfa23ce8115d8d462c711))
+* **migrate:** fetch the old PDS through the hardened client ([dd4ae05](https://github.com/zeeetech/pesque/commit/dd4ae057d67c9ce6a10477efad9e3acab6ac7e48))
+* **oauth:** allow the client origin in the consent form policy ([a8d2bca](https://github.com/zeeetech/pesque/commit/a8d2bca01c5ffc5c489cff9e2e190708cd547a7f))
+* **web:** lead the landing's call to action with the primary ([c3b98dd](https://github.com/zeeetech/pesque/commit/c3b98ddf201e4c20552c0b53b45474de773b3607))
+
 ## [1.8.1](https://github.com/zeeetech/pesque/compare/pesque-v1.8.0...pesque-v1.8.1) (2026-10-12)
 
 
