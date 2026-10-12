@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1](https://github.com/zeeetech/pesque/compare/pesque-v1.5.0...pesque-v1.5.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ci:** build the release at its default path so the tarball finds it ([95e5c9d](https://github.com/zeeetech/pesque/commit/95e5c9d75081da6070941833e3d76caa428e2e06))
+* **cli:** read the release path and data dir from the running unit ([12a1b6d](https://github.com/zeeetech/pesque/commit/12a1b6d34923b44610a6f959e8c0a931711e3da9))
+
 ## [1.5.0](https://github.com/zeeetech/pesque/compare/pesque-v1.4.0...pesque-v1.5.0) (2026-10-12)
 
 
