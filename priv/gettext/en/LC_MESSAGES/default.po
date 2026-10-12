@@ -150,42 +150,42 @@ msgstr ""
 msgid "what is atproto?"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:181
+#: lib/pesque_web/oauth/authorization_controller.ex:182
 #, elixir-autogen, elixir-format
 msgid "Authorize"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:182
+#: lib/pesque_web/oauth/authorization_controller.ex:183
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:173
+#: lib/pesque_web/oauth/authorization_controller.ex:174
 #, elixir-autogen, elixir-format
 msgid "Handle or email"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:177
+#: lib/pesque_web/oauth/authorization_controller.ex:178
 #, elixir-autogen, elixir-format
 msgid "Password"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:165
+#: lib/pesque_web/oauth/authorization_controller.ex:166
 #, elixir-autogen, elixir-format
 msgid "This application is asking to act as you with these scopes:"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:243
+#: lib/pesque_web/oauth/authorization_controller.ex:244
 #, elixir-autogen, elixir-format
 msgid "What this set grants"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:164
+#: lib/pesque_web/oauth/authorization_controller.ex:165
 #, elixir-autogen, elixir-format
 msgid "authorize"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:139
+#: lib/pesque_web/oauth/authorization_controller.ex:140
 #, elixir-autogen, elixir-format
 msgid "sign in to authorize"
 msgstr ""
