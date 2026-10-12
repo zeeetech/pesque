@@ -38,6 +38,8 @@ const usage_text =
     \\  account activate --did D | --handle H
     \\  account reset-password --did D | --handle H
     \\  account plc-token --did D | --handle H    (code for signPlcOperation)
+    \\  account email-token --did D | --handle H  (code for confirmEmail)
+    \\  account reset-token --did D | --handle H  (code for resetPassword)
     \\  account app-passwords --did D | --handle H
     \\  account revoke-app-password --did D | --handle H --name N
     \\  invite create [--count N] [--uses N] [--for DID]
@@ -296,7 +298,7 @@ fn failInput(host: *proc.Host, comptime fmt: []const u8, args: anytype) Error {
 }
 
 fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
-    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password, plc-token, app-passwords or revoke-app-password", .{});
+    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password, plc-token, email-token, reset-token, app-passwords or revoke-app-password", .{});
     const sub = args[0];
     const rest = args[1..];
 
@@ -309,7 +311,8 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
     }
     if (std.mem.eql(u8, sub, "delete") or std.mem.eql(u8, sub, "takedown") or
         std.mem.eql(u8, sub, "activate") or std.mem.eql(u8, sub, "reset-password") or
-        std.mem.eql(u8, sub, "plc-token"))
+        std.mem.eql(u8, sub, "plc-token") or std.mem.eql(u8, sub, "email-token") or
+        std.mem.eql(u8, sub, "reset-token"))
     {
         const sel = try parseSelector(host, rest);
         var env: std.ArrayList(proc.Env) = .empty;

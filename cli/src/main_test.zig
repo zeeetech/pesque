@@ -110,6 +110,19 @@ test "dispatch: account plc-token forwards the selector and needs no password" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "plc-token", "--handle", "alice.example.com" });
 }
 
+test "dispatch: account email-token and reset-token forward the selector and need no password" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+    // No ACCOUNT_PASSWORD anywhere: minting a code must not ask for one.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "email-token", "--handle", "alice.example.com" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "email-token", "--handle", "alice.example.com" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "reset-token", "--did", "did:plc:abc" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "reset-token", "--did", "did:plc:abc" });
+}
+
 test "dispatch: account app-passwords forwards the selector and needs no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();

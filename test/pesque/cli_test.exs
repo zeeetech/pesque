@@ -209,6 +209,55 @@ defmodule Pesque.CliTest do
     end
   end
 
+  describe "account email-token and reset-token" do
+    # Like the other account verbs, these boot the app themselves; the database
+    # setup is what makes the rows and the keys the verbs read.
+    setup do
+      Pesque.DataCase.setup()
+
+      previous = Application.get_env(:pesque, :mode)
+      on_exit(fn -> Application.put_env(:pesque, :mode, previous) end)
+      Application.put_env(:pesque, :mode, :path_multi)
+
+      handle =
+        "codetok" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"
+
+      {:ok, user} = Accounts.create_account(handle, "alice@localhost", "hunter2hunter2")
+
+      %{user: user}
+    end
+
+    test "email-token prints a single-use code for the account", %{user: user} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["account", "email-token", "--did", user.did])
+        end)
+
+      assert output =~ "email token for #{user.did}:"
+      assert output =~ "confirmEmail or updateEmail spends it"
+    end
+
+    test "reset-token prints a single-use code for the account", %{user: user} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["account", "reset-token", "--handle", user.handle])
+        end)
+
+      assert output =~ "password reset token for #{user.did}:"
+      assert output =~ "resetPassword spends it"
+    end
+
+    test "an unknown account answers not_found for both verbs", %{user: user} do
+      assert {:error, :not_found} =
+               Cli.run(["account", "email-token", "--did", "did:web:nope:nobody"])
+
+      assert {:error, :not_found} =
+               Cli.run(["account", "reset-token", "--did", "did:web:nope:nobody"])
+
+      _ = user
+    end
+  end
+
   defp restore_config(previous) do
     if previous, do: System.put_env("PDS_CONFIG", previous), else: System.delete_env("PDS_CONFIG")
   end

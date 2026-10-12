@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Pesque.Account do
-  @shortdoc "Account verbs: create, list, delete, takedown, activate, reset-password, plc-token"
+  @shortdoc "Account verbs: create, list, delete, takedown, activate, reset-password, plc-token, email-token, reset-token"
 
   @moduledoc """
   The account verbs, the same code `bin/pesque account` runs.
@@ -9,6 +9,8 @@ defmodule Mix.Tasks.Pesque.Account do
       mix pesque.account delete --handle alice.example.com
       mix pesque.account reset-password --did did:plc:...
       mix pesque.account plc-token --did did:plc:...
+      mix pesque.account email-token --did did:plc:...
+      mix pesque.account reset-token --did did:plc:...
 
   Input order is the flag, then the conventional environment, then a prompt.
   For `create`, `--password VALUE` is a dev convenience for throwaway local

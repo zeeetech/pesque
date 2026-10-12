@@ -21,6 +21,8 @@ defmodule Pesque.Cli.Account do
     activate --did D | --handle H
     reset-password --did D | --handle H
     plc-token --did D | --handle H
+    email-token --did D | --handle H
+    reset-token --did D | --handle H
     app-passwords --did D | --handle H
     revoke-app-password --did D | --handle H --name N
 
@@ -143,6 +145,41 @@ defmodule Pesque.Cli.Account do
       IO.puts("plc operation token for #{user.did}: #{token}")
       IO.puts("expires at #{DateTime.to_iso8601(expires_at)}; single use,")
       IO.puts("then request another. signPlcOperation spends it.")
+      :ok
+    end
+  end
+
+  # The email code the spec sends the account holder. Like the plc token it
+  # reaches the operator through the log; this verb mints another on demand.
+  # One code serves both email flows: confirmEmail spends it to confirm the
+  # address, and updateEmail spends it when a confirmed address is being moved.
+  def run(["email-token" | argv]) do
+    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+         {:ok, identifier} <- identifier(opts),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier),
+         {:ok, %{token: token, expires_at: expires_at}} <-
+           Accounts.request_email_confirmation(user) do
+      IO.puts("email token for #{user.did}: #{token}")
+      IO.puts("expires at #{DateTime.to_iso8601(expires_at)}; single use,")
+      IO.puts("then request another. confirmEmail or updateEmail spends it.")
+      :ok
+    end
+  end
+
+  # The reset code the spec emails the account holder. requestPasswordReset is
+  # anonymous and answers nothing, so on a server with no mail this verb is how
+  # the operator mints one; resetPassword spends it.
+  def run(["reset-token" | argv]) do
+    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+         {:ok, identifier} <- identifier(opts),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier),
+         {:ok, %{token: token, expires_at: expires_at}} <-
+           Accounts.request_password_reset(user) do
+      IO.puts("password reset token for #{user.did}: #{token}")
+      IO.puts("expires at #{DateTime.to_iso8601(expires_at)}; single use,")
+      IO.puts("then request another. resetPassword spends it.")
       :ok
     end
   end

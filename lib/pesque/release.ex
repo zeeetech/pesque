@@ -75,6 +75,12 @@ defmodule Pesque.Release do
       :plc_token_failed ->
         "a plc operation token could not be issued"
 
+      :email_token_failed ->
+        "an email confirmation token could not be issued"
+
+      :reset_token_failed ->
+        "a password reset token could not be issued"
+
       :not_a_plc_account ->
         "that account is not a did:plc identity, and only those move through the PLC"
 
