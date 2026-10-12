@@ -147,7 +147,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     conn
     |> put_resp_content_type("text/html")
     |> Errors.no_store()
-    |> put_resp_header("content-security-policy", Csp.consent())
+    |> put_resp_header("content-security-policy", Csp.form())
     |> html(html)
   end
 
