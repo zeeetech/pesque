@@ -845,6 +845,117 @@ defmodule Pesque.Accounts do
   def resolve_handle(_handle), do: {:error, :invalid_handle}
 
   @doc """
+  Whether a handle is free to register here.
+
+  True when the handle's label and domain are valid for this server and no
+  account already holds it, as a handle or as an email. The same gates
+  create_account/4 applies, so a client that asks before it commits gets the
+  answer the commit would give.
+  """
+  def handle_available?(handle) when is_binary(handle) do
+    case identity_for(handle) do
+      {:ok, identity} -> check_available(identity, nil) == :ok
+      {:error, _reason} -> false
+    end
+  end
+
+  def handle_available?(_handle), do: false
+
+  @doc """
+  Available handles to offer when `handle` is taken, shaped for
+  com.atproto.temp.checkHandleAvailability.
+
+  Candidates are the handle with a numeric or random suffix, plus one built
+  from the email's local part when one is given, and only the ones this server
+  would actually accept are returned. A handle on a foreign domain has no local
+  candidates to vary, so it answers none.
+  """
+  def handle_suggestions(handle, email \\ nil) do
+    case local_label(handle) do
+      {:ok, label, domain} ->
+        taken = String.downcase(String.trim(handle))
+
+        label
+        |> candidates(domain, email)
+        |> Enum.uniq_by(&elem(&1, 0))
+        |> Enum.reject(fn {candidate, _method} -> candidate == taken end)
+        |> Enum.filter(fn {candidate, _method} -> handle_available?(candidate) end)
+        |> Enum.take(5)
+        |> Enum.map(fn {candidate, method} -> %{"handle" => candidate, "method" => method} end)
+
+      :error ->
+        []
+    end
+  end
+
+  # Only a handle under this server's own domain has local variants worth
+  # offering; a foreign handle is registered as-is or not at all.
+  defp local_label(handle) when is_binary(handle) do
+    normalized = handle |> String.trim() |> String.downcase()
+    domain = String.downcase(Pesque.handle_domain())
+
+    with [label, ^domain] <- String.split(normalized, ".", parts: 2),
+         {:ok, _username} <- Did.normalize_username(label) do
+      {:ok, label, domain}
+    else
+      _ -> :error
+    end
+  end
+
+  defp local_label(_handle), do: :error
+
+  defp candidates(label, domain, email) do
+    email_candidates(email, domain) ++ numbered(label, domain) ++ suffixed(label, domain)
+  end
+
+  defp email_candidates(email, domain) when is_binary(email) do
+    case String.split(email, "@", parts: 2) do
+      [local, _domain] ->
+        normalized = local |> String.downcase() |> String.replace(~r/[^a-z0-9]/, "")
+        if normalized == "", do: [], else: [{normalized <> "." <> domain, "email"}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp email_candidates(_email, _domain), do: []
+
+  defp numbered(label, domain) do
+    for _ <- 1..3,
+        do: {label <> Integer.to_string(:rand.uniform(90) + 10) <> "." <> domain, "generated"}
+  end
+
+  defp suffixed(label, domain) do
+    for _ <- 1..3 do
+      suffix = Base32.encode(:crypto.strong_rand_bytes(3))
+      {label <> suffix <> "." <> domain, "generated"}
+    end
+  end
+
+  @doc """
+  The invite codes earmarked for an account, oldest first.
+
+  pesque's codes are minted by the operator, not by accounts, so "the account's
+  codes" are the ones whose `for_accounts` names it: a code created for nobody
+  belongs to no account and is not returned. `:include_used` (default true)
+  drops codes with no uses left when false.
+  """
+  def invite_codes_for(did, opts \\ []) when is_binary(did) do
+    query =
+      from i in InviteCode,
+        where: ^did in i.for_accounts,
+        order_by: [asc: i.inserted_at]
+
+    query =
+      if Keyword.get(opts, :include_used, true),
+        do: query,
+        else: where(query, [i], i.uses < i.use_count)
+
+    Repo.all(query)
+  end
+
+  @doc """
   Moves an account to a new handle and announces it.
 
   The new handle goes through the same two gates create_account/4 applies: the
