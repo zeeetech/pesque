@@ -50,9 +50,18 @@ defmodule Pesque.MixProject do
     ]
   end
 
+  # The gettext check keeps the .pot from drifting: the catalog is generated
+  # from the code, so a string that moved without a re-extract is a string the
+  # translators never see. It runs after compile because extraction reads the
+  # compiled call sites.
   defp aliases do
     [
-      precommit: ["compile --warnings-as-errors", "format --check-formatted", "test"]
+      precommit: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "gettext.extract --check-up-to-date",
+        "test"
+      ]
     ]
   end
 

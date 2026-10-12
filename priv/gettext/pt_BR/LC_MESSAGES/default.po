@@ -149,42 +149,42 @@ msgstr "ver no bluesky"
 msgid "what is atproto?"
 msgstr "o que é atproto?"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:185
+#: lib/pesque_web/oauth/authorization_controller.ex:181
 #, elixir-autogen, elixir-format
 msgid "Authorize"
 msgstr "Autorizar"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:186
+#: lib/pesque_web/oauth/authorization_controller.ex:182
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr "Cancelar"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:177
+#: lib/pesque_web/oauth/authorization_controller.ex:173
 #, elixir-autogen, elixir-format
 msgid "Handle or email"
 msgstr "Handle ou email"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:181
+#: lib/pesque_web/oauth/authorization_controller.ex:177
 #, elixir-autogen, elixir-format
 msgid "Password"
 msgstr "Senha"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:169
+#: lib/pesque_web/oauth/authorization_controller.ex:165
 #, elixir-autogen, elixir-format
 msgid "This application is asking to act as you with these scopes:"
 msgstr "Esta aplicação quer agir como você com estes escopos:"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:247
+#: lib/pesque_web/oauth/authorization_controller.ex:243
 #, elixir-autogen, elixir-format
 msgid "What this set grants"
 msgstr "O que este conjunto concede"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:168
+#: lib/pesque_web/oauth/authorization_controller.ex:164
 #, elixir-autogen, elixir-format
 msgid "authorize"
 msgstr "autorizar"
 
-#: lib/pesque_web/oauth/authorization_controller.ex:140
+#: lib/pesque_web/oauth/authorization_controller.ex:139
 #, elixir-autogen, elixir-format
 msgid "sign in to authorize"
 msgstr "entrar para autorizar"
