@@ -64,6 +64,13 @@ defmodule PesqueWeb.Router do
     plug PesqueWeb.Plugs.Admin
   end
 
+  # The language the browser pages render in. It resolves the locale from the
+  # query, the cookie or the browser and stores it for gettext. Defined here
+  # rather than beside the pages because the consent scope below uses it too.
+  pipeline :locale do
+    plug PesqueWeb.Plugs.SetLocale
+  end
+
   scope "/xrpc", PesqueWeb.Xrpc do
     pipe_through :session_limits
 
@@ -359,7 +366,7 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/oauth", PesqueWeb.OAuth do
-    pipe_through :oauth_limits
+    pipe_through [:oauth_limits, :locale]
 
     post "/par", AuthorizationController, :par
     get "/authorize", AuthorizationController, :authorize
@@ -391,5 +398,15 @@ defmodule PesqueWeb.Router do
     pipe_through [:proxy_limits, :auth_proxy]
 
     match :*, "/*path", ProxyController, :forward
+  end
+
+  # The browser pages: a GET of the root. The host decides whether it is the
+  # server's landing or a handle's page, and the locale plug picks the language
+  # this page and the consent page render in. It reads no body and writes
+  # nothing, so it takes the read budget like any other public read.
+  scope "/", PesqueWeb do
+    pipe_through [:read_limits, :locale]
+
+    get "/", PageController, :show
   end
 end
