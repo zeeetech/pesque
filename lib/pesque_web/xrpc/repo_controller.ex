@@ -15,10 +15,6 @@ defmodule PesqueWeb.Xrpc.RepoController do
   alias PesqueWeb.Xrpc
   alias PesqueWeb.Xrpc.Params
 
-  # Claimed by Plug.Parsers before the router runs, so the body is already
-  # gone by the time a controller could read it.
-  @parsed_media_types ["application/json", "application/x-www-form-urlencoded"]
-
   # writes (behind PesqueWeb.Plugs.Auth)
 
   def create_record(conn, params) do
@@ -186,7 +182,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # it compares a value with itself and would keep reading as a check long
   # after it stopped being one.
   def upload_blob(conn, _params) do
-    with {:ok, media_type} <- blob_media_type(conn),
+    with {:ok, media_type} <- Blob.request_media_type(conn.req_headers),
          {:ok, bytes, conn} <- read_capped_body(conn, Blob.max_bytes(), blob_too_large()),
          :ok <- content_length_matches(conn, bytes),
          {:ok, blob} <- Blob.upload(conn.assigns.did, bytes, media_type) do
@@ -199,28 +195,21 @@ defmodule PesqueWeb.Xrpc.RepoController do
         }
       })
     else
+      # The two media types Plug.Parsers already claimed, refused by name so
+      # a client that posted JSON learns what to change before a byte is read.
+      {:error, :not_a_blob_body} ->
+        Xrpc.error(
+          conn,
+          415,
+          "UnsupportedMediaType",
+          "uploadBlob takes the blob as the request body"
+        )
+
       {:error, {status, name, message}} ->
         Xrpc.error(conn, status, name, message)
 
       {:error, reason} ->
         write_error(conn, reason)
-    end
-  end
-
-  defp blob_media_type(conn) do
-    media_type =
-      conn
-      |> get_req_header("content-type")
-      |> List.first("application/octet-stream")
-      |> String.split(";")
-      |> hd()
-      |> String.trim()
-      |> String.downcase()
-
-    if media_type in @parsed_media_types do
-      {:error, {415, "UnsupportedMediaType", "uploadBlob takes the blob as the request body"}}
-    else
-      {:ok, media_type}
     end
   end
 

@@ -1,14 +1,15 @@
 defmodule PesqueWeb.Plugs.Auth do
   @moduledoc """
-  Requires a valid access token for an account this server hosts.
+  Requires a valid access token for an account this server hosts, and narrows
+  an OAuth token to the permissions it was actually granted.
 
-  Two kinds of token are accepted and both end up in the same two assigns, so
-  nothing downstream knows which one arrived:
+  Two kinds of token are accepted and both end up in the same three assigns,
+  so nothing downstream knows which one arrived:
 
     * an OAuth access token, ES256 over the key published in the JWKS, bound
-      to a DPoP key, and gated on the scopes it was granted
-    * a legacy session token, HS256 over this server's secret, gated on the
-      one scope it was issued with
+      to a DPoP key, and gated on the grants its scope string computes to
+    * a legacy session token, HS256 over this server's secret, one scope
+      that reaches everything
 
   Which is which is decided by the `alg` in the token's own header rather than
   by trying one verifier and falling back to the other. A fallback would mean
@@ -24,6 +25,16 @@ defmodule PesqueWeb.Plugs.Auth do
   because a proof that needs the server nonce comes back as `use_dpop_nonce`
   with the nonce in `DPoP-Nonce`.
 
+  What an OAuth token may do is decided per route. Each route names a
+  requirement through the `require:` option, and the plug builds the concrete
+  permission that requirement asks for out of the request's own facts (the
+  collection parameter, the write's action, the lxm and audience, the content
+  type). The plug answers 403 only when those facts are present and
+  well-formed; when they are missing or malformed it steps aside, because the
+  controller's own validation is already about to answer 400, 401 or 415 and
+  no permission check belongs ahead of a request that will not reach an
+  action.
+
   The account is looked up, not inferred from the token's subject. A validly
   signed token for an account this server does not host has no one behind it,
   so it is rejected the same way a bad signature is.
@@ -38,9 +49,12 @@ defmodule PesqueWeb.Plugs.Auth do
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
+  alias Pesque.Blob
+  alias Pesque.Entryway.Proxy
   alias Pesque.OAuth
+  alias Pesque.OAuth.Grants
   alias Pesque.OAuth.Jwt
-  alias Pesque.OAuth.Scopes
+  alias Pesque.OAuth.Permission
   alias Pesque.Secret
   alias Pesque.Token
   alias PesqueWeb.OAuth.Proof
@@ -49,16 +63,44 @@ defmodule PesqueWeb.Plugs.Auth do
 
   require Logger
 
-  # The router option naming what a route needs: `:read`, `:write` or
-  # `:account`. Defaults to read.
-  @default_permission :read
+  # A legacy session token is one scope that reaches everything, which is
+  # what it was issued as, so it is checked against this grant and never
+  # narrowed. It is also what lands in :grants, so the session controller's
+  # email gate reads the same field for both kinds of token.
+  @full_grants [%Permission{resource: :atproto}]
 
-  def init(opts), do: opts
+  # The shapes a request fact must have before this plug is willing to answer
+  # 403 on it. A fact that is absent or malformed is the controller's 400 to
+  # answer, so these mirror the regexes the domain already enforces rather
+  # than inventing stricter ones.
+  @nsid_regex ~r/\A[a-zA-Z][a-zA-Z0-9\-]*(\.[a-zA-Z][a-zA-Z0-9\-]*){2,}\z/
 
-  def call(conn, opts) do
-    permission = Keyword.get(opts, :permission, @default_permission)
+  # The same shape Pesque.ServiceAuth checks audiences against, fragment
+  # optional: getServiceAuth mints tokens for bare DIDs too.
+  @aud_regex ~r/\Adid:(web|plc):[a-zA-Z0-9._%\-]+(:[a-zA-Z0-9._\-]+)*(#[a-zA-Z0-9._\-]+)?\z/
+  @aud_max_length 2048
 
-    case authenticate(conn, permission) do
+  @write_actions %{
+    "com.atproto.repo.applyWrites#create" => :create,
+    "com.atproto.repo.applyWrites#update" => :update,
+    "com.atproto.repo.applyWrites#delete" => :delete
+  }
+
+  # A route that names no requirement is a bug, not a default, so it is a
+  # compile error: the router evaluates init/1 while compiling pipelines.
+  def init(opts) do
+    case Keyword.fetch(opts, :require) do
+      {:ok, require} ->
+        require
+
+      :error ->
+        raise ArgumentError,
+              "PesqueWeb.Plugs.Auth needs a :require option naming what the route asks for"
+    end
+  end
+
+  def call(conn, require) do
+    case authenticate(conn, require) do
       {:ok, conn, user} ->
         conn
         |> assign(:did, user.did)
@@ -74,13 +116,13 @@ defmodule PesqueWeb.Plugs.Auth do
   # Every arm answers {:ok, conn, user} or {:error, reason, conn}, so the caller
   # has one shape to handle and the failed conn is the one carrying whatever
   # the proof check put on it, such as the nonce a client has to retry with.
-  defp authenticate(conn, permission) do
+  defp authenticate(conn, require) do
     with {:ok, token} <- bearer(conn),
          {:ok, kind, claims} <- verify(token),
          {:ok, conn} <- prove(conn, kind, token, claims),
-         :ok <- authorize(kind, claims, permission),
+         {:ok, grants} <- authorize(kind, claims, require, conn),
          {:ok, user} <- account(claims) do
-      {:ok, conn, user}
+      {:ok, assign(conn, :grants, grants), user}
     else
       {:error, reason, failed} -> {:error, reason, failed}
       {:error, reason} -> {:error, reason, conn}
@@ -156,15 +198,165 @@ defmodule PesqueWeb.Plugs.Auth do
   # A legacy token is one scope that reaches everything, which is what it was
   # issued as, so it is not narrowed here. An OAuth token is narrowed to what
   # it was actually granted.
-  defp authorize(:session, _claims, _permission), do: :ok
+  defp authorize(:session, _claims, _require, _conn), do: {:ok, @full_grants}
 
-  defp authorize(:oauth, claims, permission) do
-    if Scopes.permit?(Map.get(claims, "scope", ""), permission) do
-      :ok
-    else
-      {:error, {:insufficient_scope, permission}}
+  defp authorize(:oauth, claims, require, conn) do
+    grants = grants_from(claims)
+
+    case satisfied?(grants, require, conn) do
+      :ok -> {:ok, grants}
+      {:error, _reason} = error -> error
     end
   end
+
+  defp grants_from(claims), do: Grants.parse(Map.get(claims, "scope", ""))
+
+  # The requirement that is only a valid token, for either kind: what the
+  # route reveals beyond the account's identity is the controller's to gate.
+  defp satisfied?(_grants, :session, _conn), do: :ok
+
+  # The two requirements that are not one permission, answered against the
+  # grants directly, each with the string the 403 names.
+  defp satisfied?(grants, :account_management, _conn) do
+    if account_management?(grants),
+      do: :ok,
+      else: {:error, {:insufficient_scope, "account management (the atproto scope)"}}
+  end
+
+  defp satisfied?(grants, {:preferences, verb}, _conn) do
+    if Grants.preferences?(grants, verb),
+      do: :ok,
+      else: {:error, {:insufficient_scope, preference_display(verb)}}
+  end
+
+  defp satisfied?(grants, require, conn) do
+    case build_required(require, conn) do
+      {:ok, required} ->
+        case Enum.find(required, &(not Grants.permits?(grants, &1))) do
+          nil -> :ok
+          missing -> {:error, {:insufficient_scope, Permission.serialize(missing)}}
+        end
+
+      # The facts are missing or malformed: the controller's own validation
+      # answers this request, and it is the answer the client already had.
+      :unbuildable ->
+        :ok
+    end
+  end
+
+  # Account management has no granular permission today: the permission spec
+  # defines no account attribute for hosting status. The tier is therefore
+  # reachable only by the atproto full grant. When the spec grows an
+  # attribute, this becomes one covers? clause and the router tags change.
+  defp account_management?(grants), do: Enum.any?(grants, &(&1.resource == :atproto))
+
+  defp preference_display(:get), do: "rpc:app.bsky.actor.getPreferences"
+  defp preference_display(:put), do: "rpc:app.bsky.actor.putPreferences"
+
+  # The concrete permission a requirement names, built from the request's own
+  # facts. Every arm answers {:ok, [required]} or :unbuildable; a requirement
+  # naming several facts requires all of them.
+  defp build_required({:repo, :create}, conn), do: repo_required(conn, [:create])
+  defp build_required({:repo, :upsert}, conn), do: repo_required(conn, [:create, :update])
+  defp build_required({:repo, :delete}, conn), do: repo_required(conn, [:delete])
+
+  defp build_required({:repo, :apply}, conn), do: apply_requirements(conn.params["writes"])
+
+  defp build_required(:blob, conn) do
+    case Blob.request_media_type(conn.req_headers) do
+      {:ok, media_type} -> {:ok, [Permission.blob_required(media_type)]}
+      {:error, :not_a_blob_body} -> :unbuildable
+    end
+  end
+
+  defp build_required(:import_repo, _conn),
+    do: {:ok, [Permission.account_required(:repo, :manage)]}
+
+  defp build_required(:service_auth, conn) do
+    aud = conn.params["aud"]
+    lxm = conn.params["lxm"]
+
+    cond do
+      not aud_ref?(aud) ->
+        :unbuildable
+
+      is_binary(lxm) and valid_nsid?(lxm) ->
+        {:ok, [Permission.rpc_required(lxm, aud)]}
+
+      is_nil(lxm) ->
+        {:ok, [Permission.rpc_required(:any, aud)]}
+
+      true ->
+        :unbuildable
+    end
+  end
+
+  defp build_required(:proxy, conn) do
+    nsid = String.replace_prefix(conn.request_path, "/xrpc/", "")
+    proxy = List.first(get_req_header(conn, "atproto-proxy"))
+
+    with {:ok, target} <- Proxy.parse_header(proxy),
+         true <- valid_nsid?(nsid) do
+      {:ok, [Permission.rpc_required(nsid, target.did <> "#" <> target.service_id)]}
+    else
+      # No header is the 501 the catch-all answers; a malformed one is its
+      # 400. Both are the controller's to answer, not this plug's.
+      _error -> :unbuildable
+    end
+  end
+
+  defp build_required({:identity, :handle}, _conn),
+    do: {:ok, [Permission.identity_required(:handle)]}
+
+  defp build_required({:identity, :all}, _conn),
+    do: {:ok, [Permission.identity_required(:*)]}
+
+  defp repo_required(conn, actions) do
+    if valid_nsid?(conn.params["collection"]) do
+      {:ok, [Permission.repo_required(conn.params["collection"], actions)]}
+    else
+      :unbuildable
+    end
+  end
+
+  # applyWrites is atomic, so every write's permission is required, not any
+  # one of them. A writes value that is not a list of shaped writes is the
+  # controller's 400 to answer.
+  defp apply_requirements(writes) when is_list(writes) do
+    Enum.reduce_while(writes, {:ok, []}, fn write, {:ok, acc} ->
+      case write_requirement(write) do
+        {:ok, permission} -> {:cont, {:ok, [permission | acc]}}
+        :error -> {:halt, :unbuildable}
+      end
+    end)
+    |> case do
+      {:ok, required} -> {:ok, Enum.reverse(required)}
+      :unbuildable -> :unbuildable
+    end
+  end
+
+  defp apply_requirements(_writes), do: :unbuildable
+
+  defp write_requirement(%{"collection" => collection, "$type" => type})
+       when is_binary(collection) and is_binary(type) do
+    one = Map.get(@write_actions, type)
+
+    if one != nil and valid_nsid?(collection) do
+      {:ok, Permission.repo_required(collection, [one])}
+    else
+      :error
+    end
+  end
+
+  defp write_requirement(_write), do: :error
+
+  defp valid_nsid?(nsid) when is_binary(nsid), do: Regex.match?(@nsid_regex, nsid)
+  defp valid_nsid?(_nsid), do: false
+
+  defp aud_ref?(aud) when is_binary(aud),
+    do: byte_size(aud) <= @aud_max_length and Regex.match?(@aud_regex, aud)
+
+  defp aud_ref?(_aud), do: false
 
   defp account(claims) do
     case Accounts.get_user(claims["sub"]) do

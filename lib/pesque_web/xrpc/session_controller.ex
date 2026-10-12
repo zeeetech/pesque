@@ -13,6 +13,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
   alias Pesque.Blob
   alias Pesque.DidResolver
   alias Pesque.Identity
+  alias Pesque.OAuth.Grants
   alias Pesque.RepoStore
   alias Pesque.ServiceAuth
   alias PesqueWeb.Xrpc
@@ -366,11 +367,20 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def get_session(conn, _params) do
     user = conn.assigns.current_user
 
-    json(conn, %{
+    # The email is the account holder's to grant, not the method's to leak: a
+    # token whose grants do not name it gets the session without it, which the
+    # lexicon marks as not required.
+    reply = %{
       "handle" => user.handle,
       "did" => user.did,
-      "email" => user.email,
       "active" => true
-    })
+    }
+
+    reply =
+      if Grants.email_visible?(conn.assigns.grants),
+        do: Map.put(reply, "email", user.email),
+        else: reply
+
+    json(conn, reply)
   end
 end

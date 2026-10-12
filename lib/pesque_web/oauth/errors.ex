@@ -82,6 +82,15 @@ defmodule PesqueWeb.OAuth.Errors do
   def to_oauth(:openid_not_supported),
     do: {400, "invalid_scope", "openid is not compatible with atproto"}
 
+  # A scope string that does not parse into a permission this server
+  # understands, named by the string that failed.
+  def to_oauth({:invalid_scope, scope}),
+    do: {400, "invalid_scope", "#{scope} is not a well-formed permission"}
+
+  # The chat scope is an add-on to the generic one, not a grant of its own.
+  def to_oauth(:chat_requires_generic),
+    do: {400, "invalid_scope", "transition:chat.bsky requires transition:generic"}
+
   def to_oauth({:missing_parameter, key}),
     do: {400, "invalid_request", "#{key} is required"}
 

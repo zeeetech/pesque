@@ -81,35 +81,83 @@ defmodule PesqueWeb.Router do
   end
 
   # What each authenticated route needs, matched against an OAuth token's
-  # scope: read is the account's own session and service auth, write is
-  # records and blobs, account is the endpoints that manage the account
-  # itself and that transition:generic deliberately does not reach. A legacy
-  # session token is one scope that grants all three.
-  pipeline :auth_read do
-    plug PesqueWeb.Plugs.Auth, permission: :read
+  # grants by the auth plug. One pipeline per requirement, verbose on purpose:
+  # a route says what it needs to reach, and the requirement is grep-able from
+  # here. A legacy session token is one scope that reaches everything.
+  pipeline :auth_session do
+    plug PesqueWeb.Plugs.Auth, require: :session
   end
 
-  pipeline :auth_write do
-    plug PesqueWeb.Plugs.Auth, permission: :write
+  pipeline :auth_repo_create do
+    plug PesqueWeb.Plugs.Auth, require: {:repo, :create}
   end
 
-  pipeline :auth_account do
-    plug PesqueWeb.Plugs.Auth, permission: :account
+  pipeline :auth_repo_upsert do
+    plug PesqueWeb.Plugs.Auth, require: {:repo, :upsert}
+  end
+
+  pipeline :auth_repo_delete do
+    plug PesqueWeb.Plugs.Auth, require: {:repo, :delete}
+  end
+
+  pipeline :auth_repo_apply do
+    plug PesqueWeb.Plugs.Auth, require: {:repo, :apply}
+  end
+
+  pipeline :auth_blob do
+    plug PesqueWeb.Plugs.Auth, require: :blob
+  end
+
+  pipeline :auth_import_repo do
+    plug PesqueWeb.Plugs.Auth, require: :import_repo
+  end
+
+  pipeline :auth_service_auth do
+    plug PesqueWeb.Plugs.Auth, require: :service_auth
+  end
+
+  pipeline :auth_proxy do
+    plug PesqueWeb.Plugs.Auth, require: :proxy
+  end
+
+  pipeline :auth_preferences_get do
+    plug PesqueWeb.Plugs.Auth, require: {:preferences, :get}
+  end
+
+  pipeline :auth_preferences_put do
+    plug PesqueWeb.Plugs.Auth, require: {:preferences, :put}
+  end
+
+  pipeline :auth_identity_handle do
+    plug PesqueWeb.Plugs.Auth, require: {:identity, :handle}
+  end
+
+  pipeline :auth_identity_all do
+    plug PesqueWeb.Plugs.Auth, require: {:identity, :all}
+  end
+
+  pipeline :auth_account_management do
+    plug PesqueWeb.Plugs.Auth, require: :account_management
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through :auth_read
+    pipe_through :auth_session
 
     get "/com.atproto.server.getSession", SessionController, :get_session
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through :auth_service_auth
+
     get "/com.atproto.server.getServiceAuth", SessionController, :get_service_auth
   end
 
-  # Identity management is account permission, not the transition scope: an app
-  # password can write records but cannot move the identity behind them. This
-  # one also mints the account's rotation key on the first ask, so it is behind
-  # the token rather than public.
+  # Identity management is identity permission, not the transition scope: an
+  # app password can write records but cannot move the identity behind them.
+  # This one also mints the account's rotation key on the first ask, so it is
+  # behind the token rather than public.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through :auth_account
+    pipe_through :auth_identity_handle
 
     get "/com.atproto.identity.getRecommendedDidCredentials",
         IdentityController,
@@ -118,9 +166,10 @@ defmodule PesqueWeb.Router do
 
   # listMissingBlobs walks every record of the account to find the blob refs,
   # so it is a read that costs like a repo listing rather than like a session
-  # lookup, and it gets the read budget on top of the token.
+  # lookup, and it gets the read budget on top of the token. What it answers
+  # is public data, so any valid token reaches it.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:read_limits, :auth_read]
+    pipe_through [:read_limits, :auth_session]
 
     get "/com.atproto.repo.listMissingBlobs", RepoController, :list_missing_blobs
   end
@@ -131,18 +180,33 @@ defmodule PesqueWeb.Router do
   # the cheapest 64 MiB a token holder can spend. The window matches
   # :write_limits so the two write scopes read as one policy.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:write_limits, :auth_account]
+    pipe_through [:write_limits, :auth_account_management]
 
     post "/com.atproto.server.requestAccountDelete", SessionController, :request_account_delete
     post "/com.atproto.server.deleteAccount", SessionController, :delete_account
     post "/com.atproto.server.deactivateAccount", SessionController, :deactivate_account
     post "/com.atproto.server.activateAccount", SessionController, :activate_account
+  end
+
+  # The handle is the one identity attribute a granular client can ask for;
+  # the operations below can change keys and services, which is the whole
+  # identity and nothing narrower.
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_identity_handle]
+
     post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_identity_all]
+
     post "/com.atproto.identity.submitPlcOperation", IdentityController, :submit_plc_operation
 
     # The moving-out half of the same story: this server holds the rotation
     # key, so it is the one that signs the operation carrying the account's
-    # next credentials, gated on the code request above hands out.
+    # next credentials, gated on the code request above hands out. Signing or
+    # submitting an operation can change keys and services, not just the
+    # handle, so both take the whole identity and nothing narrower.
     post "/com.atproto.identity.requestPlcOperationSignature",
          IdentityController,
          :request_plc_operation_signature
@@ -150,10 +214,10 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.identity.signPlcOperation", IdentityController, :sign_plc_operation
   end
 
-  # Behind :admin as well as :auth_account, because on this server it is also
-  # the operator's endpoint rather than an account's.
+  # Behind :admin as well as :auth_account_management, because on this server
+  # it is also the operator's endpoint rather than an account's.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:write_limits, :auth_account, :admin]
+    pipe_through [:write_limits, :auth_account_management, :admin]
 
     post "/com.atproto.server.createInviteCodes", SessionController, :create_invite_codes
   end
@@ -176,13 +240,38 @@ defmodule PesqueWeb.Router do
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:write_limits, :auth_write]
+    pipe_through [:write_limits, :auth_repo_apply]
 
     post "/com.atproto.repo.applyWrites", RepoController, :apply_writes
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_repo_create]
+
     post "/com.atproto.repo.createRecord", RepoController, :create_record
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_repo_upsert]
+
     post "/com.atproto.repo.putRecord", RepoController, :put_record
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_repo_delete]
+
     post "/com.atproto.repo.deleteRecord", RepoController, :delete_record
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_blob]
+
     post "/com.atproto.repo.uploadBlob", RepoController, :upload_blob
+  end
+
+  scope "/xrpc", PesqueWeb.Xrpc do
+    pipe_through [:write_limits, :auth_import_repo]
+
     post "/com.atproto.repo.importRepo", RepoController, :import_repo
   end
 
@@ -220,13 +309,13 @@ defmodule PesqueWeb.Router do
   # atproto-proxy header on either method is ignored. getPreferences unblocks
   # the official app at login.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:read_limits, :auth_read]
+    pipe_through [:read_limits, :auth_preferences_get]
 
     get "/app.bsky.actor.getPreferences", PreferencesController, :get_preferences
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:write_limits, :auth_write]
+    pipe_through [:write_limits, :auth_preferences_put]
 
     post "/app.bsky.actor.putPreferences", PreferencesController, :put_preferences
   end
@@ -236,7 +325,7 @@ defmodule PesqueWeb.Router do
   # This runs behind auth, so an unauthenticated unknown method answers 401 and
   # an authenticated one with no header answers 501. It must stay last.
   scope "/xrpc", PesqueWeb.Xrpc do
-    pipe_through [:proxy_limits, :auth_read]
+    pipe_through [:proxy_limits, :auth_proxy]
 
     match :*, "/*path", ProxyController, :forward
   end

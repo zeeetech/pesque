@@ -419,6 +419,23 @@ defmodule PesqueWeb.OAuth.FlowTest do
       assert exchanged_scope(ctx, granted) == "atproto"
     end
 
+    test "unticking the generic transition drops the chat scope that depends on it", ctx do
+      scope = "atproto transition:generic transition:chat.bsky"
+      client = Client.client_id(scope: scope)
+      pushed = Client.par(ctx.key, client_id: client, scope: scope)
+
+      conn =
+        Client.decide_scopes(pushed.request_uri, pushed.params["client_id"], ctx.user.handle, [
+          "transition:chat.bsky"
+        ])
+
+      assert conn.status == 302
+      granted = returned(ctx, conn, pushed)
+
+      # chat was ticked, but its dependency was not: both are gone.
+      assert exchanged_scope(ctx, granted) == "atproto"
+    end
+
     test "a value that was never requested is never honored", ctx do
       pushed = Client.par(ctx.key)
 

@@ -437,6 +437,12 @@ defmodule Pesque.OAuth.Permission do
     "repo" <> params(Enum.map(collections, &{"collection", &1}) ++ action_params(action))
   end
 
+  # The method-unscoped form is asked for as the wildcard grant it takes, so
+  # the canonical string is the wildcard spelling.
+  def serialize(%Permission{resource: :rpc, lxm: :any, aud: aud}) do
+    "rpc" <> params([{"lxm", "*"}, {"aud", encode_value(aud)}])
+  end
+
   def serialize(%Permission{resource: :rpc, lxm: [lxm], aud: aud}) do
     "rpc:" <> lxm <> params([{"aud", encode_value(aud)}])
   end

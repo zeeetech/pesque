@@ -19,6 +19,41 @@ defmodule Pesque.Blob do
   @doc "Largest upload accepted, in bytes."
   defdelegate max_bytes, to: Pesque, as: :blob_max_bytes
 
+  # Claimed by Plug.Parsers before the router runs, so the body is already
+  # gone by the time a controller could read it: a blob cannot arrive as one
+  # of these, and both the auth plug and the upload controller refuse them.
+  @parsed_media_types ["application/json", "application/x-www-form-urlencoded"]
+
+  @doc """
+  The media type an uploadBlob request body arrives as.
+
+  The first content-type header, parameters stripped, lowercased: the one
+  string the blob row records. `:not_a_blob_body` for the two types Plug
+  Parsers has already claimed, which is the caller's 415 to answer.
+  """
+  @spec request_media_type([{String.t(), String.t()}]) ::
+          {:ok, String.t()} | {:error, :not_a_blob_body}
+  def request_media_type(headers) when is_list(headers) do
+    media_type =
+      headers
+      |> media_type_header("content-type")
+      |> List.first("application/octet-stream")
+      |> String.split(";")
+      |> hd()
+      |> String.trim()
+      |> String.downcase()
+
+    if media_type in @parsed_media_types,
+      do: {:error, :not_a_blob_body},
+      else: {:ok, media_type}
+  end
+
+  defp media_type_header(headers, name) do
+    for {header_name, value} <- headers, String.downcase(header_name) == name do
+      value
+    end
+  end
+
   @doc "Path of the blob file for a DID and CID."
   def path(did, %CID{} = cid) do
     Path.join([Storage.blobs_dir(), Storage.digest_name(did), CID.to_string(cid)])

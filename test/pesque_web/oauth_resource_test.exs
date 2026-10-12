@@ -15,7 +15,8 @@ defmodule PesqueWeb.OAuthResourceTest do
 
   use PesqueWeb.ConnCase, async: false
 
-  alias Pesque.OAuth.Scopes
+  alias Pesque.OAuth.Grants
+  alias Pesque.OAuth.Permission
   alias PesqueWeb.OAuthCase, as: Client
 
   @session_path "/xrpc/com.atproto.server.getSession"
@@ -219,17 +220,17 @@ defmodule PesqueWeb.OAuthResourceTest do
     end
 
     test "the mapping is written down in one place" do
-      assert :read in Scopes.permissions("atproto")
-      assert :write in Scopes.permissions("atproto")
-      assert :account in Scopes.permissions("atproto")
+      assert Grants.parse("atproto") == [%Permission{resource: :atproto}]
 
-      assert :read in Scopes.permissions("transition:generic")
-      assert :write in Scopes.permissions("transition:generic")
-      refute :account in Scopes.permissions("transition:generic")
+      # atproto is the full grant only when it is the whole string; beside
+      # another scope it is the profile marker and the other scope is the
+      # grant, which is what makes a consent-page uncheck able to narrow.
+      assert Grants.parse("atproto transition:generic") == [
+               %Permission{resource: :transition_generic}
+             ]
 
-      assert Scopes.permissions("atproto transition:generic") == [:read, :write]
-      assert Scopes.permissions("") == []
-      assert Scopes.permissions("transition:email") == []
+      assert Grants.parse("") == []
+      assert Grants.parse("transition:email") == [%Permission{resource: :transition_email}]
     end
   end
 

@@ -37,8 +37,12 @@ defmodule PesqueWeb.OAuth.MetadataTest do
     refute "none" in meta["token_endpoint_auth_signing_alg_values_supported"]
     assert "ES256" in meta["token_endpoint_auth_signing_alg_values_supported"]
 
-    assert "atproto" in meta["scopes_supported"]
-    assert "transition:generic" in meta["scopes_supported"]
+    assert meta["scopes_supported"] == [
+             "atproto",
+             "transition:generic",
+             "transition:chat.bsky",
+             "transition:email"
+           ]
 
     assert "ES256" in meta["dpop_signing_alg_values_supported"]
     assert meta["require_pushed_authorization_requests"] == true
@@ -53,6 +57,13 @@ defmodule PesqueWeb.OAuth.MetadataTest do
     assert meta["resource"] == Pesque.base_url()
     assert meta["authorization_servers"] == [Pesque.base_url()]
     assert meta["bearer_methods_supported"] == ["DPoP"]
+
+    assert meta["scopes_supported"] == [
+             "atproto",
+             "transition:generic",
+             "transition:chat.bsky",
+             "transition:email"
+           ]
   end
 
   test "the JWKS carries the OAuth key and it is a P-256 key" do
