@@ -37,8 +37,7 @@ defmodule PesqueWeb.PageHTML do
       <p class="tag">#{gettext("personal data server")}</p>
       <p class="pitch">#{gettext("A personal data server for the atproto network. It stores an account's records, signs every change and answers the network on its own. Self-hosted, so the data stays where its owner put it.")}</p>
       <div class="cta">
-        <a class="btn primary" href="https://bsky.app">#{gettext("open a client")} →</a>
-        <a class="btn" href="https://atproto.com">#{gettext("what is atproto?")}</a>
+        #{cta(assigns.mode)}
       </div>
     </section>
     <section class="facts">
@@ -89,6 +88,24 @@ defmodule PesqueWeb.PageHTML do
       "<div><dt>#{escape(label)}</dt><dd>#{escape(value)}</dd></div>"
     end)
   end
+
+  defp cta(mode) do
+    [
+      signup_link(mode),
+      ~s(<a class="btn primary" href="https://bsky.app">#{gettext("open a client")} →</a>),
+      ~s(<a class="btn" href="https://atproto.com">#{gettext("what is atproto?")}</a>)
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n        ")
+  end
+
+  # A server with many accounts takes them by invite, so the landing offers the
+  # way in. A server that is its single account has no signup page, and the
+  # link would be a dead end.
+  defp signup_link(:path_multi),
+    do: ~s(<a class="btn" href="/signup">#{gettext("create account")}</a>)
+
+  defp signup_link(_mode), do: ""
 
   defp account_facts(nil), do: []
 

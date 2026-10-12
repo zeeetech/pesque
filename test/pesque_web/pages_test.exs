@@ -108,4 +108,18 @@ defmodule PesqueWeb.PagesTest do
     assert conn.status == 404
     assert conn.resp_body =~ "não encontrado"
   end
+
+  test "the landing offers signup where accounts are many" do
+    conn = request("/", Pesque.hostname())
+
+    assert conn.resp_body =~ ~s(href="/signup")
+  end
+
+  test "the landing offers no signup where the server is its single account" do
+    put_mode(:conformant_single)
+
+    conn = request("/", Pesque.hostname())
+
+    refute conn.resp_body =~ ~s(href="/signup")
+  end
 end

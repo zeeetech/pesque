@@ -16,17 +16,17 @@ msgstr ""
 msgid "A personal data server for the atproto network. It stores an account's records, signs every change and answers the network on its own. Self-hosted, so the data stays where its owner put it."
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:115
+#: lib/pesque_web/page_html.ex:132
 #, elixir-autogen, elixir-format
 msgid "This handle is hosted here, but the account is dormant. Everything below is public."
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:111
+#: lib/pesque_web/page_html.ex:128
 #, elixir-autogen, elixir-format
 msgid "This handle is hosted here. Everything below is public."
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:74
+#: lib/pesque_web/page_html.ex:73
 #: lib/pesque_web/signup_html.ex:76
 #, elixir-autogen, elixir-format
 msgid "about this server"
@@ -37,34 +37,34 @@ msgstr ""
 msgid "accounts"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:108
+#: lib/pesque_web/page_html.ex:125
 #, elixir-autogen, elixir-format
 msgid "active"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:70
+#: lib/pesque_web/page_html.ex:69
 #, elixir-autogen, elixir-format
 msgid "atproto account on this server"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:100
+#: lib/pesque_web/page_html.ex:117
 #, elixir-autogen, elixir-format
 msgid "community server"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:62
-#: lib/pesque_web/page_html.ex:96
+#: lib/pesque_web/page_html.ex:61
+#: lib/pesque_web/page_html.ex:113
 #, elixir-autogen, elixir-format
 msgid "did"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:109
+#: lib/pesque_web/page_html.ex:126
 #, elixir-autogen, elixir-format
 msgid "dormant"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:61
-#: lib/pesque_web/page_html.ex:96
+#: lib/pesque_web/page_html.ex:60
+#: lib/pesque_web/page_html.ex:113
 #, elixir-autogen, elixir-format
 msgid "handle"
 msgstr ""
@@ -80,12 +80,12 @@ msgid "hostname"
 msgstr ""
 
 #: lib/pesque_web/page_html.ex:27
-#: lib/pesque_web/page_html.ex:78
+#: lib/pesque_web/page_html.ex:77
 #, elixir-autogen, elixir-format
 msgid "identity"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:106
+#: lib/pesque_web/page_html.ex:123
 #, elixir-autogen, elixir-format
 msgid "invite only"
 msgstr ""
@@ -95,12 +95,12 @@ msgstr ""
 msgid "language"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:105
+#: lib/pesque_web/page_html.ex:122
 #, elixir-autogen, elixir-format
 msgid "open"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:40
+#: lib/pesque_web/page_html.ex:95
 #, elixir-autogen, elixir-format
 msgid "open a client"
 msgstr ""
@@ -115,7 +115,7 @@ msgstr ""
 msgid "registration"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:99
+#: lib/pesque_web/page_html.ex:116
 #, elixir-autogen, elixir-format
 msgid "single account"
 msgstr ""
@@ -125,12 +125,12 @@ msgstr ""
 msgid "skip to content"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:63
+#: lib/pesque_web/page_html.ex:62
 #, elixir-autogen, elixir-format
 msgid "status"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:45
+#: lib/pesque_web/page_html.ex:44
 #, elixir-autogen, elixir-format
 msgid "this server"
 msgstr ""
@@ -140,12 +140,12 @@ msgstr ""
 msgid "version"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:73
+#: lib/pesque_web/page_html.ex:72
 #, elixir-autogen, elixir-format
 msgid "view on bluesky"
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:41
+#: lib/pesque_web/page_html.ex:96
 #, elixir-autogen, elixir-format
 msgid "what is atproto?"
 msgstr ""
@@ -331,6 +331,7 @@ msgstr ""
 msgid "account created"
 msgstr ""
 
+#: lib/pesque_web/page_html.ex:106
 #: lib/pesque_web/signup_controller.ex:125
 #: lib/pesque_web/signup_html.ex:29
 #, elixir-autogen, elixir-format
