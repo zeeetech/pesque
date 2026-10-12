@@ -68,7 +68,7 @@ packages.mixRelease {
   mixFodDeps = packages.fetchMixDeps {
     pname = "pesque-deps";
     inherit version src;
-    hash = "sha256-Mh7mjLCgod1I8jfG2L1xo614eGwFEwNhtDDmr0NKXww=";
+    hash = "sha256-se9v9M5dexiLi25gi1un9mDxS332KkiBGsBVJX7dLdE=";
   };
 
   nativeBuildInputs = [ pkg-config ];
