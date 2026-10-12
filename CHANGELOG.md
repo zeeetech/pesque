@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.8.0](https://github.com/zeeetech/pesque/compare/pesque-v1.7.0...pesque-v1.8.0) (2026-10-12)
+
+
+### Features
+
+* **plc:** keep PLC operations in a file for development ([a0dc7ec](https://github.com/zeeetech/pesque/commit/a0dc7ec2fa55b15c1f345deec5e28901f0a9d8ad))
+* **web:** add phoenix_html and gettext ([d978106](https://github.com/zeeetech/pesque/commit/d978106a8ae4d3c1128425f1ab3a1365ad0e3f8e))
+* **web:** add the layout and the page bodies ([2697b23](https://github.com/zeeetech/pesque/commit/2697b2353675ce8fc19cd7680318837be58a7599))
+* **web:** add the page stylesheet and serve the assets ([c21b1dd](https://github.com/zeeetech/pesque/commit/c21b1ddfc4484fa8fb1794b98230f2b6033ab012))
+* **web:** add the self-hosted brand assets ([c37d4de](https://github.com/zeeetech/pesque/commit/c37d4de48a891f546924c2a228bf2bdb105b6333))
+* **web:** move the consent page onto the shared shell ([d35b7a0](https://github.com/zeeetech/pesque/commit/d35b7a0badce25c2de6cac3fd38190c7e7a80596))
+* **web:** offer signup from the landing ([c3d04c7](https://github.com/zeeetech/pesque/commit/c3d04c79ffed98e2f4001502555d1d8826443c44))
+* **web:** render the browser error pages ([12ceef8](https://github.com/zeeetech/pesque/commit/12ceef8bb85fd33656768db7d7a90de9762ea209))
+* **web:** serve an invite-gated signup page ([fd79e72](https://github.com/zeeetech/pesque/commit/fd79e726a75a0214ed12be5275a9c15924ac4685))
+* **web:** serve the landing and handle pages by host ([51c2777](https://github.com/zeeetech/pesque/commit/51c277764c574184ec5646a637fd80d6b5db1252))
+
+
+### Bug Fixes
+
+* **web:** log a signup failure the page cannot explain ([70b6930](https://github.com/zeeetech/pesque/commit/70b6930ed2c90c944596da46b04751f9cc893a62))
+* **web:** render the error pages and keep the header padded ([200fd9f](https://github.com/zeeetech/pesque/commit/200fd9f9bfd264562ccaf79388fa26b94a26e2da))
+
 ## [1.7.0](https://github.com/zeeetech/pesque/compare/pesque-v1.6.0...pesque-v1.7.0) (2026-10-12)
 
 
