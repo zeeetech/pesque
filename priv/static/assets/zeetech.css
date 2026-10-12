@@ -1,0 +1,504 @@
+/* /zeetech web surface: the landing, the handle page and the OAuth consent
+   page. One stylesheet, no build step. Tokens and visual language follow the
+   brand directive; the page chrome mirrors zeetech.io so this reads as a
+   sibling of the main site. Labels use Ubuntu Condensed, the display face is
+   Ubuntu Mono (the free substitute the kit ships for MonoLisa). */
+
+@font-face {
+  font-family: "Ubuntu";
+  src: url("/assets/fonts/ubuntu-300.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu";
+  src: url("/assets/fonts/ubuntu-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu";
+  src: url("/assets/fonts/ubuntu-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu";
+  src: url("/assets/fonts/ubuntu-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu Condensed";
+  src: url("/assets/fonts/ubuntu-condensed-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("/assets/fonts/ubuntu-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("/assets/fonts/ubuntu-mono-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --preto: #000a0f;
+  --roxo: #9655ff;
+  --amarelo: #fef5bc;
+  --branco: #f7f7ff;
+  --roxo-dim: rgba(150, 85, 255, 0.14);
+  --roxo-line: rgba(150, 85, 255, 0.3);
+  --ink: var(--branco);
+  --muted: rgba(247, 247, 255, 0.62);
+  --faint: rgba(247, 247, 255, 0.52);
+  --mono: "Ubuntu Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --sans: "Ubuntu", system-ui, -apple-system, sans-serif;
+  --condensed: "Ubuntu Condensed", "Ubuntu", system-ui, sans-serif;
+  --maxw: 46rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--preto);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-weight: 300;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+::selection {
+  background: var(--roxo);
+  color: var(--branco);
+}
+
+/* the window-grid backdrop from the main site, drawn with gradients rather
+   than the sampler svg */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    radial-gradient(120% 90% at 85% -10%, var(--roxo-dim), transparent 55%),
+    linear-gradient(var(--roxo-line) 1px, transparent 1px) 0 0/100% 5.5rem,
+    linear-gradient(90deg, var(--roxo-line) 1px, transparent 1px) 0 0/5.5rem
+      100%;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000,
+    transparent 30%,
+    transparent 92%,
+    #000
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000,
+    transparent 30%,
+    transparent 92%,
+    #000
+  );
+}
+
+/* the stacked color-bars device the directive puts on the left edge of key
+   pages: roxo, amarelo, branco over preto */
+body::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 2;
+  background: linear-gradient(
+    180deg,
+    var(--roxo) 0 33.33%,
+    var(--amarelo) 33.33% 66.66%,
+    var(--branco) 66.66% 100%
+  );
+}
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 clamp(1.4rem, 5vw, 2.4rem);
+}
+
+/* -- header ------------------------------------------------- */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.6rem 0;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.brand svg {
+  width: 1.9rem;
+  height: auto;
+  flex: none;
+}
+.brand b {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+.brand b i {
+  color: var(--amarelo);
+  font-style: normal;
+}
+.locales {
+  display: flex;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.locales a {
+  color: var(--muted);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.3rem;
+}
+.locales a:hover {
+  color: var(--ink);
+  background: var(--roxo-dim);
+}
+.locales a[aria-current="true"] {
+  color: var(--amarelo);
+}
+
+/* -- main --------------------------------------------------- */
+main {
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+section {
+  padding: 3.4rem 0;
+}
+.eyebrow,
+.label {
+  font-family: var(--condensed);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.82rem;
+  color: var(--roxo);
+  margin: 0 0 0.8rem;
+}
+h1 {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(2rem, 7vw, 3.2rem);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 0 0 0.9rem;
+  text-transform: lowercase;
+  overflow-wrap: anywhere;
+}
+h1 .sl {
+  color: var(--amarelo);
+}
+h2.head {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0 0 1.4rem;
+  text-transform: lowercase;
+}
+h2.head .sl {
+  color: var(--amarelo);
+}
+.tag {
+  font-family: var(--mono);
+  font-size: clamp(0.9rem, 2.4vw, 1.05rem);
+  color: var(--roxo);
+  font-style: italic;
+  margin: 0 0 1.6rem;
+}
+.pitch,
+.lead {
+  font-size: clamp(1.02rem, 2.4vw, 1.2rem);
+  color: var(--muted);
+  max-width: 38rem;
+  margin: 0 0 1rem;
+}
+.pitch b {
+  color: var(--amarelo);
+  font-weight: 500;
+}
+a.inline {
+  color: var(--amarelo);
+  border-bottom: 1px solid var(--roxo-line);
+}
+a.inline:hover {
+  border-bottom-color: var(--amarelo);
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 1.8rem;
+}
+.btn {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  padding: 0.7rem 1.2rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--roxo-line);
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: 0.15s;
+}
+.btn:hover {
+  background: var(--roxo-dim);
+  border-color: var(--roxo);
+}
+.btn.primary {
+  background: var(--roxo);
+  border-color: var(--roxo);
+  color: var(--branco);
+  font-weight: 700;
+}
+.btn.primary:hover {
+  background: #a872ff;
+}
+
+/* -- facts: the config the landing reflects ----------------- */
+.facts {
+  border-top: 1px solid var(--roxo-line);
+}
+dl.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+dl.grid div {
+  border: 1px solid var(--roxo-line);
+  border-radius: 0.5rem;
+  padding: 1rem 1.1rem;
+  background: rgba(150, 85, 255, 0.05);
+}
+dt {
+  font-family: var(--condensed);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--roxo);
+  margin-bottom: 0.35rem;
+}
+dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+.chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  border: 1px solid var(--roxo-line);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+.meta {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+  display: block;
+  margin-top: 0.6rem;
+  overflow-wrap: anywhere;
+}
+
+/* -- consent ------------------------------------------------ */
+form.consent {
+  margin-top: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  max-width: 34rem;
+}
+ul.scopes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+ul.scopes li {
+  border: 1px solid var(--roxo-line);
+  border-radius: 0.5rem;
+  padding: 0.8rem 1rem;
+  background: rgba(150, 85, 255, 0.05);
+}
+ul.scopes label {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.98rem;
+}
+ul.scopes input[type="checkbox"] {
+  accent-color: var(--roxo);
+  transform: translateY(1px);
+  flex: none;
+}
+ul.scopes p {
+  margin: 0.4rem 0 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+ul.scopes details {
+  margin-top: 0.5rem;
+}
+ul.scopes summary {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--roxo);
+  cursor: pointer;
+}
+ul.scopes details ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+.client {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--faint);
+  overflow-wrap: anywhere;
+  margin: 0.2rem 0 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.field label {
+  font-family: var(--condensed);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.field input {
+  font-family: var(--sans);
+  font-size: 0.98rem;
+  color: var(--ink);
+  background: rgba(247, 247, 255, 0.04);
+  border: 1px solid var(--roxo-line);
+  border-radius: 0.4rem;
+  padding: 0.75rem 0.9rem;
+  width: 100%;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--roxo);
+  background: var(--roxo-dim);
+}
+.actions {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+/* -- footer ------------------------------------------------- */
+footer {
+  position: relative;
+  z-index: 1;
+  border-top: 1px solid var(--roxo-line);
+  margin-top: 2rem;
+}
+footer .wrap {
+  padding-top: 2.4rem;
+  padding-bottom: 3rem;
+}
+footer .legal {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.9;
+}
+footer .legal .k {
+  color: var(--roxo);
+}
+footer .copy {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--faint);
+  margin: 1.6rem 0 0;
+}
+
+/* -- a11y --------------------------------------------------- */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--amarelo);
+  outline-offset: 2px;
+  border-radius: 0.3rem;
+}
+.skip {
+  position: absolute;
+  left: 0.6rem;
+  top: -3rem;
+  z-index: 100;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  color: var(--preto);
+  background: var(--amarelo);
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.4rem;
+}
+.skip:focus {
+  top: 0.6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

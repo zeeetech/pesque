@@ -9,7 +9,7 @@ defmodule PesqueWeb.Endpoint do
   plug Plug.Static,
     at: "/",
     from: :pesque,
-    only: ~w(privacy-policy.md terms-of-service.md)
+    only: ~w(privacy-policy.md terms-of-service.md assets)
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :json],
