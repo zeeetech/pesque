@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.5.0](https://github.com/zeeetech/pesque/compare/pesque-v1.4.0...pesque-v1.5.0) (2026-10-12)
+
+
+### Features
+
+* **cli:** add the zig host-side operations binary ([e7bf4e0](https://github.com/zeeetech/pesque/commit/e7bf4e037b9bf75d983d7173064d1abbf100621f))
+* **installer:** bootstrap install.sh, release assets, and one-liner docs ([dbb6c97](https://github.com/zeeetech/pesque/commit/dbb6c9799c9203cf2d3e50179b9d65c71c2b1798))
+* **metrics:** merge the token-gated metrics endpoint and monitoring stack ([27214d0](https://github.com/zeeetech/pesque/commit/27214d010189a1831aa7eeac283fc5828c46dd17))
+* **metrics:** token-gated /metrics endpoint and optional monitoring stack ([6ecc35e](https://github.com/zeeetech/pesque/commit/6ecc35e2c3d8ff673337aee8db044574760428e9))
+* **nix:** build the host-side cli and install it on nixos ([d3b8185](https://github.com/zeeetech/pesque/commit/d3b8185814eb3ae09f967fa3eadbce4da521da59))
+* **nix:** merge the verb-based operator oneshots ([934e2e8](https://github.com/zeeetech/pesque/commit/934e2e8502fbaf4f61c3047408a22bfa13a0310e))
+* **nix:** run the operator oneshots on the release verbs ([fb9c8fb](https://github.com/zeeetech/pesque/commit/fb9c8fb20fa1cf4b092593429e73173631e573e6))
+* **ops:** merge tier 1 auto-update ([761772e](https://github.com/zeeetech/pesque/commit/761772e5dfcb933d515c6b2edbc60a0e6ab39d1d))
+* **ops:** opt-in auto-update for compose and systemd ([93c6de1](https://github.com/zeeetech/pesque/commit/93c6de1a12b7e9df0c7b1130444ad398299f7acf))
+* **ops:** the unified verb layer, backup, and config hardening ([76544de](https://github.com/zeeetech/pesque/commit/76544de47c0fc16c3c653047764a9fc4f37946de))
+
+
+### Bug Fixes
+
+* **cli:** correct the reviewed host-side bugs ([c045d6a](https://github.com/zeeetech/pesque/commit/c045d6a76fd0217b71992e93fad2b3d2af8a0c3b))
+* **cli:** strip the release tarball's top-level directory on unpack ([0974c2f](https://github.com/zeeetech/pesque/commit/0974c2f784c6ce14a847f44d6a3723a51d0ede36))
+* **config:** drop the trailing space on empty commented defaults ([24c77d9](https://github.com/zeeetech/pesque/commit/24c77d90fbf2a8c76b2bc9696e02383aaf8eed39))
+* **config:** drop the trailing space on empty commented defaults ([06f7d9e](https://github.com/zeeetech/pesque/commit/06f7d9ee198fd5c5be98efb0ed8570fdca856ed3))
+* **federation:** emit #identity during a migration ([9685cfe](https://github.com/zeeetech/pesque/commit/9685cfe55b0313d76f3fea8996c85a72c43247ad))
+* **federation:** emit an empty commit when an account activates ([b56525a](https://github.com/zeeetech/pesque/commit/b56525a22330d19f541f99ee3d1e463fe2139a9a))
+* **federation:** let the new PDS announce last on a migration ([479645e](https://github.com/zeeetech/pesque/commit/479645ef86de5744ce36ac38117dec2340ba8037))
+* **federation:** merge the activation announcement fixes into main ([22e53cf](https://github.com/zeeetech/pesque/commit/22e53cfd0524d6237cb85ec08b261f35aacac597))
+* **federation:** re-request crawl at the end of a migration ([cccf7db](https://github.com/zeeetech/pesque/commit/cccf7db51dab5b92a2aa328e8fe90308b177bfa2))
+* **install:** make the bootstrap safe to re-run ([a944983](https://github.com/zeeetech/pesque/commit/a944983fa90334a84bb78dd1c28e6406e2febfb4))
+* **lexicon:** log why a lexicon file was skipped ([cbbb188](https://github.com/zeeetech/pesque/commit/cbbb18855a82c9ef5213c93cea0013ccbcdabcab))
+* **mix:** keep the dev --password flag out of the verb argv ([a7d9c3d](https://github.com/zeeetech/pesque/commit/a7d9c3de98cf6181b49689eb0bb4ffbcdba978ef))
+* **nix:** refresh the mix deps hash after the lock prune ([76c507e](https://github.com/zeeetech/pesque/commit/76c507e3e512b2a45f3751d88f97115e1946c288))
+* **repo:** never hand back a reaped repo server from ensure_started ([5346cc1](https://github.com/zeeetech/pesque/commit/5346cc116becb07d0355f1220568cb85ea2d3b49))
+* **tls:** on-demand certs for path_multi handles ([378cbe6](https://github.com/zeeetech/pesque/commit/378cbe6edf27a2d8c7d0dc91a06828076c8d1046))
+
+
+### Reverts
+
+* **metrics:** drop the /metrics endpoint and the monitoring stack ([9dc7446](https://github.com/zeeetech/pesque/commit/9dc7446b83006b9a3652dc8cd8abf672ffbefb94))
+
 ## [1.4.0](https://github.com/zeeetech/pesque/compare/pesque-v1.3.3...pesque-v1.4.0) (2026-10-10)
 
 
