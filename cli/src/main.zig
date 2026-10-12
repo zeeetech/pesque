@@ -37,6 +37,7 @@ const usage_text =
     \\  account takedown --did D | --handle H      (deactivate)
     \\  account activate --did D | --handle H
     \\  account reset-password --did D | --handle H
+    \\  account plc-token --did D | --handle H    (code for signPlcOperation)
     \\  invite create [--count N] [--uses N] [--for DID]
     \\  migrate --old-pds URL --handle H --email E
     \\  doctor                     run the federation preflight
@@ -293,7 +294,7 @@ fn failInput(host: *proc.Host, comptime fmt: []const u8, args: anytype) Error {
 }
 
 fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
-    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate or reset-password", .{});
+    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password or plc-token", .{});
     const sub = args[0];
     const rest = args[1..];
 
@@ -305,7 +306,8 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
         return runAccountCreate(host, f);
     }
     if (std.mem.eql(u8, sub, "delete") or std.mem.eql(u8, sub, "takedown") or
-        std.mem.eql(u8, sub, "activate") or std.mem.eql(u8, sub, "reset-password"))
+        std.mem.eql(u8, sub, "activate") or std.mem.eql(u8, sub, "reset-password") or
+        std.mem.eql(u8, sub, "plc-token"))
     {
         const sel = try parseSelector(host, rest);
         var env: std.ArrayList(proc.Env) = .empty;
@@ -313,8 +315,8 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
         var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit(host.gpa);
         try argv.appendSlice(host.gpa, &.{ sub, sel.flag, sel.value });
-        // delete and reset-password authorize with the account's password.
-        if (!std.mem.eql(u8, sub, "takedown") and !std.mem.eql(u8, sub, "activate")) {
+        // Only delete and reset-password authorize with the account's password.
+        if (std.mem.eql(u8, sub, "delete") or std.mem.eql(u8, sub, "reset-password")) {
             try env.append(host.gpa, try passwordInput(host, sel.password_env, "ACCOUNT_PASSWORD", "Account password (not shown): "));
         }
         return runDomain(host, "account", argv.items, env.items);

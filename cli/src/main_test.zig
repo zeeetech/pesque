@@ -100,6 +100,16 @@ test "dispatch: account selector verbs need exactly one of --did/--handle" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "takedown", "--handle", "alice.example.com" });
 }
 
+test "dispatch: account plc-token forwards the selector and needs no password" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+    // No ACCOUNT_PASSWORD anywhere: plc-token must not ask for one.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "plc-token", "--handle", "alice.example.com" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "plc-token", "--handle", "alice.example.com" });
+}
+
 test "dispatch: passwords without a source are refused when stdin is not a tty" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
