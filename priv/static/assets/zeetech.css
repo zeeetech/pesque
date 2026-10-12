@@ -297,6 +297,12 @@ a.inline:hover {
   gap: 0.8rem;
   margin-top: 1.8rem;
 }
+/* The one link under the CTA row. Explaining the network is not an action, so
+   it is not a button beside them. */
+.learn {
+  margin: 1.2rem 0 0;
+  font-size: 0.95rem;
+}
 .btn {
   font-family: var(--mono);
   font-size: 0.9rem;

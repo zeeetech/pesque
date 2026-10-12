@@ -112,7 +112,14 @@ defmodule PesqueWeb.PagesTest do
   test "the landing offers signup where accounts are many" do
     conn = request("/", Pesque.hostname())
 
-    assert conn.resp_body =~ ~s(href="/signup")
+    assert conn.resp_body =~ ~s(<a class="btn primary" href="/signup">criar conta</a>)
+  end
+
+  test "the landing keeps the explainer out of the action row" do
+    conn = request("/", Pesque.hostname())
+
+    assert conn.resp_body =~ ~s(<a class="inline" href="https://atproto.com">)
+    refute conn.resp_body =~ ~s(class="btn" href="https://atproto.com")
   end
 
   test "the landing offers no signup where the server is its single account" do

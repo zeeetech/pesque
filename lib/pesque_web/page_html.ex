@@ -39,6 +39,7 @@ defmodule PesqueWeb.PageHTML do
       <div class="cta">
         #{cta(assigns.mode)}
       </div>
+      <p class="learn"><a class="inline" href="https://atproto.com">#{gettext("what is atproto?")} →</a></p>
     </section>
     <section class="facts">
       <h2 class="head"><span class="sl">/</span>#{gettext("this server")}</h2>
@@ -89,11 +90,14 @@ defmodule PesqueWeb.PageHTML do
     end)
   end
 
+  # The actions, primary first: the row reads as an answer with options rather
+  # than as a button buried between two others. "What is atproto?" is not here,
+  # because it is not an action: a reader may want the network explained before
+  # choosing one, so it sits under the row as a link.
   defp cta(mode) do
     [
       signup_link(mode),
-      ~s(<a class="btn primary" href="https://bsky.app">#{gettext("open a client")} →</a>),
-      ~s(<a class="btn" href="https://atproto.com">#{gettext("what is atproto?")}</a>)
+      ~s(<a class="btn" href="https://bsky.app">#{gettext("open a client")} →</a>)
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n        ")
@@ -103,7 +107,7 @@ defmodule PesqueWeb.PageHTML do
   # way in. A server that is its single account has no signup page, and the
   # link would be a dead end.
   defp signup_link(:path_multi),
-    do: ~s(<a class="btn" href="/signup">#{gettext("create account")}</a>)
+    do: ~s(<a class="btn primary" href="/signup">#{gettext("create account")}</a>)
 
   defp signup_link(_mode), do: ""
 
