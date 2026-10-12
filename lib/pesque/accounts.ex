@@ -3,6 +3,7 @@ defmodule Pesque.Accounts do
 
   import Ecto.Query
 
+  alias Pesque.Accounts.AppPassword
   alias Pesque.Accounts.DeletionToken
   alias Pesque.Accounts.InviteCode
   alias Pesque.Accounts.RefreshToken
@@ -613,6 +614,149 @@ defmodule Pesque.Accounts do
     end
   end
 
+  @doc """
+  Verifies a handle/email + password pair where the password may also be one of
+  the account's app passwords.
+
+  Answers {:ok, user, app_password} or :error; a nil app password means the
+  account password matched, and a non-nil one is the credential the session
+  must be narrowed by. This is the createSession check and nothing else's: the
+  OAuth authorize page deliberately keeps verify_login/2, because an app
+  password approving an OAuth request is the app-password reduction undone.
+  """
+  def verify_session_credentials(identifier, password) do
+    case find_by_identifier(identifier) do
+      nil ->
+        no_user_verify()
+        :error
+
+      user ->
+        if verify_pass(password, user.password_hash) do
+          {:ok, user, nil}
+        else
+          case verify_app_password(user.did, password) do
+            %AppPassword{} = app_password -> {:ok, user, app_password}
+            nil -> :error
+          end
+        end
+    end
+  end
+
+  # One sha256 and one indexed lookup, not a walk over argon2 verifies: the
+  # password is a server-generated secret of the same entropy class as a
+  # refresh jti, and an unauthenticated wrong guess already paid the argon2
+  # of the account check. The second clause turns a non-binary password (only
+  # reachable from a direct caller; the controller guards it) into an :error
+  # rather than a raise.
+  defp verify_app_password(did, password) when is_binary(did) and is_binary(password) do
+    Repo.get_by(AppPassword, did: did, password_hash: AppPassword.hash_password(did, password))
+  end
+
+  defp verify_app_password(_did, _password), do: nil
+
+  @doc """
+  Creates a named app password. The password is answered once, in this result,
+  and is unrecoverable afterwards: only its hash is stored.
+
+  `privileged` decides the tier of every session opened with it (see
+  issue_session/2). A name the account already uses is refused, so a client
+  cannot silently replace a credential by re-using its name; after a revoke,
+  the name is free again.
+  """
+  @spec create_app_password(User.t(), binary(), boolean()) ::
+          {:ok,
+           %{name: binary(), password: binary(), privileged: boolean(), created_at: DateTime.t()}}
+          | {:error,
+             :app_password_name_taken | :app_password_name_required | :app_password_not_created}
+  def create_app_password(%User{did: did}, name, privileged)
+      when is_binary(name) and is_boolean(privileged) do
+    password = random_app_password()
+
+    attrs = %{
+      did: did,
+      name: name,
+      password_hash: AppPassword.hash_password(did, password),
+      privileged: privileged
+    }
+
+    case AppPassword.changeset(attrs) |> Repo.insert() do
+      {:ok, row} ->
+        {:ok,
+         %{
+           name: row.name,
+           password: password,
+           privileged: row.privileged,
+           created_at: row.inserted_at
+         }}
+
+      {:error, changeset} ->
+        cond do
+          app_password_name_taken?(changeset) -> {:error, :app_password_name_taken}
+          changeset.errors[:name] -> {:error, :app_password_name_required}
+          true -> {:error, :app_password_not_created}
+        end
+    end
+  end
+
+  def create_app_password(%User{}, _name, _privileged), do: {:error, :app_password_name_required}
+
+  # unique_constraint([:did, :name]) puts its error under the first field of
+  # the list, so the taken check looks at both keys. The (did, password_hash)
+  # constraint surfaces the same way and is a collision too, though a random
+  # password makes reaching it a curiosity rather than a path.
+  defp app_password_name_taken?(changeset) do
+    Enum.any?([:did, :name], fn field ->
+      case Keyword.get(changeset.errors, field) do
+        {_msg, opts} when is_list(opts) -> opts[:constraint] == :unique
+        _ -> false
+      end
+    end)
+  end
+
+  # Reference parity, xxxx-xxxx-xxxx-xxxx: 80 bits of entropy in four
+  # dash-separated groups. The dashes make it recognizable to humans and
+  # clients, but the server never branches on the format; login hashes
+  # whatever string arrives.
+  defp random_app_password do
+    :crypto.strong_rand_bytes(10)
+    |> Base32.encode()
+    |> String.split(~r/.{4}/, include_captures: true, trim: true)
+    |> Enum.join("-")
+  end
+
+  @doc "Every app password for an account, newest first. The hashes stay in the rows; only this server reads them."
+  @spec list_app_passwords(binary()) :: [AppPassword.t()]
+  def list_app_passwords(did) when is_binary(did) do
+    Repo.all(
+      from p in AppPassword, where: p.did == ^did, order_by: [desc: p.inserted_at, desc: p.id]
+    )
+  end
+
+  @doc """
+  Revokes an app password by name, and every session opened with it, in one
+  transaction: a revoked credential whose refresh tokens lived on would be a
+  revocation that changed nothing for a logged-in client.
+
+  Idempotent: a name no row answers is the state the caller asked for, so it is
+  still :ok. OAuth tokens are not touched, because an app password never opens
+  an OAuth session.
+  """
+  @spec revoke_app_password(User.t(), binary()) :: :ok
+  def revoke_app_password(%User{did: did}, name) when is_binary(name) do
+    {:ok, _} =
+      Repo.transaction(fn ->
+        Repo.delete_all(from p in AppPassword, where: p.did == ^did and p.name == ^name)
+
+        Repo.delete_all(
+          from t in RefreshToken, where: t.did == ^did and t.app_password_name == ^name
+        )
+      end)
+
+    :ok
+  end
+
+  def revoke_app_password(%User{}, _name), do: {:error, :app_password_name_required}
+
   # A non-string password raises ArgumentError out of the NIF, and only on the
   # branch that found an account: {"identifier":"nosuch","password":[]} is a
   # clean 401 and the same body with a real handle is a 500, which is an
@@ -707,15 +851,25 @@ defmodule Pesque.Accounts do
     {:ok, hash}
   end
 
-  @doc "Issues an access/refresh pair and registers the refresh jti as live."
-  def issue_session(did) do
+  @doc """
+  Issues an access/refresh pair and registers the refresh jti as live.
+
+  The session is narrowed to the app password it was opened with: the access
+  token carries the tier as its scope claim (the same claim the plug reads
+  for OAuth tokens), and the refresh row names the credential, so rotating
+  re-reads the credential's privilege and revoking it kills the session.
+  """
+  def issue_session(did, opts \\ [])
+
+  def issue_session(did, opts) do
+    app_password = Keyword.get(opts, :app_password)
     now = System.system_time(:second)
     secret = Pesque.Secret.get()
 
     access =
       Pesque.Token.sign(
         %{
-          "scope" => "com.atproto.access",
+          "scope" => session_scope(app_password),
           "sub" => did,
           "iat" => now,
           "exp" => now + Pesque.Token.access_ttl_seconds()
@@ -741,7 +895,8 @@ defmodule Pesque.Accounts do
     case %{
            jti_hash: RefreshToken.hash_jti(jti),
            did: did,
-           expires_at: DateTime.truncate(expires_at, :second)
+           expires_at: DateTime.truncate(expires_at, :second),
+           app_password_name: app_password && app_password.name
          }
          |> RefreshToken.changeset()
          |> Repo.insert() do
@@ -752,6 +907,16 @@ defmodule Pesque.Accounts do
         {:error, :session_not_issued}
     end
   end
+
+  # The tier ladder, one place: the account password is full access, an app
+  # password is the transition:generic grant set the oauth spec defines as
+  # the app-password authorization level, and a privileged one is trusted
+  # with the account state a password login reaches (minus creating app
+  # passwords, which the plug answers with the :full_session requirement,
+  # not a grant).
+  defp session_scope(nil), do: "com.atproto.access"
+  defp session_scope(%AppPassword{privileged: true}), do: "com.atproto.appPassPrivileged"
+  defp session_scope(%AppPassword{}), do: "com.atproto.appPass"
 
   @doc """
   Rotates a live refresh token into a new pair. Reuse of a dead token fails.
@@ -772,11 +937,26 @@ defmodule Pesque.Accounts do
          {:ok, row} <- fetch_live_refresh(claims["jti"]),
          true <- row.did == claims["sub"],
          %User{} = user <- get_user(claims["sub"]),
+         {:ok, app_password} <- session_credential(row),
          true <- revoke_live(row),
-         {:ok, session} <- issue_session(user.did) do
+         {:ok, session} <- issue_session(user.did, app_password: app_password) do
       {:ok, session, user}
     else
       _ -> {:error, :invalid_token}
+    end
+  end
+
+  # The refresh row names the credential the session was opened with. No name
+  # is a password-login session; a name whose row is gone is a dead session,
+  # not a full one (revoking deletes both rows together, so this is defense,
+  # but the failure must fail closed). Re-reading the row also means a
+  # privilege edited by an operator propagates at the next rotation.
+  defp session_credential(%RefreshToken{app_password_name: nil}), do: {:ok, nil}
+
+  defp session_credential(%RefreshToken{did: did, app_password_name: name}) do
+    case Repo.get_by(AppPassword, did: did, name: name) do
+      %AppPassword{} = app_password -> {:ok, app_password}
+      nil -> {:error, :invalid_token}
     end
   end
 
@@ -879,6 +1059,7 @@ defmodule Pesque.Accounts do
           RepoStore.delete_repo_data!(user.did)
           Repo.delete_all(from t in RefreshToken, where: t.did == ^user.did)
           Repo.delete_all(from t in DeletionToken, where: t.did == ^user.did)
+          Repo.delete_all(from p in AppPassword, where: p.did == ^user.did)
           Repo.delete!(user)
           :ok
         else
