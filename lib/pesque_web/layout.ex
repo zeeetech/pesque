@@ -28,7 +28,10 @@ defmodule PesqueWeb.Layout do
 
   `title` is the document title and `body` the page content. `opts` carries the
   locale, the switcher hrefs as `{locale, href}` pairs, the brand link target,
-  the footer year and an optional meta description.
+  the footer year, an optional meta description and an optional `head` markup.
+  `head` is placed in the head after the description tag and is not escaped:
+  only a controller builds it, for a tag the page needs verbatim, and it is
+  how the page watching a move makes itself poll.
   """
   def render(title, body, opts) do
     locale = Keyword.fetch!(opts, :locale)
@@ -36,6 +39,7 @@ defmodule PesqueWeb.Layout do
     home = Keyword.fetch!(opts, :home)
     year = Keyword.fetch!(opts, :year)
     description = Keyword.get(opts, :description)
+    head = Keyword.get(opts, :head)
 
     """
     <!doctype html>
@@ -46,6 +50,7 @@ defmodule PesqueWeb.Layout do
         <meta name="theme-color" content="#000a0f">
         <title>#{escape(title)}</title>
         #{description_tag(description)}
+        #{head_tag(head)}
         <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
         <link rel="stylesheet" href="/assets/zeetech.css">
       </head>
@@ -84,6 +89,11 @@ defmodule PesqueWeb.Layout do
   defp description_tag(text) do
     ~s(<meta name="description" content="#{escape(text)}">)
   end
+
+  # A controller hands this in as markup because it is a tag the page needs
+  # verbatim, not text a person reads.
+  defp head_tag(nil), do: ""
+  defp head_tag(markup), do: markup
 
   defp switcher(_locale, []), do: ""
 

@@ -47,6 +47,14 @@ defmodule PesqueWeb.Router do
     plug PesqueWeb.Plugs.RateLimit, bucket: :signup, limit: 30, window: 3_600_000
   end
 
+  # A move makes the server read a whole repo off someone else's server and
+  # write it here, so it must not share the read budget: a budget sized for
+  # polls is not a budget for minutes of pulling and storing. It takes a
+  # bucket of its own rather than signup's, whose pace invite codes set.
+  pipeline :migrate_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :migrate, limit: 30, window: 3_600_000
+  end
+
   # The spec puts no limit on writes, so this number is ours: a write is the
   # expensive request on this server (MST rebuild, a signature, an fsync, and
   # SQLite's single writer lock held for the lot), the one a client loop can
@@ -412,6 +420,8 @@ defmodule PesqueWeb.Router do
     get "/", PageController, :show
     get "/signup", SignupController, :show
     get "/signup/done", SignupController, :done
+    get "/migrate", MigrateController, :show
+    get "/migrate/:token", MigrateController, :status
   end
 
   # The one page a stranger can make the server work through, so it takes the
@@ -420,5 +430,15 @@ defmodule PesqueWeb.Router do
     pipe_through :signup_limits
 
     post "/signup", SignupController, :create
+  end
+
+  # The form that starts a move and the one that answers its code: both are
+  # POSTs a stranger can make the server work through, so they take the move
+  # budget rather than the read budget the pages around them share.
+  scope "/", PesqueWeb do
+    pipe_through :migrate_limits
+
+    post "/migrate", MigrateController, :create
+    post "/migrate/:token/code", MigrateController, :submit_code
   end
 end

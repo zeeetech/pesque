@@ -90,7 +90,7 @@ msgstr "identidade"
 msgid "invite only"
 msgstr "só com convite"
 
-#: lib/pesque_web/layout.ex:97
+#: lib/pesque_web/layout.ex:107
 #, elixir-autogen, elixir-format
 msgid "language"
 msgstr "idioma"
@@ -120,7 +120,7 @@ msgstr "registro"
 msgid "single account"
 msgstr "conta única"
 
-#: lib/pesque_web/layout.ex:54
+#: lib/pesque_web/layout.ex:59
 #, elixir-autogen, elixir-format
 msgid "skip to content"
 msgstr "pular pro conteúdo"
@@ -245,6 +245,7 @@ msgstr "erro no servidor"
 msgid "unauthorized"
 msgstr "não autorizado"
 
+#: lib/pesque_web/migrate_html.ex:214
 #: lib/pesque_web/signup_html.ex:155
 #, elixir-autogen, elixir-format
 msgid "An email is required."
@@ -270,6 +271,7 @@ msgstr "Preencha o formulário pra criar sua conta."
 msgid "Letters, numbers and hyphen. This is the name people use to find you."
 msgstr "Letras, números e hífen. É o nome que as pessoas usam pra te achar."
 
+#: lib/pesque_web/migrate_html.ex:180
 #: lib/pesque_web/signup_html.ex:119
 #, elixir-autogen, elixir-format
 msgid "Something went wrong on our side. Try again in a moment. If it keeps happening, tell whoever runs the server."
@@ -285,6 +287,7 @@ msgstr "Esse código não vale. Ele pode ter expirado ou já ter sido usado. Pe�
 msgid "That name is already taken here. Choose another."
 msgstr "Esse nome já está em uso aqui. Escolha outro."
 
+#: lib/pesque_web/migrate_html.ex:153
 #: lib/pesque_web/signup_html.ex:94
 #, elixir-autogen, elixir-format
 msgid "The code whoever invited you sent."
@@ -295,6 +298,7 @@ msgstr "O código que quem te convidou mandou."
 msgid "The password needs at least 8 characters."
 msgstr "A senha precisa de pelo menos 8 caracteres."
 
+#: lib/pesque_web/migrate_html.ex:246
 #: lib/pesque_web/signup_html.ex:165
 #, elixir-autogen, elixir-format
 msgid "This server already has its account."
@@ -338,16 +342,19 @@ msgstr "criar conta"
 msgid "create my account"
 msgstr "criar minha conta"
 
+#: lib/pesque_web/migrate_html.ex:49
 #: lib/pesque_web/signup_html.ex:44
 #, elixir-autogen, elixir-format
 msgid "email"
 msgstr "email"
 
+#: lib/pesque_web/migrate_html.ex:151
 #: lib/pesque_web/signup_html.ex:92
 #, elixir-autogen, elixir-format
 msgid "invite code"
 msgstr "código do convite"
 
+#: lib/pesque_web/migrate_html.ex:129
 #: lib/pesque_web/signup_html.ex:75
 #, elixir-autogen, elixir-format
 msgid "open the app"
@@ -358,12 +365,15 @@ msgstr "abrir o aplicativo"
 msgid "your account"
 msgstr "sua conta"
 
+#: lib/pesque_web/migrate_html.ex:44
+#: lib/pesque_web/migrate_html.ex:94
 #: lib/pesque_web/signup_html.ex:36
 #: lib/pesque_web/signup_html.ex:71
 #, elixir-autogen, elixir-format
 msgid "your name"
 msgstr "seu nome"
 
+#: lib/pesque_web/migrate_html.ex:54
 #: lib/pesque_web/signup_html.ex:49
 #, elixir-autogen, elixir-format
 msgid "your password"
@@ -373,3 +383,216 @@ msgstr "sua senha"
 #, elixir-autogen, elixir-format
 msgid "That email already belongs to an account here. If it is yours, that account still works, and you sign in with it through the app. To create a new account, use a different email."
 msgstr "Esse email já é de uma conta aqui. Se for sua, ela continua valendo, e é com ela que você entra no aplicativo. Pra criar uma conta nova, use outro email."
+
+#: lib/pesque_web/migrate_html.ex:216
+#, elixir-autogen, elixir-format
+msgid "A password is required."
+msgstr "Preencha a senha."
+
+#: lib/pesque_web/migrate_html.ex:209
+#, elixir-autogen, elixir-format
+msgid "Check the name: it has to be the full name, like alice.bsky.social."
+msgstr "Confira o nome: ele precisa ser o nome completo, como alice.bsky.social."
+
+#: lib/pesque_web/migrate_html.ex:63
+#, elixir-autogen, elixir-format
+msgid "Everything or nothing: if any step fails before the switch, your old account keeps working and nothing is published here."
+msgstr "Tudo ou nada: se qualquer passo falhar antes da virada, sua conta antiga continua funcionando e nada fica publicado aqui."
+
+#: lib/pesque_web/migrate_html.ex:68
+#, elixir-autogen, elixir-format
+msgid "If the name is on a domain you own, that domain needs a TXT record pointing at your account's DID."
+msgstr "Se o nome é de um domínio seu, o domínio precisa de um registro TXT apontando pro DID da sua conta."
+
+#: lib/pesque_web/migrate_html.ex:67
+#, elixir-autogen, elixir-format
+msgid "If your name is under this server's domain, there is nothing to do: this server takes care of it."
+msgstr "Se o seu nome é deste servidor, não precisa fazer nada: é ele que cuida disso."
+
+#: lib/pesque_web/migrate_html.ex:277
+#, elixir-autogen, elixir-format
+msgid "One of your files is larger than this server accepts. Tell whoever runs the server."
+msgstr "Um dos seus arquivos é maior do que este servidor aceita. Avise quem cuida do servidor."
+
+#: lib/pesque_web/migrate_html.ex:235
+#, elixir-autogen, elixir-format
+msgid "That email already belongs to an account here. If you already moved this account, it is already here."
+msgstr "Esse email já é de uma conta aqui. Se você já trouxe essa conta, ela já está aqui."
+
+#: lib/pesque_web/migrate_html.ex:204
+#, elixir-autogen, elixir-format
+msgid "That invite code is not valid, or it was already used. Ask whoever invited you for a new one."
+msgstr "Esse código de convite não vale, ou já foi usado. Peça um novo a quem te convidou."
+
+#: lib/pesque_web/migrate_html.ex:221
+#, elixir-autogen, elixir-format
+msgid "That name is already in use here. If you already moved this account, it is already here."
+msgstr "Esse nome já está em uso aqui. Se você já trouxe essa conta, ela já está aqui."
+
+#: lib/pesque_web/migrate_html.ex:228
+#, elixir-autogen, elixir-format
+msgid "That name is not accepted here. Use a name that resolves to your account, or a name on this server."
+msgstr "Esse nome não vale aqui. Use um nome que resolva pra sua conta, ou um nome deste servidor."
+
+#: lib/pesque_web/migrate_html.ex:69
+#, elixir-autogen, elixir-format
+msgid "The DID does not change in the move, so a name that already resolves to your account is already set."
+msgstr "O DID não muda na mudança, então se o nome já resolve pra sua conta, já está pronto."
+
+#: lib/pesque_web/migrate_html.ex:51
+#, elixir-autogen, elixir-format
+msgid "The account's email. The code for the last step arrives there."
+msgstr "O email da conta. É pra ele que vai o código da última etapa."
+
+#: lib/pesque_web/migrate_html.ex:56
+#, elixir-autogen, elixir-format
+msgid "The account's password, not an app password. It is used now and is not stored."
+msgstr "A senha da conta, não uma senha de aplicativo. Ela é usada agora e não fica guardada."
+
+#: lib/pesque_web/migrate_html.ex:41
+#, elixir-autogen, elixir-format
+msgid "The address of the server that holds the account now, like https://bsky.social."
+msgstr "O endereço do servidor onde a conta está agora, como https://bsky.social."
+
+#: lib/pesque_web/migrate_html.ex:112
+#, elixir-autogen, elixir-format
+msgid "The code is good for 15 minutes. If it expires, start again."
+msgstr "O código vale por 15 minutos. Se ele expirar, comece de novo."
+
+#: lib/pesque_web/migrate_html.ex:265
+#, elixir-autogen, elixir-format
+msgid "The code took too long to arrive. Start again and keep the email open."
+msgstr "O código demorou demais pra chegar. Comece de novo e deixe o email aberto."
+
+#: lib/pesque_web/migrate_html.ex:46
+#, elixir-autogen, elixir-format
+msgid "The full name you use today, like alice.bsky.social."
+msgstr "O nome completo que você usa hoje, como alice.bsky.social."
+
+#: lib/pesque_web/migrate_html.ex:242
+#, elixir-autogen, elixir-format
+msgid "The old account's password has fewer than 8 characters, and here a password has to be longer. Change it there and try again."
+msgstr "A senha da sua conta antiga tem menos de 8 caracteres, e aqui a senha precisa ser maior. Mude ela lá e tente de novo."
+
+#: lib/pesque_web/migrate_html.ex:256
+#, elixir-autogen, elixir-format
+msgid "The old server refused the request. Check the address and the name."
+msgstr "O servidor antigo recusou o pedido. Confira o endereço e o nome."
+
+#: lib/pesque_web/migrate_html.ex:106
+#, elixir-autogen, elixir-format
+msgid "The old server sent a code to the account's email. Paste it here to finish."
+msgstr "O servidor antigo mandou um código pro email da conta. Cole ele aqui pra terminar."
+
+#: lib/pesque_web/migrate_html.ex:212
+#, elixir-autogen, elixir-format
+msgid "The old server's address has to start with https://."
+msgstr "O endereço do servidor antigo precisa começar com https://."
+
+#: lib/pesque_web/migrate_html.ex:70
+#, elixir-autogen, elixir-format
+msgid "The record is a TXT at _atproto of your domain, with the value did= followed by your account's DID. It takes a few minutes to propagate."
+msgstr "O registro é do tipo TXT, no nome _atproto do seu domínio, com o valor did= e o DID da sua conta em seguida. Leva alguns minutos pra propagar."
+
+#: lib/pesque_web/migrate_html.ex:270
+#, elixir-autogen, elixir-format
+msgid "The server restarted in the middle of the move. Start again: what already came over is reused."
+msgstr "O servidor reiniciou no meio da mudança. Comece de novo: o que já veio é aproveitado."
+
+#: lib/pesque_web/migrate_html.ex:64
+#, elixir-autogen, elixir-format
+msgid "This server makes the move, not the app: that is why it asks for your password and the code that arrives by email. That is what authorizes the switch."
+msgstr "Quem faz a mudança é este servidor, não o aplicativo: por isso ele pede a sua senha e o código que chega por email. É isso que autoriza a virada."
+
+#: lib/pesque_web/migrate_html.ex:89
+#, elixir-autogen, elixir-format
+msgid "We are copying your data from the old server. This can take a few minutes."
+msgstr "Estamos copiando seus dados do servidor antigo. Isso pode levar alguns minutos."
+
+#: lib/pesque_web/migrate_html.ex:261
+#, elixir-autogen, elixir-format
+msgid "We could not reach the old server. Check the address, or try again in a moment."
+msgstr "Não conseguimos falar com o servidor antigo. Confira o endereço, ou tente de novo em instantes."
+
+#: lib/pesque_web/migrate_html.ex:251
+#, elixir-autogen, elixir-format
+msgid "We could not sign in to your old account. Check the password: it is the account password, not an app password."
+msgstr "Não conseguimos entrar na sua conta antiga. Confira a senha: é a senha da conta, não uma senha de aplicativo."
+
+#: lib/pesque_web/migrate_html.ex:33
+#, elixir-autogen, elixir-format
+msgid "You already have an account on atproto, and you want this server to hold it. The name does not change, and nothing is published here until the switch works."
+msgstr "Você já tem uma conta no atproto e quer que ela passe a ser guardada aqui. O nome dela não muda, e nada é publicado aqui até a virada dar certo."
+
+#: lib/pesque_web/migrate_html.ex:126
+#, elixir-autogen, elixir-format
+msgid "Your account is held here now. Sign in to the app with the same name and the same password as before."
+msgstr "Sua conta agora é guardada aqui. Entre no aplicativo com o mesmo nome e a mesma senha de antes."
+
+#: lib/pesque_web/migrate_html.ex:141
+#, elixir-autogen, elixir-format
+msgid "Your old account keeps working. Nothing was published here."
+msgstr "Sua conta antiga continua funcionando. Nada foi publicado aqui."
+
+#: lib/pesque_web/migrate_html.ex:125
+#, elixir-autogen, elixir-format
+msgid "done"
+msgstr "pronto"
+
+#: lib/pesque_web/migrate_html.ex:115
+#, elixir-autogen, elixir-format
+msgid "finish the move"
+msgstr "terminar a mudança"
+
+#: lib/pesque_web/migrate_html.ex:138
+#, elixir-autogen, elixir-format
+msgid "it did not work"
+msgstr "não deu"
+
+#: lib/pesque_web/migrate_html.ex:59
+#, elixir-autogen, elixir-format
+msgid "move my account"
+msgstr "trazer minha conta"
+
+#: lib/pesque_web/migrate_controller.ex:212
+#: lib/pesque_web/migrate_html.ex:32
+#, elixir-autogen, elixir-format
+msgid "move your account"
+msgstr "trazer sua conta"
+
+#: lib/pesque_web/migrate_html.ex:88
+#, elixir-autogen, elixir-format
+msgid "moving your account"
+msgstr "trazendo sua conta"
+
+#: lib/pesque_web/migrate_html.ex:105
+#, elixir-autogen, elixir-format
+msgid "one code left"
+msgstr "falta um código"
+
+#: lib/pesque_web/migrate_html.ex:143
+#, elixir-autogen, elixir-format
+msgid "start again"
+msgstr "começar de novo"
+
+#: lib/pesque_web/migrate_html.ex:110
+#, elixir-autogen, elixir-format
+msgid "the code from your email"
+msgstr "o código do seu email"
+
+#: lib/pesque_web/migrate_controller.ex:218
+#: lib/pesque_web/migrate_html.ex:92
+#, elixir-autogen, elixir-format
+msgid "the move"
+msgstr "a mudança"
+
+#: lib/pesque_web/migrate_html.ex:39
+#: lib/pesque_web/migrate_html.ex:95
+#, elixir-autogen, elixir-format
+msgid "your current server"
+msgstr "seu servidor atual"
+
+#: lib/pesque_web/migrate_html.ex:66
+#, elixir-autogen, elixir-format
+msgid "your name and its DNS"
+msgstr "seu nome e o DNS dele"

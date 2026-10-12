@@ -522,6 +522,26 @@ ul.scopes details ul {
   border-left-color: var(--amarelo);
 }
 
+/* -- migrate ------------------------------------------------ */
+/* The DNS walkthrough is a details block: a person whose name is already on
+   this server never opens it, so it stays a one-line summary. The consent
+   page styles its own details inside ul.scopes; this is the page-level one,
+   scoped to the facts section the form's promises live in. */
+.facts details {
+  margin-top: 0.6rem;
+}
+.facts details summary {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--roxo);
+  cursor: pointer;
+}
+.facts details p {
+  margin: 0.8rem 0 0;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
 /* -- footer ------------------------------------------------- */
 footer {
   position: relative;

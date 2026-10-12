@@ -127,5 +127,20 @@ defmodule Pesque.Migrate.Runner do
   defp failure({:old_pds_status, 401}), do: "old_pds_unauthorized"
   defp failure({:old_pds_status, _status}), do: "old_pds_rejected"
   defp failure({:old_pds_unreachable, _detail}), do: "old_pds_unreachable"
+
+  # What a move can answer, the person can act on. The reasons left out
+  # ({:missing_option, _key}, :account_missing, :invalid_response) are this
+  # server's own bugs, and they stay on the generic sentence the catch-all
+  # hands over.
+  defp failure(:invalid_handle), do: "invalid_handle"
+  defp failure(:disallowed_handle), do: "disallowed_handle"
+  defp failure(:account_exists), do: "account_exists"
+
+  # A refused sign-in and a 401 from the old server are the same answer to the
+  # person: the credentials did not open the account.
+  defp failure(:invalid_credentials), do: "old_pds_unauthorized"
+
+  defp failure(:too_large), do: "too_large"
+
   defp failure(_reason), do: "unknown"
 end
