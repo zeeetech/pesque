@@ -53,7 +53,8 @@ defmodule PesqueWeb.Plugs.RateLimit do
   # so keying them on identifier would key them on nothing.
   @account_params %{
     session: ~w(identifier handle inviteCode),
-    read: ~w(repo did)
+    read: ~w(repo did),
+    signup: ~w(handle invite_code)
   }
 
   # A bucket this plug has not been told about counts on every name it knows,

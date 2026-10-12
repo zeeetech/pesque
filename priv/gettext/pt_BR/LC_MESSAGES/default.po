@@ -27,6 +27,7 @@ msgid "This handle is hosted here. Everything below is public."
 msgstr "Este handle é hospedado aqui. Tudo abaixo é público."
 
 #: lib/pesque_web/page_html.ex:74
+#: lib/pesque_web/signup_html.ex:76
 #, elixir-autogen, elixir-format
 msgid "about this server"
 msgstr "sobre este servidor"
@@ -89,7 +90,7 @@ msgstr "identidade"
 msgid "invite only"
 msgstr "só com convite"
 
-#: lib/pesque_web/layout.ex:96
+#: lib/pesque_web/layout.ex:97
 #, elixir-autogen, elixir-format
 msgid "language"
 msgstr "idioma"
@@ -119,7 +120,7 @@ msgstr "registro"
 msgid "single account"
 msgstr "conta única"
 
-#: lib/pesque_web/layout.ex:53
+#: lib/pesque_web/layout.ex:54
 #, elixir-autogen, elixir-format
 msgid "skip to content"
 msgstr "pular pro conteúdo"
@@ -189,57 +190,185 @@ msgstr "autorizar"
 msgid "sign in to authorize"
 msgstr "entrar para autorizar"
 
-#: lib/pesque_web/error_html.ex:67
+#: lib/pesque_web/error_html.ex:92
 #, elixir-autogen, elixir-format
 msgid "Nothing answers at this address."
 msgstr "Nada responde neste endereço."
 
-#: lib/pesque_web/error_html.ex:70
+#: lib/pesque_web/error_html.ex:95
 #, elixir-autogen, elixir-format
 msgid "Something went wrong on this server. The error has been logged."
 msgstr "Algo deu errado neste servidor. O erro foi registrado."
 
-#: lib/pesque_web/error_html.ex:64
+#: lib/pesque_web/error_html.ex:89
 #, elixir-autogen, elixir-format
 msgid "The request could not be read. Check the address and try again."
 msgstr "Não deu pra ler a requisição. Confere o endereço e tenta de novo."
 
-#: lib/pesque_web/error_html.ex:65
+#: lib/pesque_web/error_html.ex:90
 #, elixir-autogen, elixir-format
 msgid "This page needs a sign-in you did not provide."
 msgstr "Esta página precisa de um login que você não forneceu."
 
-#: lib/pesque_web/error_html.ex:66
+#: lib/pesque_web/error_html.ex:91
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to see this."
 msgstr "Você não tem permissão pra ver isto."
 
-#: lib/pesque_web/error_html.ex:52
+#: lib/pesque_web/error_html.ex:77
 #, elixir-autogen, elixir-format
 msgid "back to the start"
 msgstr "voltar pro início"
 
-#: lib/pesque_web/error_html.ex:58
+#: lib/pesque_web/error_html.ex:83
 #, elixir-autogen, elixir-format
 msgid "bad request"
 msgstr "requisição inválida"
 
-#: lib/pesque_web/error_html.ex:60
+#: lib/pesque_web/error_html.ex:85
 #, elixir-autogen, elixir-format
 msgid "forbidden"
 msgstr "proibido"
 
-#: lib/pesque_web/error_html.ex:61
+#: lib/pesque_web/error_html.ex:86
 #, elixir-autogen, elixir-format
 msgid "not found"
 msgstr "não encontrado"
 
-#: lib/pesque_web/error_html.ex:62
+#: lib/pesque_web/error_html.ex:87
 #, elixir-autogen, elixir-format
 msgid "server error"
 msgstr "erro no servidor"
 
-#: lib/pesque_web/error_html.ex:59
+#: lib/pesque_web/error_html.ex:84
 #, elixir-autogen, elixir-format
 msgid "unauthorized"
 msgstr "não autorizado"
+
+#: lib/pesque_web/signup_html.ex:127
+#, elixir-autogen, elixir-format
+msgid "An email is required."
+msgstr "Preencha o email."
+
+#: lib/pesque_web/signup_html.ex:131
+#, elixir-autogen, elixir-format
+msgid "Another account here already uses that email. If it is yours, ask whoever runs the server for help recovering it."
+msgstr "Outra conta aqui já usa esse email. Se for sua, peça ajuda a quem cuida do servidor pra recuperar."
+
+#: lib/pesque_web/signup_html.ex:51
+#, elixir-autogen, elixir-format
+msgid "At least 8 characters."
+msgstr "Pelo menos 8 caracteres."
+
+#: lib/pesque_web/signup_html.ex:120
+#, elixir-autogen, elixir-format
+msgid "Choose a name with letters, numbers or hyphen. No dots and no spaces."
+msgstr "Escolha um nome com letras, números ou hífen. Sem ponto e sem espaço."
+
+#: lib/pesque_web/signup_html.ex:87
+#, elixir-autogen, elixir-format
+msgid "Fill in the form to create your account."
+msgstr "Preencha o formulário pra criar sua conta."
+
+#: lib/pesque_web/signup_html.ex:41
+#, elixir-autogen, elixir-format
+msgid "Letters, numbers and hyphen. This is the name people use to find you."
+msgstr "Letras, números e hífen. É o nome que as pessoas usam pra te achar."
+
+#: lib/pesque_web/signup_html.ex:139
+#, elixir-autogen, elixir-format
+msgid "Something went wrong on our side. Try again in a moment. If it keeps happening, tell whoever runs the server."
+msgstr "Algo deu errado do nosso lado. Tente de novo em instantes. Se continuar, avise quem cuida do servidor."
+
+#: lib/pesque_web/signup_html.ex:115
+#, elixir-autogen, elixir-format
+msgid "That code is not valid. It may have expired or already been used. Ask whoever invited you for a new one."
+msgstr "Esse código não vale. Ele pode ter expirado ou já ter sido usado. Peça um novo a quem te convidou."
+
+#: lib/pesque_web/signup_html.ex:123
+#, elixir-autogen, elixir-format
+msgid "That name is already taken here. Choose another."
+msgstr "Esse nome já está em uso aqui. Escolha outro."
+
+#: lib/pesque_web/signup_html.ex:94
+#, elixir-autogen, elixir-format
+msgid "The code whoever invited you sent."
+msgstr "O código que quem te convidou mandou."
+
+#: lib/pesque_web/signup_html.ex:125
+#, elixir-autogen, elixir-format
+msgid "The password needs at least 8 characters."
+msgstr "A senha precisa de pelo menos 8 caracteres."
+
+#: lib/pesque_web/signup_html.ex:135
+#, elixir-autogen, elixir-format
+msgid "This server already has its account."
+msgstr "Este servidor já tem a sua conta."
+
+#: lib/pesque_web/signup_html.ex:83
+#, elixir-autogen, elixir-format
+msgid "This server is invite only. To create an account, you need a code from whoever invited you."
+msgstr "Este servidor é só com convite. Pra criar uma conta, você precisa de um código de quem te convidou."
+
+#: lib/pesque_web/signup_html.ex:111
+#, elixir-autogen, elixir-format
+msgid "This server is invite only. You need a code to create an account."
+msgstr "Este servidor é só com convite. Você precisa de um código pra criar uma conta."
+
+#: lib/pesque_web/signup_html.ex:46
+#, elixir-autogen, elixir-format
+msgid "We do not send confirmation emails. Keep this address: it is how whoever runs the server helps you recover the account."
+msgstr "A gente não manda email de confirmação. Guarde este endereço: é por ele que quem cuida do servidor te ajuda a recuperar a conta."
+
+#: lib/pesque_web/signup_html.ex:66
+#, elixir-autogen, elixir-format
+msgid "Your account is ready. To sign in, open the official Bluesky app and use this name and the password you just chose."
+msgstr "Sua conta está pronta. Pra entrar, abra o aplicativo oficial do Bluesky e use este nome e a senha que você acabou de escolher."
+
+#: lib/pesque_web/signup_controller.ex:129
+#: lib/pesque_web/signup_html.ex:65
+#, elixir-autogen, elixir-format
+msgid "account created"
+msgstr "conta criada"
+
+#: lib/pesque_web/signup_controller.ex:125
+#: lib/pesque_web/signup_html.ex:29
+#, elixir-autogen, elixir-format
+msgid "create account"
+msgstr "criar conta"
+
+#: lib/pesque_web/signup_html.ex:54
+#, elixir-autogen, elixir-format
+msgid "create my account"
+msgstr "criar minha conta"
+
+#: lib/pesque_web/signup_html.ex:44
+#, elixir-autogen, elixir-format
+msgid "email"
+msgstr "email"
+
+#: lib/pesque_web/signup_html.ex:92
+#, elixir-autogen, elixir-format
+msgid "invite code"
+msgstr "código do convite"
+
+#: lib/pesque_web/signup_html.ex:75
+#, elixir-autogen, elixir-format
+msgid "open the app"
+msgstr "abrir o aplicativo"
+
+#: lib/pesque_web/signup_html.ex:69
+#, elixir-autogen, elixir-format
+msgid "your account"
+msgstr "sua conta"
+
+#: lib/pesque_web/signup_html.ex:36
+#: lib/pesque_web/signup_html.ex:71
+#, elixir-autogen, elixir-format
+msgid "your name"
+msgstr "seu nome"
+
+#: lib/pesque_web/signup_html.ex:49
+#, elixir-autogen, elixir-format
+msgid "your password"
+msgstr "sua senha"

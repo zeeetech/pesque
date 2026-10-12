@@ -24,10 +24,30 @@ defmodule PesqueWeb.ErrorHTML do
 
   import PesqueWeb.HTML, only: [escape: 1]
 
+  import Plug.Conn
+
+  alias PesqueWeb.Csp
   alias PesqueWeb.Layout
 
   @doc "Phoenix's error-view entry point, called with `\"<status>.html\"`."
   def render(template, _assigns), do: {:safe, template |> status() |> page()}
+
+  @doc """
+  Sends the 404 page as a response.
+
+  A controller that answered a browser and found nothing to render reaches for
+  this, so an unknown name, an unknown path and a page this server does not
+  serve all read alike.
+  """
+  def not_found(conn) do
+    {:safe, body} = render("404.html", %{})
+
+    conn
+    |> put_resp_content_type("text/html")
+    |> put_resp_header("content-security-policy", Csp.pages())
+    |> put_resp_header("cache-control", "no-cache")
+    |> send_resp(404, body)
+  end
 
   defp status(template) do
     case Integer.parse(template) do

@@ -39,6 +39,14 @@ defmodule PesqueWeb.Router do
     plug PesqueWeb.Plugs.RateLimit, bucket: :read, limit: 3_000, window: 300_000
   end
 
+  # Signup is the one page a stranger can make the server work through: the
+  # POST runs argon2 and mints an identity, and a closed server's signups are
+  # paced by invite codes anyway. A bucket of its own keeps it off the read
+  # budget, which is sized for polls rather than for account creation.
+  pipeline :signup_limits do
+    plug PesqueWeb.Plugs.RateLimit, bucket: :signup, limit: 30, window: 3_600_000
+  end
+
   # The spec puts no limit on writes, so this number is ours: a write is the
   # expensive request on this server (MST rebuild, a signature, an fsync, and
   # SQLite's single writer lock held for the lot), the one a client loop can
@@ -393,13 +401,24 @@ defmodule PesqueWeb.Router do
     match :*, "/*path", ProxyController, :forward
   end
 
-  # The browser pages: a GET of the root. The host decides whether it is the
-  # server's landing or a handle's page, and the locale plug picks the language
-  # this page and the consent page render in. It reads no body and writes
-  # nothing, so it takes the read budget like any other public read.
+  # The browser pages: a GET of the root, the signup form, and the page a
+  # created account is redirected to. The host decides which page the root is;
+  # the locale plug picks the language these pages and the consent page render
+  # in. They read no body and write nothing, so they take the read budget like
+  # any other public read.
   scope "/", PesqueWeb do
     pipe_through :read_limits
 
     get "/", PageController, :show
+    get "/signup", SignupController, :show
+    get "/signup/done", SignupController, :done
+  end
+
+  # The one page a stranger can make the server work through, so it takes the
+  # signup budget rather than the read budget it would otherwise share.
+  scope "/", PesqueWeb do
+    pipe_through :signup_limits
+
+    post "/signup", SignupController, :create
   end
 end

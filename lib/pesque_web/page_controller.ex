@@ -22,7 +22,7 @@ defmodule PesqueWeb.PageController do
     cond do
       Host.server_host?(conn.host, [Pesque.hostname()]) -> render_landing(conn)
       match?({:ok, _did}, Accounts.resolve_handle(conn.host)) -> render_handle(conn)
-      true -> render_not_found(conn)
+      true -> ErrorHTML.not_found(conn)
     end
   end
 
@@ -52,20 +52,6 @@ defmodule PesqueWeb.PageController do
     }
 
     render_page(conn, PageHTML.handle(assigns), user.handle, Pesque.base_url())
-  end
-
-  # A name that is neither the server nor a handle this server hosts. The page
-  # is the same one Phoenix renders for a path nothing answers, so an unknown
-  # name and an unknown path read alike. The view hands back safe markup, which
-  # is what a direct send wants as its body too.
-  defp render_not_found(conn) do
-    {:safe, body} = ErrorHTML.render("404.html", %{})
-
-    conn
-    |> put_resp_content_type("text/html")
-    |> put_resp_header("content-security-policy", Csp.pages())
-    |> put_resp_header("cache-control", "no-cache")
-    |> send_resp(404, body)
   end
 
   # Under conformant_single the server is the one account, so the landing also

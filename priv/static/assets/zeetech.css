@@ -468,6 +468,54 @@ ul.scopes details ul {
   flex-wrap: wrap;
 }
 
+/* -- signup ------------------------------------------------ */
+/* The name field pairs the input with the server's own handle domain, so the
+   part a person types is only theirs. */
+.field .row {
+  display: flex;
+  align-items: stretch;
+}
+.field .row input {
+  min-width: 0;
+  border-radius: 0.4rem 0 0 0.4rem;
+}
+.field .row .suffix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.9rem;
+  border: 1px solid var(--roxo-line);
+  border-left: none;
+  border-radius: 0 0.4rem 0.4rem 0;
+  background: rgba(247, 247, 255, 0.04);
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.field .row input:focus + .suffix {
+  border-color: var(--roxo);
+}
+.hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--faint);
+}
+/* A notice is the one thing on a page that is not the page's own content, so
+   it is a block of its own with the accent on the edge. An error moves the
+   accent to amarelo, which is the palette's attention color. */
+.notice {
+  border: 1px solid var(--roxo-line);
+  border-left: 3px solid var(--roxo);
+  border-radius: 0.4rem;
+  padding: 0.9rem 1.1rem;
+  margin: 0 0 1.6rem;
+  max-width: 34rem;
+  background: rgba(150, 85, 255, 0.06);
+}
+.notice.error {
+  border-left-color: var(--amarelo);
+}
+
 /* -- footer ------------------------------------------------- */
 footer {
   position: relative;
