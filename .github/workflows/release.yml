@@ -146,7 +146,7 @@ jobs:
       - name: Build the release
         run: |
           mix deps.get --only prod
-          MIX_ENV=prod mix release --path _build/prod/rel
+          MIX_ENV=prod mix release
 
       - name: Tar the release
         run: tar -czf pesque-server-x86_64-linux.tar.gz -C _build/prod/rel pesque
