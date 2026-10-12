@@ -18,7 +18,12 @@ config :logger, :default_formatter,
     :hostname,
     :mode,
     :registration,
-    :data_dir
+    :data_dir,
+    :request_id,
+    :requester,
+    :user_agent,
+    :remote_ip,
+    :body
   ]
 
 config :logger, :default_handler, level: :info
