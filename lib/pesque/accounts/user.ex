@@ -17,6 +17,7 @@ defmodule Pesque.Accounts.User do
     field :pubkey_multibase, :string
     field :email, :string
     field :password_hash, :string
+    field :email_confirmed_at, :utc_datetime
 
     # The signed PLC operation for a did:plc account. NULL for every did:web
     # account, which has no operation log.
@@ -88,5 +89,26 @@ defmodule Pesque.Accounts.User do
   # the operator is replacing, and the sessions it kills are separate rows.
   def password_changeset(%__MODULE__{} = row, password_hash) do
     change(row, password_hash: password_hash)
+  end
+
+  # Confirming an email stamps the time and nothing else: the address is
+  # already the account's, and a confirmation is only the fact that it was
+  # proven. It is forced rather than compared, so a re-confirm moves the time
+  # forward instead of comparing an already-set value against itself.
+  def email_confirmed_changeset(%__MODULE__{} = row) do
+    row
+    |> change()
+    |> force_change(:email_confirmed_at, DateTime.truncate(DateTime.utc_now(), :second))
+  end
+
+  # A new email writes the address and clears the confirmation in one step: the
+  # old address was proven and the new one is not, so the timestamp cannot
+  # carry over. The unique constraint lets the caller answer a taken address as
+  # :email_taken rather than as a generic failure.
+  def email_changeset(%__MODULE__{} = row, email) do
+    row
+    |> change(email: email)
+    |> force_change(:email_confirmed_at, nil)
+    |> unique_constraint(:email)
   end
 end

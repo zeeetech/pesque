@@ -5,7 +5,9 @@ defmodule Pesque.Accounts do
 
   alias Pesque.Accounts.AppPassword
   alias Pesque.Accounts.DeletionToken
+  alias Pesque.Accounts.EmailToken
   alias Pesque.Accounts.InviteCode
+  alias Pesque.Accounts.PasswordResetToken
   alias Pesque.Accounts.RefreshToken
   alias Pesque.Accounts.User
   alias Pesque.Base32
@@ -24,6 +26,12 @@ defmodule Pesque.Accounts do
   require Logger
 
   @deletion_token_ttl_seconds 24 * 60 * 60
+
+  # The reference PDS gives its emailed confirmation and reset codes 15
+  # minutes. An operator reading one out of a log or a CLI hands it over in
+  # less, and a short life is the point: either code ends in a credential
+  # change.
+  @email_token_ttl_seconds 15 * 60
 
   # Materialised in memory before the single insert_all, so codeCount is
   # bounded by what one call may cost: 1000 codes is a few milliseconds,
@@ -419,6 +427,10 @@ defmodule Pesque.Accounts do
   @doc """
   Replaces an account's password and ends every session it holds.
 
+  The direct, operator-driven reset, for a caller that already holds the
+  account. The spec's own reset goes through `reset_password_with_token/2`,
+  which spends a code from requestPasswordReset first; both end in this write.
+
   The hash and the teardown are one operation from the operator's point of
   view: a reset that left the attacker's sessions live would not be a reset.
   The row update, the refresh tokens and the OAuth tokens are one
@@ -427,15 +439,47 @@ defmodule Pesque.Accounts do
   as create_account/4, computed outside the transaction for the same reason
   it is there: argon2 must not hold SQLite's single write lock.
   """
-  def reset_password(%User{} = user, password) do
+  def reset_password(%User{} = user, password), do: apply_reset(user, password, fn -> :ok end)
+
+  @doc """
+  Resets an account's password using a code from requestPasswordReset.
+
+  The code names the account, so no did or session is needed: the only proof
+  is the token requestPasswordReset issued, and that is never answered to the
+  anonymous caller. The spend and the write are one transaction, so a reset
+  that fails does not leave the code consumed.
+
+  Answers :ok or `{:error, reason}`; an unknown, spent or expired code is
+  `:invalid_token` or `:expired_token`.
+  """
+  def reset_password_with_token(token, password) when is_binary(token) do
+    with {:ok, row} <- fetch_password_reset_token(token),
+         %User{} = user <- get_user(row.did) do
+      apply_reset(user, password, fn -> spend_password_reset_token(row) end)
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :invalid_token}
+    end
+  end
+
+  def reset_password_with_token(_token, _password), do: {:error, :invalid_token}
+
+  # The write both reset flows share. `spend` is the code's conditional update
+  # for the token flow and a no-op for the direct one; either way it runs
+  # inside the same transaction as the write, so a code is never consumed by a
+  # reset that did not land.
+  defp apply_reset(%User{} = user, password, spend) do
     with :ok <- check_password(password),
          {:ok, password_hash} <- hash_password(password) do
       result =
         Repo.transaction(fn ->
-          with {:ok, _row} <- update_password(user, password_hash) do
-            revoke_sessions(user.did)
+          with :ok <- spend.() do
+            case update_password(user, password_hash) do
+              {:ok, _row} -> revoke_sessions(user.did)
+              {:error, reason} -> Repo.rollback(reason)
+            end
           else
-            {:error, reason} -> Repo.rollback(reason)
+            :invalid_token -> Repo.rollback(:invalid_token)
           end
         end)
 
@@ -465,6 +509,288 @@ defmodule Pesque.Accounts do
     _ = OAuth.revoke_all(did)
     :ok
   end
+
+  @doc """
+  Issues the single-use code `confirm_email/3` spends.
+
+  The lexicon emails this code to the account holder. There is no mail here and
+  no email dependency, so the code goes to the operator instead: it is logged
+  (the `token` metadata, info level) and mintable again through
+  `pesque account email-token`. A self-hosted PDS's account holder is its
+  operator, which is the assumption the email flow stood on.
+
+  The token is stored hashed, expires in 15 minutes, and is single use. Answers
+  `{:ok, %{token:, expires_at:}}` or `{:error, reason}`.
+  """
+  def request_email_confirmation(%User{} = user), do: issue_email_token(user)
+
+  @doc """
+  Confirms an account's email with a code from requestEmailConfirmation.
+
+  The code is bound to the address it was minted for, so an email that is not
+  this account's is refused before the code is touched: a caller cannot confirm
+  an address the code does not name. The spend and the timestamp are one
+  transaction, so a confirm that fails does not leave the code consumed.
+
+  Answers :ok or `{:error, reason}`.
+  """
+  def confirm_email(%User{} = user, email, token) do
+    with :ok <- check_email(email),
+         :ok <- check_confirmation_address(user, email),
+         {:ok, row} <- fetch_email_token(user.did, token) do
+      result =
+        Repo.transaction(fn ->
+          with :ok <- spend_email_token(row) do
+            case User.email_confirmed_changeset(user) |> Repo.update() do
+              {:ok, _updated} -> :ok
+              {:error, _changeset} -> Repo.rollback(:account_not_updated)
+            end
+          else
+            :invalid_token -> Repo.rollback(:invalid_token)
+          end
+        end)
+
+      case result do
+        {:ok, :ok} ->
+          Logger.info("email confirmed", did: user.did)
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  The `tokenRequired` answer updateEmail reads, and the code it then needs.
+
+  A confirmed address is the thing a stolen session must not be able to move,
+  so moving it takes a code minted to that address: this issues one and answers
+  `tokenRequired: true`. An account whose address was never confirmed has
+  nothing to protect, so it answers `tokenRequired: false` and mints nothing;
+  `updateEmail` then needs no token.
+
+  Answers `{:ok, %{token_required: boolean}}`, carrying `:token` and
+  `:expires_at` when one was issued, or `{:error, reason}`.
+  """
+  def request_email_update(%User{email_confirmed_at: nil}), do: {:ok, %{token_required: false}}
+
+  def request_email_update(%User{} = user) do
+    with {:ok, issued} <- issue_email_token(user),
+         do: {:ok, Map.put(issued, :token_required, true)}
+  end
+
+  @doc """
+  Updates an account's email, spending a code first when the current address is
+  confirmed.
+
+  A new address is unconfirmed by definition: it is only proven once a code
+  minted to it is spent through confirmEmail, so the timestamp is cleared here
+  rather than carried over. The spend and the write are one transaction, so a
+  change that fails does not leave the code consumed, and the address cannot
+  move without it.
+
+  The new address must not collide with another account's email or handle, the
+  same cross-namespace rule createAccount enforces. Answers `{:ok, user}` or
+  `{:error, reason}`.
+  """
+  def update_email(%User{} = user, email, token) do
+    with :ok <- check_email(email),
+         :ok <- check_email_change(user, email),
+         {:ok, requirement} <- update_email_requirement(user, token) do
+      result =
+        Repo.transaction(fn ->
+          with :ok <- spend_update_token(requirement) do
+            case User.email_changeset(user, email) |> Repo.update() do
+              {:ok, updated} -> updated
+              {:error, changeset} -> Repo.rollback(email_change_error(changeset))
+            end
+          else
+            :invalid_token -> Repo.rollback(:invalid_token)
+          end
+        end)
+
+      case result do
+        {:ok, updated} ->
+          Logger.info("email updated", did: updated.did)
+          {:ok, updated}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # A confirmed address means the request must carry a code minted to it; an
+  # unconfirmed one needs none. `nil` is the "no code" the transaction spends
+  # as a no-op, so the two cases run one path.
+  defp update_email_requirement(%User{email_confirmed_at: nil}, _token), do: {:ok, nil}
+
+  defp update_email_requirement(%User{} = user, token) when is_binary(token) and token != "" do
+    case fetch_email_token(user.did, token) do
+      {:ok, %{email: email} = row} ->
+        if email == user.email, do: {:ok, row}, else: {:error, :invalid_token}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_email_requirement(%User{}, _token), do: {:error, :token_required}
+
+  defp spend_update_token(nil), do: :ok
+  defp spend_update_token(row), do: spend_email_token(row)
+
+  # The request's email has to be the account's own, or the confirm names an
+  # address this account does not have. That is an InvalidEmail, not a wrong
+  # token: an input shape is wrong, and the code is left unspent so a correct
+  # retry still works.
+  defp check_confirmation_address(%User{email: email}, email), do: :ok
+  defp check_confirmation_address(_user, _email), do: {:error, :invalid_email}
+
+  # The new address must not be another account's handle: the create path keeps
+  # that collision out and a move would reintroduce it. The unique index on the
+  # email column covers one address belonging to one account; this covers the
+  # address being another account's handle.
+  defp check_email_change(%User{} = user, email) do
+    if Repo.exists?(from u in User, where: u.did != ^user.did and u.handle == ^email) do
+      {:error, :email_taken}
+    else
+      :ok
+    end
+  end
+
+  defp email_change_error(changeset) do
+    if email_taken?(changeset), do: :email_taken, else: :account_not_updated
+  end
+
+  @doc """
+  Issues the single-use code `reset_password_with_token/2` spends.
+
+  The requester is anonymous, so a miss is answered with :ok rather than an
+  error: telling a stranger whether an address has an account here would be the
+  enumeration the silent request exists to avoid. On a hit the code is logged
+  and mintable through `pesque account reset-token`; it is never answered in
+  the body, because that body goes to the requester.
+
+  A `%User{}` issues for that account directly, which is how the CLI verb mints
+  one. Answers `:ok`, `{:ok, %{token:, expires_at:}}` or `{:error, reason}`.
+  """
+  def request_password_reset(%User{} = user), do: issue_password_reset(user)
+
+  def request_password_reset(email) when is_binary(email) do
+    case Repo.get_by(User, email: email) do
+      %User{} = user -> issue_password_reset(user)
+      nil -> :ok
+    end
+  end
+
+  defp issue_password_reset(%User{did: did}) do
+    token = single_use_token()
+
+    expires_at =
+      DateTime.utc_now()
+      |> DateTime.add(@email_token_ttl_seconds, :second)
+      |> DateTime.truncate(:second)
+
+    attrs = %{
+      token_hash: PasswordResetToken.hash_token(token),
+      did: did,
+      expires_at: expires_at
+    }
+
+    case PasswordResetToken.changeset(attrs) |> Repo.insert() do
+      {:ok, _row} ->
+        Logger.info("password reset token issued", did: did, token: token)
+        {:ok, %{token: token, expires_at: expires_at}}
+
+      {:error, _changeset} ->
+        {:error, :reset_token_failed}
+    end
+  end
+
+  # The one issuer both email request endpoints call. The code is bound to the
+  # account's current address, which is what both confirmEmail and updateEmail
+  # prove control of.
+  defp issue_email_token(%User{did: did, email: email}) do
+    token = single_use_token()
+
+    expires_at =
+      DateTime.utc_now()
+      |> DateTime.add(@email_token_ttl_seconds, :second)
+      |> DateTime.truncate(:second)
+
+    attrs = %{
+      token_hash: EmailToken.hash_token(token),
+      did: did,
+      email: email,
+      expires_at: expires_at
+    }
+
+    case EmailToken.changeset(attrs) |> Repo.insert() do
+      {:ok, _row} ->
+        Logger.info("email token issued", did: did, token: token)
+        {:ok, %{token: token, expires_at: expires_at}}
+
+      {:error, _changeset} ->
+        {:error, :email_token_failed}
+    end
+  end
+
+  defp fetch_email_token(did, token) when is_binary(token) do
+    case Repo.get_by(EmailToken, token_hash: EmailToken.hash_token(token)) do
+      nil -> {:error, :invalid_token}
+      %EmailToken{did: ^did, used_at: nil} = row -> check_token_not_expired(row)
+      %EmailToken{} -> {:error, :invalid_token}
+    end
+  end
+
+  defp fetch_email_token(_did, _token), do: {:error, :invalid_token}
+
+  # The caller guards that the token is a binary, so this clause is the whole
+  # lookup: a token that names no row, was already spent, or has expired is
+  # each its own refusal.
+  defp fetch_password_reset_token(token) when is_binary(token) do
+    case Repo.get_by(PasswordResetToken, token_hash: PasswordResetToken.hash_token(token)) do
+      nil -> {:error, :invalid_token}
+      %PasswordResetToken{used_at: nil} = row -> check_token_not_expired(row)
+      %PasswordResetToken{} -> {:error, :invalid_token}
+    end
+  end
+
+  # Single use is a conditional update, not a read followed by a write: two
+  # callers holding one code both read it unused, and only the one whose update
+  # matches a row proceeds.
+  defp spend_email_token(%EmailToken{id: id}) do
+    spend_single_use_token(EmailToken, id)
+  end
+
+  defp spend_password_reset_token(%PasswordResetToken{id: id}) do
+    spend_single_use_token(PasswordResetToken, id)
+  end
+
+  defp spend_single_use_token(schema, id) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    {count, _} =
+      from(t in schema, where: t.id == ^id and is_nil(t.used_at))
+      |> Repo.update_all(set: [used_at: now])
+
+    if count == 1, do: :ok, else: :invalid_token
+  end
+
+  # Expiry is answered separately from validity: the lexicon names both, and a
+  # caller told ExpiredToken asks for a new code instead of guessing whether
+  # the one it holds is merely wrong.
+  defp check_token_not_expired(%{expires_at: expires_at} = row) do
+    if DateTime.before?(expires_at, DateTime.utc_now()) do
+      {:error, :expired_token}
+    else
+      {:ok, row}
+    end
+  end
+
+  defp single_use_token, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
   # A did:plc account is activated only once the directory's document names
   # this server as its PDS, or every client resolves the account away from
