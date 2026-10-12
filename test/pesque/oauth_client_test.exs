@@ -147,5 +147,24 @@ defmodule Pesque.OAuth.ClientTest do
       assert {:error, :no_client_keys} = Client.jwks(%{"jwks" => %{"keys" => []}})
       assert {:error, :no_client_keys} = Client.jwks(%{"jwks_uri" => "http://localhost"})
     end
+
+    # Fetch.json/2 answers the whole JWKS document for a jwks_uri, and both
+    # branches of jwks/1 unwrap it through keys_from/1. A client that publishes
+    # jwks_uri rather than an inline jwks (Tangled does) failed here: the
+    # document was handed back whole, and ClientAssertion.select_key/2 then
+    # searched a map for a kid and found nothing, so its assertion never
+    # verified and the code exchange answered invalid_client.
+    test "a fetched JWKS document is unwrapped to its key list, never returned whole" do
+      document = %{"keys" => [%{"kid" => "one", "kty" => "EC", "crv" => "P-256"}]}
+
+      assert {:ok, [%{"kid" => "one", "kty" => "EC", "crv" => "P-256"}]} =
+               Client.keys_from(document)
+    end
+
+    test "a document that carries no keys is refused" do
+      assert {:error, :no_client_keys} = Client.keys_from(%{})
+      assert {:error, :no_client_keys} = Client.keys_from(%{"keys" => []})
+      assert {:error, :no_client_keys} = Client.keys_from("not a JWKS document")
+    end
   end
 end

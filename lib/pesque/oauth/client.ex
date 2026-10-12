@@ -84,17 +84,33 @@ defmodule Pesque.OAuth.Client do
   def auth_method(_metadata), do: "none"
 
   @doc "The client's public keys, from `jwks` or fetched from `jwks_uri`."
-  def jwks(%{"jwks" => %{"keys" => [_ | _] = keys}}), do: {:ok, keys}
-  def jwks(%{"jwks" => %{"keys" => keys}}) when is_list(keys), do: {:error, :no_client_keys}
+  def jwks(%{"jwks" => document}), do: keys_from(document)
 
   def jwks(%{"jwks_uri" => uri}) when is_binary(uri) do
     case parse(uri) do
-      {:ok, {:remote, parsed}} -> Fetch.json(parsed, @max_metadata_bytes)
-      _other -> {:error, :no_client_keys}
+      {:ok, {:remote, parsed}} ->
+        with {:ok, document} <- Fetch.json(parsed, @max_metadata_bytes) do
+          keys_from(document)
+        end
+
+      _other ->
+        {:error, :no_client_keys}
     end
   end
 
   def jwks(_metadata), do: {:error, :no_client_keys}
+
+  @doc """
+  The keys a JWKS document carries.
+
+  An inline `jwks` object and a document fetched from `jwks_uri` have the same
+  shape, so both branches of `jwks/1` unwrap through here. The answer is a
+  non-empty list of keys or `{:error, :no_client_keys}`: never the document
+  that held them, which a caller selecting a key by `kid` would then search as
+  a map and find nothing in.
+  """
+  def keys_from(%{"keys" => [_ | _] = keys}), do: {:ok, keys}
+  def keys_from(_document), do: {:error, :no_client_keys}
 
   # The localhost development client is the one client_id that is not https,
   # and it is recognized before the https rule so it can be answered from a
