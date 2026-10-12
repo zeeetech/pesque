@@ -150,42 +150,42 @@ msgstr ""
 msgid "what is atproto?"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:182
+#: lib/pesque_web/oauth/authorization_controller.ex:195
 #, elixir-autogen, elixir-format
 msgid "Authorize"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:183
+#: lib/pesque_web/oauth/authorization_controller.ex:196
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:174
+#: lib/pesque_web/oauth/authorization_controller.ex:187
 #, elixir-autogen, elixir-format
 msgid "Handle or email"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:178
+#: lib/pesque_web/oauth/authorization_controller.ex:191
 #, elixir-autogen, elixir-format
 msgid "Password"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:166
+#: lib/pesque_web/oauth/authorization_controller.ex:179
 #, elixir-autogen, elixir-format
 msgid "This application is asking to act as you with these scopes:"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:244
+#: lib/pesque_web/oauth/authorization_controller.ex:257
 #, elixir-autogen, elixir-format
 msgid "What this set grants"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:165
+#: lib/pesque_web/oauth/authorization_controller.ex:178
 #, elixir-autogen, elixir-format
 msgid "authorize"
 msgstr ""
 
-#: lib/pesque_web/oauth/authorization_controller.ex:140
+#: lib/pesque_web/oauth/authorization_controller.ex:153
 #, elixir-autogen, elixir-format
 msgid "sign in to authorize"
 msgstr ""
@@ -554,7 +554,7 @@ msgstr ""
 msgid "move my account"
 msgstr ""
 
-#: lib/pesque_web/migrate_controller.ex:202
+#: lib/pesque_web/migrate_controller.ex:212
 #: lib/pesque_web/migrate_html.ex:32
 #, elixir-autogen, elixir-format
 msgid "move your account"
@@ -580,7 +580,7 @@ msgstr ""
 msgid "the code from your email"
 msgstr ""
 
-#: lib/pesque_web/migrate_controller.ex:208
+#: lib/pesque_web/migrate_controller.ex:218
 #: lib/pesque_web/migrate_html.ex:92
 #, elixir-autogen, elixir-format
 msgid "the move"
