@@ -30,6 +30,12 @@ defmodule Pesque.OAuth.Token do
     field :did, :string
     field :client_id, :string
     field :scope, :string
+    # The grants this token carries, as the space-joined canonical scope
+    # strings of its expansion. Written for access rows at issuance, when an
+    # `include:` grant was resolved and expanded; nil on refresh rows and on
+    # every row an older build wrote, where the scope string is what the
+    # grants are computed from.
+    field :grants, :string
     field :dpop_jkt, :string
     field :session_id, :string
     field :expires_at, :utc_datetime

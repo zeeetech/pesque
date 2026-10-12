@@ -62,9 +62,21 @@ defmodule Pesque.OAuth.ScopesTest do
     assert {:error, :openid_not_supported} = Scopes.validate("openid transition:generic")
   end
 
-  test "a scope that parses to a permission this server cannot grant names itself" do
-    assert {:error, {:unsupported_scope, "include:app.bsky.authFull"}} =
+  test "an include of a set this server cannot resolve names the set" do
+    assert {:error, {:unresolved_permission_set, "app.bsky.authFull"}} =
              Scopes.validate("atproto include:app.bsky.authFull")
+  end
+
+  test "an include of a set this server resolves is accepted" do
+    assert {:ok, "atproto include:app.bsky.authFullApp?aud=did:web:api.bsky.app%23appview"} =
+             Scopes.validate(
+               "atproto include:app.bsky.authFullApp?aud=did:web:api.bsky.app%23appview"
+             )
+  end
+
+  test "a malformed include is refused as invalid, like any unparseable scope" do
+    assert {:error, {:invalid_scope, "include:not-an-nsid"}} =
+             Scopes.validate("atproto include:not-an-nsid")
   end
 
   test "a scope that does not parse is refused as invalid, with the string named" do
@@ -89,7 +101,7 @@ defmodule Pesque.OAuth.ScopesTest do
   test "the offending scope is named before the missing atproto is" do
     assert {:error, {:invalid_scope, "nonsense"}} = Scopes.validate("nonsense")
 
-    assert {:error, {:unsupported_scope, "include:app.bsky.authFull"}} =
+    assert {:error, {:unresolved_permission_set, "app.bsky.authFull"}} =
              Scopes.validate("include:app.bsky.authFull")
   end
 

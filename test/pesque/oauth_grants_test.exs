@@ -34,14 +34,21 @@ defmodule Pesque.OAuth.GrantsTest do
              grants
   end
 
-  test "an unparseable or ungrantable scope contributes nothing, never a failure" do
+  test "an unparseable scope contributes nothing, never a failure" do
     assert Grants.parse("atproto transition:generic nope:nope") ==
              [%Permission{resource: :transition_generic}]
 
-    assert Grants.parse("atproto include:app.example.authFull") == []
     assert Grants.parse("") == []
     assert Grants.parse(nil) == []
     assert Grants.parse("   ") == []
+  end
+
+  # An include rides as its own grant: it covers nothing until expansion
+  # replaces it, so an unresolved set is inert rather than fatal here. It is
+  # the shell above this module that turns it into concrete permissions.
+  test "an include rides as the inert grant the set stands for" do
+    assert [%Permission{resource: :include, nsid: "app.example.authFull", aud: nil}] =
+             Grants.parse("atproto include:app.example.authFull")
   end
 
   test "duplicates collapse" do

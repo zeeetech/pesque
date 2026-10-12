@@ -209,6 +209,12 @@ defmodule PesqueWeb.Plugs.Auth do
     end
   end
 
+  # An access token minted by this build carries the grant string its issuance
+  # expanded and stored, which is the permissions it was actually given: that
+  # expansion is fixed for the token's life and an include in the scope string
+  # has already been replaced by it. Older rows carry no grants column value,
+  # and their grants are computed from the scope, as they always were.
+  defp grants_from(%{"grants" => grants}) when is_binary(grants), do: Grants.parse(grants)
   defp grants_from(claims), do: Grants.parse(Map.get(claims, "scope", ""))
 
   # The requirement that is only a valid token, for either kind: what the

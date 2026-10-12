@@ -12,8 +12,11 @@ defmodule Pesque.OAuth.Scopes do
   decided at request time by `Pesque.OAuth.Permission` and
   `Pesque.OAuth.Grants`.
 
-  `include:` names a permission set, and resolving sets is not built yet, so
-  a request carrying one is refused here rather than issued and then ignored.
+  `include:` names a permission set, and the set is resolved here, at the
+  door: an `include:` of a set this server can resolve (its own lexicons, or
+  the configured aggregator) is accepted, and one it cannot is refused with
+  the NSID named, because a token for a set nobody can read is a promise
+  nothing can keep.
 
   A scope this server does not implement is an error, never a silent pass.
   Answering a token for a scope nothing enforces is how a client ends up
@@ -22,6 +25,7 @@ defmodule Pesque.OAuth.Scopes do
   """
 
   alias Pesque.OAuth.Permission
+  alias Pesque.OAuth.PermissionSets
 
   @supported ~w(atproto transition:generic transition:chat.bsky transition:email)
 
@@ -35,8 +39,8 @@ defmodule Pesque.OAuth.Scopes do
   {:error, reason} naming the first scope that is not grantable, before
   anything else is checked. `atproto` has to be in there: a request without it
   is not an atproto OAuth request. A malformed scope string is refused as
-  {:invalid_scope, scope}; one that parses but names a permission this server
-  cannot grant yet is refused as {:unsupported_scope, scope}.
+  {:invalid_scope, scope}; an `include:` of a permission set that cannot be
+  resolved is refused as {:unresolved_permission_set, nsid}.
   """
   def validate(nil), do: {:error, :missing_scope}
 
@@ -65,16 +69,24 @@ defmodule Pesque.OAuth.Scopes do
   def validate(_scope), do: {:error, :missing_scope}
 
   # A scope is refused when it does not parse into a permission this server
-  # understands, or when it parses into one this server cannot grant yet. The
+  # understands, or when the set an include names cannot be resolved. The
   # offending scope is named before anything else is checked: a client asking
   # for a permission this server does not have should be told which one,
   # rather than being told it forgot atproto because the scope it asked for
   # was the one it spelled wrongly.
   defp refusal(scope) do
     case Permission.parse_scope(scope) do
-      {:ok, %Permission{resource: :include}} -> {:error, {:unsupported_scope, scope}}
-      {:ok, _permission} -> nil
-      {:error, _reason} -> {:error, {:invalid_scope, scope}}
+      {:ok, %Permission{resource: :include, nsid: nsid}} ->
+        case PermissionSets.resolve(nsid) do
+          {:ok, _document} -> nil
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:ok, _permission} ->
+        nil
+
+      {:error, _reason} ->
+        {:error, {:invalid_scope, scope}}
     end
   end
 

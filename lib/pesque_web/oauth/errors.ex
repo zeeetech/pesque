@@ -91,6 +91,12 @@ defmodule PesqueWeb.OAuth.Errors do
   def to_oauth(:chat_requires_generic),
     do: {400, "invalid_scope", "transition:chat.bsky requires transition:generic"}
 
+  # A permission set the flow names could not be resolved, at PAR or when the
+  # code is exchanged. The NSID is what a client can act on: drop the include,
+  # or ask the server's operator where its sets come from.
+  def to_oauth({:unresolved_permission_set, nsid}),
+    do: {400, "invalid_scope", "the permission set #{nsid} could not be resolved"}
+
   def to_oauth({:missing_parameter, key}),
     do: {400, "invalid_request", "#{key} is required"}
 

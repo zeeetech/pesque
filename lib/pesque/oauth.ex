@@ -15,9 +15,11 @@ defmodule Pesque.OAuth do
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.OAuth.Client
+  alias Pesque.OAuth.Grants
   alias Pesque.OAuth.Jwt
   alias Pesque.OAuth.Keys
   alias Pesque.OAuth.Permission
+  alias Pesque.OAuth.PermissionSets
   alias Pesque.OAuth.Request
   alias Pesque.OAuth.Scopes
   alias Pesque.OAuth.Token
@@ -151,7 +153,8 @@ defmodule Pesque.OAuth do
   def approve(request_uri, client_id, %User{} = user, checked) when is_list(checked) do
     with {:ok, row, _uri} <- fetch_request(request_uri, client_id),
          :ok <- check_hint(row, user),
-         {:ok, code} <- spend_request(row, user.did, granted_scope(row, checked)) do
+         {:ok, granted} <- granted_scope(row, checked),
+         {:ok, code} <- spend_request(row, user.did, granted) do
       {:ok,
        %{
          redirect_uri: row.redirect_uri,
@@ -198,8 +201,10 @@ defmodule Pesque.OAuth do
   # than honored, and one the account holder unticked narrows the grant. The
   # chat scope depends on the generic one, so unchecking the dependency
   # removes the dependent too. The answer is a subset of a request that was
-  # already validated at PAR, so validation here cannot fail; it is there to
-  # keep the invariant in one place.
+  # already validated at PAR, so validation here passes for the same reason;
+  # the one way it can fail is an `include:` whose set stopped being
+  # resolvable between PAR and this decision, and that refusal belongs to the
+  # decision rather than to a crash at the code exchange.
   defp granted_scope(%Request{scope: scope}, checked) do
     requested =
       scope
@@ -225,8 +230,7 @@ defmodule Pesque.OAuth do
         do: granted,
         else: List.delete(granted, "transition:chat.bsky")
 
-    {:ok, joined} = Scopes.validate(Enum.join(granted, " "))
-    joined
+    Scopes.validate(Enum.join(granted, " "))
   end
 
   # Two strings name the same permission when they serialize onto the same
@@ -291,7 +295,10 @@ defmodule Pesque.OAuth do
          :ok <- check_client(row, client_id, :invalid_grant),
          :ok <- check_jkt(row, jkt),
          true <- spend_refresh(row) do
-      issue(row.did, row.client_id, row.scope, jkt, row.session_id)
+      # A refresh recomputes the expansion: the specification says computed
+      # permissions may update. An expired set is still served to an existing
+      # session; only a set that was never resolved at all fails the refresh.
+      issue(row.did, row.client_id, row.scope, jkt, row.session_id, allow_expired: true)
     else
       false -> {:error, :invalid_grant}
       {:error, reason} -> {:error, reason}
@@ -366,11 +373,22 @@ defmodule Pesque.OAuth do
          true <- Jwt.verify_es256(input, signature, pub),
          true <- is_integer(claims["exp"]) and claims["exp"] > System.system_time(:second),
          {:ok, row} <- live_token(claims["jti"]) do
-      {:ok, claims |> Map.put("scope", row.scope) |> Map.put("jkt", row.dpop_jkt)}
+      {:ok,
+       claims
+       |> Map.put("scope", row.scope)
+       |> Map.put("jkt", row.dpop_jkt)
+       |> put_grants(row.grants)}
     else
       _ -> {:error, :invalid_token}
     end
   end
+
+  # A token this build issued carries the exact grant string its expansion
+  # serialized to, fixed for the token's life and read back rather than
+  # recomputed. Rows an older build wrote have none, and their grants are
+  # computed from the scope string, which is all such a token ever had.
+  defp put_grants(claims, grants) when is_binary(grants), do: Map.put(claims, "grants", grants)
+  defp put_grants(claims, _none), do: claims
 
   @doc "The DPoP key an access token is bound to."
   def jkt(claims), do: get_in(claims, ["cnf", "jkt"])
@@ -392,73 +410,84 @@ defmodule Pesque.OAuth do
   defp live_token(_jti), do: {:error, :invalid_token}
 
   # Everything an issued pair needs, in one place, so the code exchange and the
-  # refresh cannot drift apart.
-  defp issue(did, client_id, scope, jkt, session_id) do
-    now = System.system_time(:second)
-    session_id = session_id || random(16)
-    jti = "tok-" <> random(16)
-    refresh = "ref-" <> random(32)
+  # refresh cannot drift apart. `allow_expired: true` is the refresh's answer:
+  # its sets may serve an existing session on the last resolution they ever
+  # got, where an exchange is a new session and takes the strict path.
+  defp issue(did, client_id, scope, jkt, session_id, opts \\ []) do
+    with {:ok, concrete} <- PermissionSets.resolve_and_expand(Grants.parse(scope), opts) do
+      grants = Enum.map_join(concrete, " ", &Permission.serialize/1)
 
-    claims = %{
-      "iss" => Pesque.base_url(),
-      "sub" => did,
-      "aud" => did,
-      "jti" => jti,
-      "iat" => now,
-      "exp" => now + @access_ttl_seconds,
-      "scope" => scope,
-      "client_id" => client_id,
-      "cnf" => %{"jkt" => jkt}
-    }
+      now = System.system_time(:second)
+      session_id = session_id || random(16)
+      jti = "tok-" <> random(16)
+      refresh = "ref-" <> random(32)
 
-    expires_at = DateTime.from_unix!(now + @refresh_ttl_seconds)
-    inserted_at = now()
-    access = Keys.sign(claims)
-
-    rows = [
-      %{
-        # Hashed over the token as it is presented, not over the jti inside it:
-        # revocation looks a token up by this hash, and a caller revoking an
-        # access token holds the signed JWT and nothing else.
-        token_hash: Token.hash(access),
-        jti: jti,
-        kind: Token.access(),
-        did: did,
-        client_id: client_id,
-        scope: scope,
-        dpop_jkt: jkt,
-        session_id: session_id,
-        expires_at: expires_at,
-        inserted_at: inserted_at
-      },
-      %{
-        token_hash: Token.hash(refresh),
-        jti: "rt-" <> random(16),
-        kind: Token.refresh(),
-        did: did,
-        client_id: client_id,
-        scope: scope,
-        dpop_jkt: jkt,
-        session_id: session_id,
-        expires_at: expires_at,
-        inserted_at: inserted_at
+      claims = %{
+        "iss" => Pesque.base_url(),
+        "sub" => did,
+        "aud" => did,
+        "jti" => jti,
+        "iat" => now,
+        "exp" => now + @access_ttl_seconds,
+        "scope" => scope,
+        "client_id" => client_id,
+        "cnf" => %{"jkt" => jkt}
       }
-    ]
 
-    case Repo.insert_all(Token, rows) do
-      {2, _} ->
-        {:ok,
-         %{
-           "access_token" => access,
-           "token_type" => "DPoP",
-           "refresh_token" => refresh,
-           "expires_in" => @access_ttl_seconds,
-           "scope" => scope,
-           "sub" => did
-         }}
+      expires_at = DateTime.from_unix!(now + @refresh_ttl_seconds)
+      inserted_at = now()
+      access = Keys.sign(claims)
 
-      {_count, _} ->
-        {:error, :token_not_stored}
+      rows = [
+        %{
+          # Hashed over the token as it is presented, not over the jti inside it:
+          # revocation looks a token up by this hash, and a caller revoking an
+          # access token holds the signed JWT and nothing else.
+          token_hash: Token.hash(access),
+          jti: jti,
+          kind: Token.access(),
+          did: did,
+          client_id: client_id,
+          scope: scope,
+          grants: grants,
+          dpop_jkt: jkt,
+          session_id: session_id,
+          expires_at: expires_at,
+          inserted_at: inserted_at
+        },
+        %{
+          token_hash: Token.hash(refresh),
+          jti: "rt-" <> random(16),
+          kind: Token.refresh(),
+          did: did,
+          client_id: client_id,
+          scope: scope,
+          # SQLite cannot fill a missing cell from a multi-row insert, and the
+          # refresh row has no expansion of its own: it is spent at use, and
+          # the pair minted then is what recomputes one.
+          grants: nil,
+          dpop_jkt: jkt,
+          session_id: session_id,
+          expires_at: expires_at,
+          inserted_at: inserted_at
+        }
+      ]
+
+      case Repo.insert_all(Token, rows) do
+        {2, _} ->
+          {:ok,
+           %{
+             "access_token" => access,
+             "token_type" => "DPoP",
+             "refresh_token" => refresh,
+             "expires_in" => @access_ttl_seconds,
+             "scope" => scope,
+             "sub" => did
+           }}
+
+        {_count, _} ->
+          {:error, :token_not_stored}
+      end
     end
   end
 

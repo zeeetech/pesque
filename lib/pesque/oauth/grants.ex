@@ -53,9 +53,9 @@ defmodule Pesque.OAuth.Grants do
 
   defp grant_of(scope) do
     case Permission.parse_scope(scope) do
-      # Permission sets are not resolvable yet: a set grant contributes
-      # nothing rather than answering every question yes.
-      {:ok, %Permission{resource: :include}} -> []
+      # An include rides as its own grant and covers nothing directly
+      # (Permission.covers?/2 says so); wherever expansion runs, it is
+      # replaced by the concrete permissions the set stands for.
       {:ok, grant} -> [grant]
       {:error, _reason} -> []
     end
