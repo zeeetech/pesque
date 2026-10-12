@@ -55,6 +55,30 @@ defmodule Pesque.OAuth.GrantsTest do
     assert Grants.parse("atproto atproto") == [%Permission{resource: :atproto}]
   end
 
+  describe "from_session_scope" do
+    # The app-password tier is the transition:generic grant set in effect, not
+    # a parallel one: the same struct parse/1 produces for the scope string the
+    # oauth spec defines as the app-password authorization level, so the same
+    # coverage rules answer for both.
+    test "com.atproto.appPass is the transition:generic grant set" do
+      assert Grants.from_session_scope("com.atproto.appPass") ==
+               Grants.parse("atproto transition:generic")
+    end
+
+    test "the account password and the privileged tier are the full grant" do
+      full = [%Permission{resource: :atproto}]
+
+      assert Grants.from_session_scope("com.atproto.access") == full
+      assert Grants.from_session_scope("com.atproto.appPassPrivileged") == full
+    end
+
+    test "a scope this server never issued contributes nothing" do
+      assert Grants.from_session_scope("com.atproto.refresh") == []
+      assert Grants.from_session_scope("something.else") == []
+      assert Grants.from_session_scope(nil) == []
+    end
+  end
+
   test "the email is visible to atproto, to the email transition, and to account:email" do
     assert Grants.email_visible?(Grants.parse("atproto"))
     assert Grants.email_visible?(Grants.parse("atproto transition:email"))

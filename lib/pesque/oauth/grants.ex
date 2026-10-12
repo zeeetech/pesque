@@ -51,6 +51,22 @@ defmodule Pesque.OAuth.Grants do
 
   def parse(_scope), do: []
 
+  @doc """
+  The grants a legacy session token carries, decided by its scope claim.
+
+  com.atproto.access and the privileged app-password scope are the full
+  grant; com.atproto.appPass is the transition:generic grant set, which the
+  oauth spec defines as the app-password authorization level: records, blobs,
+  preferences, non-chat rpc, and nothing that manages the account, the
+  identity, or the email. Anything else (a scope this server never issued)
+  contributes nothing, the same leniency parse/1 gives an OAuth token.
+  """
+  @spec from_session_scope(binary() | nil) :: [Permission.t()]
+  def from_session_scope("com.atproto.access"), do: [%Permission{resource: :atproto}]
+  def from_session_scope("com.atproto.appPassPrivileged"), do: [%Permission{resource: :atproto}]
+  def from_session_scope("com.atproto.appPass"), do: [%Permission{resource: :transition_generic}]
+  def from_session_scope(_other), do: []
+
   defp grant_of(scope) do
     case Permission.parse_scope(scope) do
       # An include rides as its own grant and covers nothing directly

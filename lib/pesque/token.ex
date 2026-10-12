@@ -22,19 +22,27 @@ defmodule Pesque.Token do
     input <> "." <> b64(:crypto.mac(:hmac, :sha256, secret, input))
   end
 
-  @doc "Verifies signature, expiry, and scope. Returns {:ok, claims} | {:error, :invalid_token}."
-  def verify(token, secret, expected_scope) do
+  @doc """
+  Verifies signature, expiry, and scope. `expected` is one scope or the set
+  a caller accepts. Returns {:ok, claims} | {:error, :invalid_token}.
+  """
+  def verify(token, secret, expected) when is_binary(expected),
+    do: verify(token, secret, [expected])
+
+  def verify(token, secret, expected) when is_list(expected) and expected != [] do
     with {:ok, header, payload, sig64} <- split(token),
          {:ok, sig} <- Base.url_decode64(sig64, padding: false),
          :ok <- verify_mac(header <> "." <> payload, sig, secret),
          {:ok, decoded} <- Base.url_decode64(payload, padding: false),
          {:ok, claims} <- JSON.decode(decoded),
-         :ok <- check_claims(claims, expected_scope) do
+         :ok <- check_claims(claims, expected) do
       {:ok, claims}
     else
       _ -> {:error, :invalid_token}
     end
   end
+
+  def verify(_token, _secret, _expected), do: {:error, :invalid_token}
 
   defp split(token) do
     case String.split(token, ".", parts: 3) do
@@ -53,12 +61,12 @@ defmodule Pesque.Token do
     end
   end
 
-  defp check_claims(%{"scope" => scope, "exp" => exp, "sub" => sub} = _claims, expected_scope)
+  defp check_claims(%{"scope" => scope, "exp" => exp, "sub" => sub} = _claims, expected)
        when is_integer(exp) and is_binary(sub) do
-    if scope == expected_scope and exp > System.system_time(:second), do: :ok, else: :error
+    if scope in expected and exp > System.system_time(:second), do: :ok, else: :error
   end
 
-  defp check_claims(_claims, _expected_scope), do: :error
+  defp check_claims(_claims, _expected), do: :error
 
   defp b64(bin), do: Base.url_encode64(bin, padding: false)
 end

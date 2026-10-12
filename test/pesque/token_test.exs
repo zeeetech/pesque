@@ -54,6 +54,30 @@ defmodule Pesque.TokenTest do
     assert Token.verify(token, @secret, "com.atproto.refresh") == {:error, :invalid_token}
   end
 
+  test "verify accepts a set of scopes and the token's scope inside it" do
+    token = Token.sign(claims(%{"scope" => "com.atproto.appPass"}), @secret)
+
+    assert {:ok, _claims} =
+             Token.verify(token, @secret, [
+               "com.atproto.access",
+               "com.atproto.appPass",
+               "com.atproto.appPassPrivileged"
+             ])
+
+    # A scope outside the set is refused, single-binary form kept working.
+    assert Token.verify(token, @secret, "com.atproto.access") == {:error, :invalid_token}
+
+    assert Token.verify(token, @secret, "com.atproto.appPass") ==
+             {:ok, claims(%{"scope" => "com.atproto.appPass"})}
+  end
+
+  test "verify refuses an empty or non-binary expected set" do
+    token = Token.sign(claims(), @secret)
+
+    assert Token.verify(token, @secret, []) == {:error, :invalid_token}
+    assert Token.verify(token, @secret, nil) == {:error, :invalid_token}
+  end
+
   test "verify rejects a tampered payload" do
     [header, payload, sig] = String.split(Token.sign(claims(), @secret), ".")
     size = byte_size(payload)
