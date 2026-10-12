@@ -28,6 +28,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   alias Pesque.Accounts
   alias Pesque.OAuth
   alias Pesque.OAuth.Permission
+  alias Pesque.OAuth.PermissionSets
   alias PesqueWeb.OAuth.Errors
   alias PesqueWeb.OAuth.Proof
 
@@ -130,7 +131,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     |> put_resp_content_type("text/html")
     |> Errors.no_store()
     |> put_resp_header("content-security-policy", page_csp())
-    |> html(page(request, request_uri))
+    |> html(page(request, request_uri, language(conn)))
   end
 
   # default-src 'none' plus form-action 'self': the page loads nothing and posts
@@ -142,8 +143,10 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   # The scope list is the consent itself: atproto is always granted and is
   # shown as the fixed line the profile describes it by, and every other
   # requested scope is one pre-ticked checkbox the account holder can untick,
-  # named by the sentence the permission grammar writes for it.
-  defp page(request, request_uri) do
+  # named by the sentence the permission grammar writes for it. An include:
+  # names a permission set, so its label is the set's own title and detail and
+  # its expansion is one click away; the checkbox narrows all of it or none.
+  defp page(request, request_uri, lang) do
     """
     <!DOCTYPE html>
     <html lang="en">
@@ -157,7 +160,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
           <h1>Authorize #{escape(request.client_id)}</h1>
           <p>This application is asking to act as you with these scopes:</p>
           <form method="post" action="/oauth/authorize">
-            <ul>#{scope_items(request.scope)}</ul>
+            <ul>#{scope_items(request.scope, lang)}</ul>
             <input type="hidden" name="client_id" value="#{escape(request.client_id)}">
             <input type="hidden" name="request_uri" value="#{escape(request_uri)}">
             <p>
@@ -181,23 +184,23 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     """
   end
 
-  defp scope_items(scope) do
+  defp scope_items(scope, lang) do
     scope
     |> String.split(" ", trim: true)
     |> Enum.uniq()
-    |> Enum.map_join("\n", &scope_item/1)
+    |> Enum.map_join("\n", &scope_item(&1, lang))
   end
 
-  defp scope_item(scope) do
+  defp scope_item(scope, lang) do
     case Permission.parse_scope(scope) do
       {:ok, %Permission{resource: :atproto} = permission} ->
         "<li>#{escape(Permission.describe(permission))}</li>"
 
-      {:ok, permission} ->
-        value = escape(Permission.serialize(permission))
+      {:ok, %Permission{resource: :include} = permission} ->
+        include_item(permission, lang)
 
-        "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
-          "#{escape(Permission.describe(permission))}</label></li>"
+      {:ok, permission} ->
+        checkbox(permission, escape(Permission.describe(permission)))
 
       # A request on this page was validated at PAR, so this reads only as
       # what it is: a scope string this build could not describe.
@@ -205,6 +208,68 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
         "<li>#{escape(scope)}</li>"
     end
   end
+
+  defp include_item(permission, lang) do
+    case PermissionSets.resolve(permission.nsid) do
+      {:ok, document} ->
+        include_block(permission, PermissionSets.set_display(document, lang), document)
+
+      # PAR already resolved this set, so the page is only ever here while
+      # the answer changed under the request; the include's own sentence is
+      # what such a page falls back to.
+      {:error, _reason} ->
+        checkbox(permission, escape(Permission.describe(permission)))
+    end
+  end
+
+  # The set's own title is the checkbox label, its detail sits under it, and
+  # the granular permissions it expands to are folded away until asked for:
+  # the specification wants them visible without making every consent page
+  # scroll for a page and a half. The label carries only the checkbox and its
+  # text; a details block inside one would make opening it tick the box.
+  defp include_block(permission, display, document) do
+    items =
+      permission
+      |> PermissionSets.expand(document)
+      |> Enum.map(&Permission.describe/1)
+      |> Enum.map_join("\n", &"<li>#{escape(&1)}</li>")
+
+    value = escape(Permission.serialize(permission))
+
+    "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
+      "#{escape(display.title)}</label>" <>
+      "<p>#{escape(display.detail)}</p>" <>
+      "<details><summary>What this set grants</summary><ul>#{items}</ul></details>" <>
+      "<p>#{escape(Permission.describe(permission))}</p></li>"
+  end
+
+  defp checkbox(permission, label_html) do
+    value = escape(Permission.serialize(permission))
+
+    "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
+      "#{label_html}</label></li>"
+  end
+
+  # The page answers in the language the browser asked for first, when the
+  # set names that language; everything else is the document's base fields.
+  defp language(conn) do
+    case get_req_header(conn, "accept-language") do
+      [header | _rest] ->
+        header
+        |> String.split(",")
+        |> hd()
+        |> String.split(";")
+        |> hd()
+        |> String.trim()
+        |> language_tag()
+
+      [] ->
+        nil
+    end
+  end
+
+  defp language_tag(""), do: nil
+  defp language_tag(tag), do: tag
 
   # The client_id is attacker-chosen text rendered into a page, and so is the
   # login_hint the flow started with. Neither goes in unescaped.
