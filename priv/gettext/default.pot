@@ -1,0 +1,150 @@
+## This file is a PO Template file.
+##
+## "msgid"s here are often extracted from source code.
+## Add new messages manually only if they're dynamic
+## messages that can't be statically extracted.
+##
+## Run "mix gettext.extract" to bring this file up to
+## date. Leave "msgstr"s empty as changing them here has no
+## effect: edit them in PO (.po) files instead.
+#
+msgid ""
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:38
+#, elixir-autogen, elixir-format
+msgid "A personal data server for the atproto network. It stores an account's records, signs every change and answers the network on its own. Self-hosted, so the data stays where its owner put it."
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:114
+#, elixir-autogen, elixir-format
+msgid "This handle is hosted here, but the account is dormant. Everything below is public."
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:111
+#, elixir-autogen, elixir-format
+msgid "This handle is hosted here. Everything below is public."
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:74
+#, elixir-autogen, elixir-format
+msgid "about this server"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:26
+#, elixir-autogen, elixir-format
+msgid "accounts"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:108
+#, elixir-autogen, elixir-format
+msgid "active"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:70
+#, elixir-autogen, elixir-format
+msgid "atproto account on this server"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:100
+#, elixir-autogen, elixir-format
+msgid "community server"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:62
+#: lib/pesque_web/page_html.ex:96
+#, elixir-autogen, elixir-format
+msgid "did"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:109
+#, elixir-autogen, elixir-format
+msgid "dormant"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:61
+#: lib/pesque_web/page_html.ex:96
+#, elixir-autogen, elixir-format
+msgid "handle"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:28
+#, elixir-autogen, elixir-format
+msgid "handles"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:25
+#, elixir-autogen, elixir-format
+msgid "hostname"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:27
+#: lib/pesque_web/page_html.ex:78
+#, elixir-autogen, elixir-format
+msgid "identity"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:106
+#, elixir-autogen, elixir-format
+msgid "invite only"
+msgstr ""
+
+#: lib/pesque_web/layout.ex:94
+#, elixir-autogen, elixir-format
+msgid "language"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:105
+#, elixir-autogen, elixir-format
+msgid "open"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:40
+#, elixir-autogen, elixir-format
+msgid "open a client"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:37
+#, elixir-autogen, elixir-format
+msgid "personal data server"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:29
+#, elixir-autogen, elixir-format
+msgid "registration"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:99
+#, elixir-autogen, elixir-format
+msgid "single account"
+msgstr ""
+
+#: lib/pesque_web/layout.ex:53
+#, elixir-autogen, elixir-format
+msgid "skip to content"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:63
+#, elixir-autogen, elixir-format
+msgid "status"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:45
+#, elixir-autogen, elixir-format
+msgid "this server"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:30
+#, elixir-autogen, elixir-format
+msgid "version"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:73
+#, elixir-autogen, elixir-format
+msgid "view on bluesky"
+msgstr ""
+
+#: lib/pesque_web/page_html.ex:41
+#, elixir-autogen, elixir-format
+msgid "what is atproto?"
+msgstr ""
