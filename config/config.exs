@@ -9,6 +9,7 @@ config :logger, :default_formatter,
   metadata: [
     :did,
     :handle,
+    :token,
     :route,
     :reason,
     :path,

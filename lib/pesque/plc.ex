@@ -17,6 +17,12 @@ defmodule Pesque.Plc do
   serves it. That is a smaller lie than a row that resolves to nothing, and the
   handle unique index still admits exactly one account.
 
+  A hosted did:plc account moves out through two endpoints this module
+  answers: `request_operation_signature/1` issues the code the spec emails,
+  and `sign_operation/2` spends it on a signed operation built over the
+  stored one. Neither talks to the directory: the signature is the product,
+  and a submitted operation is `submit_operation/2`'s business.
+
   The rotation key is the account's only recovery path and is not recoverable
   from the operation log; see `Pesque.Plc.Keys`.
   """
@@ -26,8 +32,22 @@ defmodule Pesque.Plc do
   alias Pesque.Plc.Directory
   alias Pesque.Plc.Keys
   alias Pesque.Plc.Operation
+  alias Pesque.Plc.Token
   alias Pesque.Repo
   alias Pesque.Secp256k1
+
+  import Ecto.Query
+
+  require Logger
+
+  # The reference PDS gives its emailed code 15 minutes. An operator reading
+  # one out of a log or a CLI hands it over in less, and a short life is the
+  # point: the code authorizes moving the identity.
+  @plc_token_ttl_seconds 15 * 60
+
+  # The fields a signPlcOperation request may replace wholesale. Everything
+  # else the operation carries - type, prev, sig - is not a client's to name.
+  @plc_fields ["rotationKeys", "alsoKnownAs", "verificationMethods", "services"]
 
   @doc "Whether accounts are minted as did:plc."
   def enabled?, do: Pesque.identity() == :plc
@@ -73,7 +93,7 @@ defmodule Pesque.Plc do
   def update_handle(%User{did: did, plc_operation: stored}, handle) do
     with {:ok, prev} <- decode_operation(stored),
          {:ok, rotation_priv} <- load_rotation(did),
-         op = Operation.update(prev, handle, rotation_priv),
+         op = Operation.update(prev, %{"alsoKnownAs" => ["at://" <> handle]}, rotation_priv),
          :ok <- submit(did, op) do
       {:ok, JSON.encode!(op)}
     end
@@ -151,6 +171,177 @@ defmodule Pesque.Plc do
       {:ok, %{pub: pub}} -> {:ok, [Did.key_did(pub)]}
       {:error, reason} -> {:error, {:rotation_key_unreadable, reason}}
     end
+  end
+
+  @doc """
+  Issues the single-use token `sign_operation/2` spends.
+
+  The lexicon emails this code to the account holder. There is no mail here
+  and no email dependency, so the code goes to the operator instead: it is
+  logged (the `token` metadata, info level) and mintable again through
+  `pesque account plc-token`. A self-hosted PDS's account holder is its
+  operator, which is the assumption the email flow stood on. Unlike the
+  deletion token it is not answered in the response body: the code has to
+  reach a human, and a body is read by the client library that asked, which
+  has nowhere to put it. The log and the CLI are where the operator already
+  works.
+
+  The token is stored hashed, expires in 15 minutes, and is single use: the
+  conditional update that spends it means two callers racing with one code
+  produce one signature and one refusal.
+
+  Answers `{:ok, %{token:, expires_at:}}` or `{:error, reason}`.
+  """
+  def request_operation_signature(%User{did: "did:plc:" <> _} = user) do
+    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+
+    expires_at =
+      DateTime.shift(DateTime.utc_now(), second: @plc_token_ttl_seconds)
+      |> DateTime.truncate(:second)
+
+    attrs = %{
+      token_hash: Token.hash_token(token),
+      did: user.did,
+      expires_at: expires_at
+    }
+
+    case Token.changeset(attrs) |> Repo.insert() do
+      {:ok, _row} ->
+        Logger.info("plc operation token issued", did: user.did, token: token)
+        {:ok, %{token: token, expires_at: expires_at}}
+
+      {:error, _changeset} ->
+        {:error, :plc_token_failed}
+    end
+  end
+
+  def request_operation_signature(%User{}), do: {:error, :not_a_plc_account}
+
+  @doc """
+  Signs a PLC operation over the account's stored one.
+
+  The fields the request names replace the stored operation's own; anything
+  absent carries forward, so a request naming only what changes signs a
+  minimal operation. The moved-out credentials, which a client takes from the
+  destination PDS's `getRecommendedDidCredentials`, arrive as the replacement
+  values. `prev` points at the stored operation's CID and the signature is
+  the account's rotation key's, the pair the directory will check. The signed
+  operation is returned, not submitted and not stored: until the directory
+  accepts it, nothing here has changed.
+
+  The request is valid in shapes only, the way `submit_operation/2`'s checks
+  match shapes: a malformed field is refused, and the endpoint, signing key
+  and handle in the fields are the client's business, because the operation
+  this signs is the one that moves the account somewhere else. An empty
+  request is an error, not a re-signature of the stored operation: there is
+  no token to spend, and the token is what keeps a signature from being
+  minted by accident.
+
+  Answers `{:ok, operation}` or `{:error, reason}`.
+  """
+  def sign_operation(%User{did: "did:plc:" <> _} = user, input) do
+    with {:ok, token, patches} <- read_input(input),
+         {:ok, row} <- fetch_token(user.did, token),
+         {:ok, prev} <- decode_operation(user.plc_operation),
+         {:ok, rotation_priv} <- load_rotation(user.did) do
+      op = Operation.update(prev, patches, rotation_priv)
+
+      if spend_token(row), do: {:ok, op}, else: {:error, :invalid_token}
+    end
+  end
+
+  def sign_operation(%User{}, _input), do: {:error, :not_a_plc_account}
+
+  defp read_input(input) when is_map(input) do
+    with {:ok, patches} <- patches(input),
+         {:ok, token} <- input_token(input) do
+      {:ok, token, patches}
+    end
+  end
+
+  defp read_input(_input), do: {:error, :plc_operation_invalid}
+
+  # Only the operation's own fields are patched, so a field of the wrong shape
+  # is refused rather than signed into the document. An explicit null is
+  # absent, the way the reference PDS reads one.
+  defp patches(input) do
+    with :ok <- field_shapes(input) do
+      {:ok, input |> Map.take(@plc_fields) |> Map.reject(fn {_key, value} -> is_nil(value) end)}
+    end
+  end
+
+  defp field_shapes(input) do
+    with :ok <- string_list(input, "rotationKeys"),
+         :ok <- string_list(input, "alsoKnownAs"),
+         :ok <- object(input, "verificationMethods"),
+         :ok <- object(input, "services") do
+      :ok
+    end
+  end
+
+  defp string_list(input, key) do
+    case Map.fetch(input, key) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, values} when is_list(values) ->
+        if Enum.all?(values, &is_binary/1), do: :ok, else: {:error, :plc_operation_invalid}
+
+      {:ok, _other} ->
+        {:error, :plc_operation_invalid}
+
+      :error ->
+        :ok
+    end
+  end
+
+  defp object(input, key) do
+    case Map.fetch(input, key) do
+      {:ok, nil} -> :ok
+      {:ok, value} when is_map(value) -> :ok
+      {:ok, _other} -> {:error, :plc_operation_invalid}
+      :error -> :ok
+    end
+  end
+
+  # The token is the one request_operation_signature issued. A missing or
+  # non-string one is the same "you have no code" answer, which is also what
+  # an empty request becomes.
+  defp input_token(%{"token" => token}) when is_binary(token) and token != "",
+    do: {:ok, token}
+
+  defp input_token(_input), do: {:error, :plc_token_required}
+
+  # Expiry is answered separately from validity, the way the deletion token's
+  # is: a client told ExpiredToken asks for a new code instead of guessing
+  # whether the one it holds is merely wrong.
+  defp fetch_token(did, token) do
+    case Repo.get_by(Token, token_hash: Token.hash_token(token)) do
+      nil -> {:error, :invalid_token}
+      %Token{did: ^did, used_at: nil} = row -> check_not_expired(row)
+      %Token{} -> {:error, :invalid_token}
+    end
+  end
+
+  defp check_not_expired(%Token{expires_at: expires_at} = row) do
+    if DateTime.before?(expires_at, DateTime.utc_now()) do
+      {:error, :expired_token}
+    else
+      {:ok, row}
+    end
+  end
+
+  # Single use is a conditional update, not a read followed by a write, for
+  # the reason the deletion token gives: two callers holding one code both
+  # read it unused, and only the one whose update matches a row proceeds.
+  defp spend_token(%Token{id: id}) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    {count, _} =
+      from(t in Token, where: t.id == ^id and is_nil(t.used_at))
+      |> Repo.update_all(set: [used_at: now])
+
+    count == 1
   end
 
   @doc """

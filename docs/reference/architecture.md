@@ -152,6 +152,7 @@ data/
 │   ├── meta               key, value                              (root:, rev:, commit:, tid_int: per DID)
 │   ├── refresh_tokens     hashed token, jti, did, expires_at
 │   ├── account_deletion_tokens  hashed token, did, expires_at
+│   ├── plc_operation_tokens     hashed token, did, expires_at
 │   ├── invite_codes       code, use_count, uses, used_by
 │   ├── oauth_requests     hashed request_uri, code, client, DPoP jkt
 │   └── oauth_tokens       hashed token, jti, kind, session_id

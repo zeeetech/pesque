@@ -75,8 +75,12 @@ what to fall back to when something in the task does not fit.
   `alsoKnownAs`. Publish the record first or the import is refused.
 - The old PDS holds the rotation key during the move. The new PDS mints its own
   and returns it in the recommended credentials.
-- `signPlcOperation` and `requestPlcOperationSignature` are not implemented on
-  this server; the old PDS signs the operation in step 6.
+- The old PDS signs the operation in step 6, because it holds the rotation key.
+  This server implements the same two endpoints for the move in the other
+  direction (an account moving out); there, the code
+  `requestPlcOperationSignature` issues reaches the server's operator through
+  the log or `pesque account plc-token`, not an inbox. See
+  [Operations](operations.md).
 - Migrating off `bsky.social` is one-way. Once the PLC operation lands, the old
   PDS no longer controls the identity.
 

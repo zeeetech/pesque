@@ -34,15 +34,18 @@ defmodule Pesque.Plc.Operation do
   end
 
   @doc """
-  A signed update operation pointing at `prev_op`.
+  A signed update operation pointing at `prev_op`, carrying `patches` over it.
 
-  The fields carried forward are the previous operation's, with the handle
-  replaced and `prev` set to the CID of the previous signed operation.
+  The fields carried forward are the previous operation's, with each field in
+  `patches` replaced and `prev` set to the CID of the previous signed
+  operation. A patch key is one of the operation's own fields ("rotationKeys",
+  "alsoKnownAs", "verificationMethods", "services"); anything absent carries
+  forward unchanged.
   """
-  @spec update(t(), String.t(), binary()) :: t()
-  def update(prev_op, handle, rotation_priv) do
+  @spec update(t(), map(), binary()) :: t()
+  def update(prev_op, patches, rotation_priv) do
     prev_op
-    |> carry_forward(handle)
+    |> carry_forward(patches)
     |> Map.put("prev", cid(prev_op))
     |> sign(rotation_priv)
   end
@@ -91,9 +94,10 @@ defmodule Pesque.Plc.Operation do
     op |> CBOR.encode() |> CID.from_data() |> CID.to_string()
   end
 
-  defp carry_forward(prev_op, handle) do
+  defp carry_forward(prev_op, patches) do
     prev_op
     |> Map.take(["type", "rotationKeys", "verificationMethods", "services"])
-    |> Map.put("alsoKnownAs", ["at://" <> handle])
+    |> Map.put("alsoKnownAs", Map.get(prev_op, "alsoKnownAs", []))
+    |> Map.merge(patches)
   end
 end

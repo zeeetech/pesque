@@ -139,6 +139,15 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.server.activateAccount", SessionController, :activate_account
     post "/com.atproto.identity.updateHandle", IdentityController, :update_handle
     post "/com.atproto.identity.submitPlcOperation", IdentityController, :submit_plc_operation
+
+    # The moving-out half of the same story: this server holds the rotation
+    # key, so it is the one that signs the operation carrying the account's
+    # next credentials, gated on the code request above hands out.
+    post "/com.atproto.identity.requestPlcOperationSignature",
+         IdentityController,
+         :request_plc_operation_signature
+
+    post "/com.atproto.identity.signPlcOperation", IdentityController, :sign_plc_operation
   end
 
   # Behind :admin as well as :auth_account, because on this server it is also

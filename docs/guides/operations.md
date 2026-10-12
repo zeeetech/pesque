@@ -84,6 +84,14 @@ Secrets are `0600` and `keys/` is `0700`; the data directory takes your umask.
 - `com.atproto.server.deleteAccount` is two-step: `requestAccountDelete` returns
   a token in the body (no email is sent), then `deleteAccount` spends it with the
   password. Rows, blocks, blobs and keys go; firehose events stay.
+- `com.atproto.identity.requestPlcOperationSignature` /
+  `signPlcOperation` move a hosted `did:plc` account out. The spec emails the
+  code to the account holder; there is no mail here, so the code reaches the
+  operator instead: it is logged when a client asks, and `pesque account
+  plc-token --did D | --handle H` mints another on demand. It is good for 15
+  minutes and single use; `signPlcOperation` spends it. The signed operation is
+  the answer, not a submission: hand it to the client, which submits it to the
+  PLC directory or to the PDS the account is moving to.
 - `com.atproto.server.createInviteCodes` mints codes, operator-only (see below).
 
 ## Replace the legal pages

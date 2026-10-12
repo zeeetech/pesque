@@ -65,7 +65,7 @@ defmodule Pesque.Plc.OperationTest do
     assert genesis["prev"] == nil
     assert genesis["alsoKnownAs"] == ["at://alice.test"]
 
-    update = Operation.update(genesis, "bob.test", rotation_priv)
+    update = Operation.update(genesis, %{"alsoKnownAs" => ["at://bob.test"]}, rotation_priv)
 
     assert update["prev"] == Operation.cid(genesis)
     assert update["alsoKnownAs"] == ["at://bob.test"]
@@ -78,6 +78,44 @@ defmodule Pesque.Plc.OperationTest do
                "endpoint" => "https://pds.example.com"
              }
            }
+  end
+
+  # The patch semantics signPlcOperation leans on: the fields the request
+  # names replace the stored operation's, the rest carry forward, and the
+  # result is a signed operation the directory will check against the
+  # previous one.
+  test "an update patches the named fields and carries the rest forward" do
+    {rotation_pub, rotation_priv} = Secp256k1.generate_keypair()
+    {repo_pub, _repo_priv} = Secp256k1.generate_keypair()
+
+    attrs = %{
+      signing_key: Did.key_did(repo_pub),
+      rotation_keys: [Did.key_did(rotation_pub)],
+      handle: "alice.test",
+      pds: "https://pds.example.com"
+    }
+
+    {genesis, _did} = Operation.genesis(attrs, rotation_priv)
+
+    update =
+      Operation.update(
+        genesis,
+        %{
+          "services" => %{
+            "atproto_pds" => %{
+              "type" => "AtprotoPersonalDataServer",
+              "endpoint" => "https://elsewhere.example"
+            }
+          }
+        },
+        rotation_priv
+      )
+
+    assert update["prev"] == Operation.cid(genesis)
+    assert update["alsoKnownAs"] == genesis["alsoKnownAs"]
+    assert update["rotationKeys"] == genesis["rotationKeys"]
+    assert update["verificationMethods"] == genesis["verificationMethods"]
+    assert update["services"]["atproto_pds"]["endpoint"] == "https://elsewhere.example"
   end
 
   test "the plc document is keyed by the stored DID, not a derived one" do

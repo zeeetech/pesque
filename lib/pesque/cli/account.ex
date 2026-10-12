@@ -1,12 +1,13 @@
 defmodule Pesque.Cli.Account do
   @moduledoc """
   The account verbs, wired straight to the domain: create, list, delete,
-  takedown, activate and reset-password.
+  takedown, activate, reset-password and plc-token.
   """
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.Cli.Input
+  alias Pesque.Plc
   alias Pesque.Release
   alias Pesque.RepoStore
 
@@ -19,6 +20,7 @@ defmodule Pesque.Cli.Account do
     takedown --did D | --handle H
     activate --did D | --handle H
     reset-password --did D | --handle H
+    plc-token --did D | --handle H
 
   Input order is the flag, then the conventional environment
   (ACCOUNT_HANDLE, ACCOUNT_EMAIL, ACCOUNT_PASSWORD), then a prompt.
@@ -123,6 +125,22 @@ defmodule Pesque.Cli.Account do
          {:ok, user} <- resolve(identifier),
          :ok <- Accounts.reset_password(user, password) do
       IO.puts("password updated for #{user.handle || user.did}; every session it held is revoked")
+      :ok
+    end
+  end
+
+  # The code the spec emails the account holder. On a server with no mail it
+  # reaches the operator through the log or here, and it is what
+  # signPlcOperation spends.
+  def run(["plc-token" | argv]) do
+    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+         {:ok, identifier} <- identifier(opts),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier),
+         {:ok, %{token: token, expires_at: expires_at}} <- Plc.request_operation_signature(user) do
+      IO.puts("plc operation token for #{user.did}: #{token}")
+      IO.puts("expires at #{DateTime.to_iso8601(expires_at)}; single use,")
+      IO.puts("then request another. signPlcOperation spends it.")
       :ok
     end
   end

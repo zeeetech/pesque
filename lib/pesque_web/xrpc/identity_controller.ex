@@ -101,6 +101,32 @@ defmodule PesqueWeb.Xrpc.IdentityController do
     Xrpc.error(conn, 400, "InvalidRequest", "missing required param: operation")
   end
 
+  # The lexicon says the code reaches the account holder by email. There is no
+  # mail here and no email dependency: on a self-hosted PDS the account holder
+  # is the operator, so the code is logged for them and mintable again through
+  # `pesque account plc-token`. Unlike the deletion token it is not answered in
+  # the body, since nothing on the server waits on it and the operator reads it
+  # where they already work. The lexicon declares no output, so the answer is
+  # the empty object.
+  def request_plc_operation_signature(conn, _params) do
+    case Plc.request_operation_signature(conn.assigns.current_user) do
+      {:ok, _issued} -> json(conn, %{})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  # The signature is the whole point of this endpoint: the account is moving
+  # out, so the operation it signs names whatever host it is moving to, and
+  # the only thing this server checks before signing is that the request is a
+  # well-shaped patch over the stored operation, paid for with the code
+  # requestPlcOperationSignature issued.
+  def sign_plc_operation(conn, params) do
+    case Plc.sign_operation(conn.assigns.current_user, params) do
+      {:ok, operation} -> json(conn, %{"operation" => operation})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
   # The server's own names answer with the server's own DID, which is not the
   # same question as an account's handle: it is the host-level identity the
   # /.well-known/did.json beside this endpoint publishes.

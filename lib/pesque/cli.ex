@@ -55,6 +55,7 @@ defmodule Pesque.Cli do
       account takedown --did D | --handle H
       account activate --did D | --handle H
       account reset-password --did D | --handle H
+      account plc-token --did D | --handle H
       invite create [--count N] [--uses N] [--for DID]
       migrate --old-pds URL --handle H --email E [--plc-token T]
       doctor

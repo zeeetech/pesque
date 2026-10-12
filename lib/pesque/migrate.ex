@@ -8,10 +8,11 @@ defmodule Pesque.Migrate do
   submission all happen here. Only the old PDS is spoken to over HTTP, through
   the `Pesque.Migrate.OldPds` client.
 
-  The move stops at the identity step by design. This server does not implement
-  `signPlcOperation` or `requestPlcOperationSignature`, so the old PDS signs the
-  operation that carries the recommended credentials (on `bsky.social` that
-  needs a code emailed to the account holder), and this side submits it.
+  The signing stays with the old PDS: it holds the rotation key, so it signs
+  the operation that carries the recommended credentials, and this side
+  submits it. On `bsky.social` the old PDS emails a code to the account
+  holder; on a pesque old PDS the code is surfaced to that server's operator
+  instead (see `docs/guides/operations.md`).
   """
 
   alias Pesque.Accounts

@@ -72,6 +72,12 @@ defmodule Pesque.Release do
       :account_not_updated ->
         "the account row could not be updated"
 
+      :plc_token_failed ->
+        "a plc operation token could not be issued"
+
+      :not_a_plc_account ->
+        "that account is not a did:plc identity, and only those move through the PLC"
+
       :no_input ->
         "nothing was read from the prompt; run this where the question can be answered, " <>
           "or pass the value by flag or environment"

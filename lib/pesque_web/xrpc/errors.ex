@@ -171,6 +171,16 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:deletion_token_failed),
     do: {500, "InternalServerError", "a deletion token could not be issued"}
 
+  # A did:plc account moving out needs this server to sign the operation, and
+  # the signature is gated on the code requestPlcOperationSignature issued.
+  # An unknown, spent or foreign code is the same refusal the deletion token
+  # gives; a missing one names the step the caller skipped.
+  def to_xrpc(:plc_token_required),
+    do: {400, "InvalidRequest", "a plc operation token is required; request one first"}
+
+  def to_xrpc(:plc_token_failed),
+    do: {500, "InternalServerError", "a plc operation token could not be issued"}
+
   def to_xrpc(:session_not_issued),
     do: {500, "InternalServerError", "the session could not be issued"}
 
