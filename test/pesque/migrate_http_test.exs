@@ -7,11 +7,32 @@ defmodule Pesque.Migrate.HttpTest do
   reads to the account's own host, and the sign call moved out of the `server`
   namespace. So these drive `Pesque.Migrate.Http` itself, at the socket, and
   assert the request line it actually sends.
+
+  The transport is `Pesque.Migrate.TestTransport` rather than the
+  `Pesque.OAuth.Fetch` production uses, because the guard refuses a loopback
+  address and a throwaway server can only be on one. What is under test is the
+  client's own wire: the request line, the paging, and the redirect it follows.
   """
 
   use ExUnit.Case, async: false
 
   alias Pesque.Migrate.Http
+
+  setup do
+    previous = Application.get_env(:pesque, :migrate_fetch)
+    Application.put_env(:pesque, :migrate_fetch, Pesque.Migrate.TestTransport)
+    ExUnit.Callbacks.on_exit(fn -> restore(previous) end)
+    :ok
+  end
+
+  test "the default transport is the hardened one, so a plain address is refused" do
+    Application.delete_env(:pesque, :migrate_fetch)
+
+    # http rather than https, so the scheme check refuses it before any lookup
+    # or request: a URL a stranger names cannot reach this server's own network.
+    assert {:error, {:old_pds_unreachable, _reason}} =
+             Http.get_repo("http://169.254.169.254", "jwt", "did:plc:example")
+  end
 
   test "list_blobs reads every page, not just the first" do
     base =
@@ -146,4 +167,7 @@ defmodule Pesque.Migrate.HttpTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  defp restore(nil), do: Application.delete_env(:pesque, :migrate_fetch)
+  defp restore(previous), do: Application.put_env(:pesque, :migrate_fetch, previous)
 end

@@ -317,26 +317,38 @@ end
 
 defmodule Pesque.Migrate.Http do
   @moduledoc """
-  The real old-PDS client, over `:httpc`.
+  The real old-PDS client.
 
-  The same shape as `Pesque.Doctor` and `Pesque.OAuth.Fetch`: `:inets` and
-  `:ssl` rather than a client library, TLS verified, and binary bodies. A read
-  follows redirects, because `bsky.social` answers a sync read with a 302 to the
-  account's own PDS host; a write does not. Every failure is an
-  `{:error, reason}` tuple, never a raise.
+  The old PDS is a URL the account holder names, so it is fetched the way every
+  other stranger-named URL is: `Pesque.OAuth.Fetch` is the transport, which is
+  https only, TLS verified, refuses a private or loopback address, and caps the
+  response. What differs is redirects: `bsky.social` answers a sync read with a
+  302 to the account's own PDS host, and the guard will not follow one, because
+  a redirect is a second URL. So the hop is followed here, and every hop goes
+  back through the transport, which checks its address the way it checked the
+  first.
 
   `createSession` and `signPlcOperation` post JSON and decode a field from the
   answer; the `sync.*` reads take binary bodies, and `getBlob` also reads the
   response's content type. `requestPlcOperationSignature` takes no input, so it
   posts an empty body: the endpoint rejects even `{}`. Bearer auth is sent where
   a token is passed; `getBlob` is public on the old PDS, so its callback takes
-  no token.
+  no token. Every failure is an `{:error, reason}` tuple, never a raise.
   """
 
   @behaviour Pesque.Migrate.OldPds
 
   @connect_timeout 5_000
   @timeout 30_000
+
+  # The JSON answers are small. The two reads that are not are capped by the
+  # number the matching write side accepts, so a read cannot pull in more than an
+  # import or an upload would take.
+  @json_max_bytes 1_048_576
+
+  # A read follows redirects, and a chain is a second URL each time, so it is
+  # bounded.
+  @max_redirects 5
 
   @impl true
   def create_session(base_url, handle, password) do
@@ -353,7 +365,10 @@ defmodule Pesque.Migrate.Http do
   def get_repo(base_url, access_jwt, did) do
     path = "/xrpc/com.atproto.sync.getRepo?did=" <> encode(did)
 
-    with {:ok, _headers, body} <- get(base_url, path, access_jwt) do
+    # The whole repo arrives as one CAR, so the read is capped by what an import
+    # would take rather than by the small JSON bound.
+    with {:ok, _headers, body} <-
+           get(base_url, path, access_jwt, Pesque.repo_import_max_bytes()) do
       {:ok, body}
     end
   end
@@ -369,7 +384,7 @@ defmodule Pesque.Migrate.Http do
   defp pages(base_url, access_jwt, did, cursor, acc) do
     path = "/xrpc/com.atproto.sync.listBlobs?did=" <> encode(did) <> cursor_query(cursor)
 
-    with {:ok, _headers, body} <- get(base_url, path, access_jwt),
+    with {:ok, _headers, body} <- get(base_url, path, access_jwt, @json_max_bytes),
          {:ok, cids, next} <- blob_page(body) do
       acc = [cids | acc]
 
@@ -387,7 +402,7 @@ defmodule Pesque.Migrate.Http do
   def get_blob(base_url, did, cid) do
     path = "/xrpc/com.atproto.sync.getBlob?did=#{encode(did)}&cid=#{encode(cid)}"
 
-    with {:ok, headers, body} <- get(base_url, path, nil) do
+    with {:ok, headers, body} <- get(base_url, path, nil, Pesque.blob_max_bytes()) do
       {:ok, body, content_type(headers)}
     end
   end
@@ -458,53 +473,114 @@ defmodule Pesque.Migrate.Http do
   end
 
   defp post(base_url, path, access_jwt, body) do
-    request(:post, url(base_url, path), headers(access_jwt), ~c"application/json", body)
+    request(
+      :post,
+      url(base_url, path),
+      headers(access_jwt),
+      "application/json",
+      body,
+      @json_max_bytes
+    )
   end
 
   # An endpoint whose lexicon declares no input rejects any body, even `{}`
   # ("A request body was provided when none was expected"), so this posts one
   # that is empty.
   defp post(base_url, path, access_jwt) do
-    request(:post, url(base_url, path), headers(access_jwt), ~c"application/json", [])
+    request(
+      :post,
+      url(base_url, path),
+      headers(access_jwt),
+      "application/json",
+      [],
+      @json_max_bytes
+    )
   end
 
-  defp get(base_url, path, access_jwt) do
-    request(:get, url(base_url, path), headers(access_jwt), nil, nil)
+  defp get(base_url, path, access_jwt, max_bytes) do
+    request(:get, url(base_url, path), headers(access_jwt), nil, nil, max_bytes)
   end
 
-  defp request(method, url, headers, content_type, body) do
+  defp request(method, url, headers, content_type, body, max_bytes) do
     {:ok, _} = Application.ensure_all_started(:inets)
     {:ok, _} = Application.ensure_all_started(:ssl)
 
-    request =
-      case method do
-        :get -> {String.to_charlist(url), headers}
-        :post -> {String.to_charlist(url), headers, content_type, body}
-      end
+    follow(method, url, headers, content_type, body, max_bytes, 0)
+  end
 
-    # bsky.social answers a sync read with a 302 to the account's own PDS host
-    # (`puffball.us-east.host.bsky.network` and friends), which then serves the
-    # bytes. So a GET follows redirects; a write does not, since bsky proxies
-    # the session and identity calls rather than redirecting them.
-    options = [
-      connect_timeout: @connect_timeout,
-      timeout: @timeout,
-      ssl: ssl_options(),
-      autoredirect: method == :get
-    ]
+  # bsky.social answers a sync read with a 302 to the account's own PDS host
+  # (`puffball.us-east.host.bsky.network` and friends), which then serves the
+  # bytes. So a GET follows redirects; a write does not, since bsky proxies the
+  # session and identity calls rather than redirecting them.
+  #
+  # Every hop goes back through the transport, so the scheme and the address of
+  # each one are checked the way the first was. Following the redirect inside
+  # `:httpc` was the guard bypassed: a redirect is a second URL, and where it
+  # pointed was never looked at.
+  defp follow(:get, url, headers, content_type, body, max_bytes, hops)
+       when hops < @max_redirects do
+    case hop(:get, url, headers, content_type, body, max_bytes) do
+      {:redirect, location} ->
+        follow(:get, absolute(url, location), headers, content_type, body, max_bytes, hops + 1)
 
-    case :httpc.request(method, request, options, body_format: :binary) do
-      {:ok, {{_version, status, _reason}, response_headers, response_body}}
-      when status in 200..299 ->
-        {:ok, response_headers, IO.iodata_to_binary(response_body)}
+      answer ->
+        answer
+    end
+  end
 
-      {:ok, {{_version, status, _reason}, _headers, body}} ->
-        {:error, old_pds_status(status, IO.iodata_to_binary(body))}
+  defp follow(:get, _url, _headers, _content_type, _body, _max_bytes, _hops),
+    do: {:error, {:old_pds_unreachable, :too_many_redirects}}
+
+  defp follow(:post, url, headers, content_type, body, max_bytes, _hops) do
+    case hop(:post, url, headers, content_type, body, max_bytes) do
+      {:redirect, location} -> {:error, {:old_pds_status, 302, location}}
+      answer -> answer
+    end
+  end
+
+  defp hop(method, url, headers, content_type, body, max_bytes) do
+    sent = if content_type, do: [{"content-type", content_type} | headers], else: headers
+
+    case transport().request(
+           URI.parse(url),
+           method,
+           sent,
+           body,
+           max_bytes: max_bytes,
+           connect_timeout: @connect_timeout,
+           timeout: @timeout
+         ) do
+      {:ok, status, response_headers, response_body} when status in 200..299 ->
+        {:ok, response_headers, response_body}
+
+      {:ok, status, response_headers, response_body} when status in 300..399 ->
+        case location(response_headers) do
+          location when is_binary(location) -> {:redirect, location}
+          _none -> {:error, old_pds_status(status, response_body)}
+        end
+
+      {:ok, status, _response_headers, response_body} ->
+        {:error, old_pds_status(status, response_body)}
 
       {:error, reason} ->
         {:error, {:old_pds_unreachable, reason}}
     end
   end
+
+  # A redirect's target is resolved against the URL that answered, so a relative
+  # Location is followed to the right host.
+  defp absolute(url, location), do: url |> URI.parse() |> URI.merge(location) |> URI.to_string()
+
+  defp location(headers) do
+    Enum.find_value(headers, fn {name, value} ->
+      if String.downcase(name) == "location", do: value
+    end)
+  end
+
+  # The hardened client, injectable the way the entryway injects its own. A test
+  # that drives this module at the socket needs a transport that will speak to a
+  # throwaway server on loopback, which the guard refuses by design.
+  defp transport, do: Application.get_env(:pesque, :migrate_fetch, Pesque.OAuth.Fetch)
 
   # The old PDS reports an XRPC failure as {"error": ..., "message": ...}. Carry
   # the server's own message so a failed step names the reason instead of a bare
@@ -522,8 +598,7 @@ defmodule Pesque.Migrate.Http do
 
   defp headers(nil), do: []
 
-  defp headers(token),
-    do: [{~c"authorization", String.to_charlist("Bearer " <> token)}]
+  defp headers(token), do: [{"authorization", "Bearer " <> token}]
 
   defp content_type(headers) do
     Enum.find_value(headers, "application/octet-stream", fn {name, value} ->
@@ -534,15 +609,4 @@ defmodule Pesque.Migrate.Http do
   defp url(base_url, path), do: String.trim_trailing(base_url, "/") <> path
 
   defp encode(value), do: URI.encode_www_form(value)
-
-  defp ssl_options do
-    [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      depth: 3,
-      customize_hostname_check: [
-        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-      ]
-    ]
-  end
 end
