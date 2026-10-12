@@ -12,10 +12,12 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   argon2 work a session login does. A successful login here is not a session:
   it authorizes one request and grants nothing that outlives the code.
 
-  The page is plain HTML built here rather than through a view, because this
-  project has no template layer and a login form does not need one. It is
-  served with a CSP that permits exactly what it uses: a form posting to this
-  origin, no script, no framing.
+  The page is built here rather than through a view layer, like the rest of the
+  browser surface: the shell is `PesqueWeb.Layout`, the body is the consent
+  form, and the language is whatever `PesqueWeb.Plugs.SetLocale` resolved for
+  the request, the same locale the permission sets are shown in. It is served
+  with a CSP that permits the stylesheet and a form posting to this origin and
+  nothing else: no script, no framing.
 
   The scope list is shown because the spec requires the approval prompt to
   identify the client and describe what was asked for, and the full client_id
@@ -24,11 +26,16 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   """
 
   use Phoenix.Controller, formats: [:html, :json]
+  use Gettext, backend: PesqueWeb.Gettext
+
+  import PesqueWeb.HTML, only: [escape: 1]
 
   alias Pesque.Accounts
   alias Pesque.OAuth
   alias Pesque.OAuth.Permission
   alias Pesque.OAuth.PermissionSets
+  alias PesqueWeb.Csp
+  alias PesqueWeb.Layout
   alias PesqueWeb.OAuth.Errors
   alias PesqueWeb.OAuth.Proof
 
@@ -127,18 +134,22 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   # The response must never be cached: a cached login page would carry a
   # request_uri nobody may replay.
   defp render_page(conn, request, request_uri) do
+    html =
+      Layout.render(
+        gettext("sign in to authorize"),
+        page(request, request_uri, conn.assigns.lang),
+        locale: conn.assigns.locale,
+        locale_hrefs: conn.assigns.locale_hrefs,
+        home: "/",
+        year: Date.utc_today().year
+      )
+
     conn
     |> put_resp_content_type("text/html")
     |> Errors.no_store()
-    |> put_resp_header("content-security-policy", page_csp())
-    |> html(page(request, request_uri, language(conn)))
+    |> put_resp_header("content-security-policy", Csp.consent())
+    |> html(html)
   end
-
-  # default-src 'none' plus form-action 'self': the page loads nothing and posts
-  # to this origin, and a login form that could post anywhere else is a
-  # credential forward.
-  defp page_csp,
-    do: "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
   # The scope list is the consent itself: atproto is always granted and is
   # shown as the fixed line the profile describes it by, and every other
@@ -148,39 +159,29 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   # its expansion is one click away; the checkbox narrows all of it or none.
   defp page(request, request_uri, lang) do
     """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Sign in to authorize</title>
-      </head>
-      <body>
-        <main>
-          <h1>Authorize #{escape(request.client_id)}</h1>
-          <p>This application is asking to act as you with these scopes:</p>
-          <form method="post" action="/oauth/authorize">
-            <ul>#{scope_items(request.scope, lang)}</ul>
-            <input type="hidden" name="client_id" value="#{escape(request.client_id)}">
-            <input type="hidden" name="request_uri" value="#{escape(request_uri)}">
-            <p>
-              <label for="identifier">Handle or email</label>
-              <input id="identifier" name="identifier" type="text" autocomplete="username"\
-             value="#{escape(request.login_hint)}" required>
-            </p>
-            <p>
-              <label for="password">Password</label>
-              <input id="password" name="password" type="password"\
-             autocomplete="current-password" required>
-            </p>
-            <p>
-              <button type="submit" name="decision" value="approve">Authorize</button>
-              <button type="submit" name="decision" value="deny">Cancel</button>
-            </p>
-          </form>
-        </main>
-      </body>
-    </html>
+    <section class="hero">
+      <p class="eyebrow">// oauth</p>
+      <h1>#{gettext("authorize")}</h1>
+      <p class="pitch">#{gettext("This application is asking to act as you with these scopes:")}</p>
+      <p class="client">#{escape(request.client_id)}</p>
+    </section>
+    <form class="consent" method="post" action="/oauth/authorize">
+      <ul class="scopes">#{scope_items(request.scope, lang)}</ul>
+      <input type="hidden" name="client_id" value="#{escape(request.client_id)}">
+      <input type="hidden" name="request_uri" value="#{escape(request_uri)}">
+      <div class="field">
+        <label for="identifier">#{gettext("Handle or email")}</label>
+        <input id="identifier" name="identifier" type="text" autocomplete="username" value="#{escape(request.login_hint)}" required>
+      </div>
+      <div class="field">
+        <label for="password">#{gettext("Password")}</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="actions">
+        <button class="btn primary" type="submit" name="decision" value="approve">#{gettext("Authorize")}</button>
+        <button class="btn" type="submit" name="decision" value="deny">#{gettext("Cancel")}</button>
+      </div>
+    </form>
     """
   end
 
@@ -239,7 +240,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
       "#{escape(display.title)}</label>" <>
       "<p>#{escape(display.detail)}</p>" <>
-      "<details><summary>What this set grants</summary><ul>#{items}</ul></details>" <>
+      "<details><summary>#{gettext("What this set grants")}</summary><ul>#{items}</ul></details>" <>
       "<p>#{escape(Permission.describe(permission))}</p></li>"
   end
 
@@ -248,40 +249,5 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
 
     "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
       "#{label_html}</label></li>"
-  end
-
-  # The page answers in the language the browser asked for first, when the
-  # set names that language; everything else is the document's base fields.
-  defp language(conn) do
-    case get_req_header(conn, "accept-language") do
-      [header | _rest] ->
-        header
-        |> String.split(",")
-        |> hd()
-        |> String.split(";")
-        |> hd()
-        |> String.trim()
-        |> language_tag()
-
-      [] ->
-        nil
-    end
-  end
-
-  defp language_tag(""), do: nil
-  defp language_tag(tag), do: tag
-
-  # The client_id is attacker-chosen text rendered into a page, and so is the
-  # login_hint the flow started with. Neither goes in unescaped.
-  defp escape(nil), do: ""
-  defp escape(value), do: value |> to_string() |> escape_html()
-
-  defp escape_html(value) do
-    value
-    |> String.replace("&", "&amp;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
-    |> String.replace("\"", "&quot;")
-    |> String.replace("'", "&#39;")
   end
 end

@@ -176,14 +176,23 @@ defmodule PesqueWeb.OAuthCase do
     {Map.merge(params, Map.new(Keyword.get(overrides, :params, []))), code.verifier}
   end
 
-  @doc "The GET on the authorize page, which is the login form."
-  def authorize_page(request_uri, client_id) do
+  @doc """
+  The GET on the authorize page, which is the login form.
+
+  `lang` sets `accept-language`, so a test that asserts a page string pins the
+  language instead of depending on the default locale.
+  """
+  def authorize_page(request_uri, client_id, lang \\ nil) do
     query = URI.encode_query(%{"client_id" => client_id, "request_uri" => request_uri})
 
     conn()
     |> put_req_header("x-forwarded-for", address())
+    |> maybe_lang(lang)
     |> dispatch(Endpoint, :get, "/oauth/authorize?" <> query)
   end
+
+  defp maybe_lang(conn, nil), do: conn
+  defp maybe_lang(conn, lang), do: put_req_header(conn, "accept-language", lang)
 
   @doc """
   Posts the login form with a decision, answering the conn.

@@ -69,7 +69,7 @@ defmodule PesqueWeb.PageController do
     html =
       Layout.render(title, body,
         locale: conn.assigns.locale,
-        locale_hrefs: locale_hrefs(conn),
+        locale_hrefs: conn.assigns.locale_hrefs,
         home: home,
         year: Date.utc_today().year
       )
@@ -79,14 +79,5 @@ defmodule PesqueWeb.PageController do
     |> put_resp_header("content-security-policy", Csp.pages())
     |> put_resp_header("cache-control", "no-cache")
     |> html(html)
-  end
-
-  # The switcher has to keep whatever query the page already carries, which the
-  # consent page does, so the href is the current path with the locale set.
-  defp locale_hrefs(conn) do
-    for locale <- Gettext.known_locales(PesqueWeb.Gettext) do
-      params = Map.put(conn.query_params, "locale", locale)
-      {locale, conn.request_path <> "?" <> URI.encode_query(params)}
-    end
   end
 end

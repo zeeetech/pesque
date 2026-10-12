@@ -27,7 +27,7 @@ defmodule PesqueWeb.OAuth.FlowTest do
       assert String.starts_with?(pushed.request_uri, "urn:ietf:params:oauth:request_uri:")
       assert JSON.decode!(pushed.conn.resp_body)["expires_in"] == OAuth.par_ttl_seconds()
 
-      page = Client.authorize_page(pushed.request_uri, pushed.params["client_id"])
+      page = Client.authorize_page(pushed.request_uri, pushed.params["client_id"], "en")
       assert page.status == 200
       assert page.resp_body =~ "Authorize"
       # The client_id is attacker-chosen text rendered into a page, so it is

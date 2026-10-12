@@ -51,7 +51,7 @@ defmodule PesqueWeb.OAuth.PermissionSetsFlowTest do
     scope = "atproto include:#{@full_app}?aud=#{@aud}"
     pushed = Client.par(ctx.key, client_id: Client.client_id(scope: scope), scope: scope)
 
-    page = authorize_page(pushed, nil)
+    page = authorize_page(pushed, "en")
 
     assert page.status == 200
     assert page.resp_body =~ "Full Bluesky Social App Permissions"

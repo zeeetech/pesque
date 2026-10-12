@@ -16,7 +16,7 @@ msgstr ""
 msgid "A personal data server for the atproto network. It stores an account's records, signs every change and answers the network on its own. Self-hosted, so the data stays where its owner put it."
 msgstr ""
 
-#: lib/pesque_web/page_html.ex:114
+#: lib/pesque_web/page_html.ex:115
 #, elixir-autogen, elixir-format
 msgid "This handle is hosted here, but the account is dormant. Everything below is public."
 msgstr ""
@@ -147,4 +147,44 @@ msgstr ""
 #: lib/pesque_web/page_html.ex:41
 #, elixir-autogen, elixir-format
 msgid "what is atproto?"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:185
+#, elixir-autogen, elixir-format
+msgid "Authorize"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:186
+#, elixir-autogen, elixir-format
+msgid "Cancel"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:177
+#, elixir-autogen, elixir-format
+msgid "Handle or email"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:181
+#, elixir-autogen, elixir-format
+msgid "Password"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:169
+#, elixir-autogen, elixir-format
+msgid "This application is asking to act as you with these scopes:"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:247
+#, elixir-autogen, elixir-format
+msgid "What this set grants"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:168
+#, elixir-autogen, elixir-format
+msgid "authorize"
+msgstr ""
+
+#: lib/pesque_web/oauth/authorization_controller.ex:140
+#, elixir-autogen, elixir-format
+msgid "sign in to authorize"
 msgstr ""
