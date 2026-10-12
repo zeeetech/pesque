@@ -27,6 +27,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
 
   alias Pesque.Accounts
   alias Pesque.OAuth
+  alias Pesque.OAuth.Permission
   alias PesqueWeb.OAuth.Errors
   alias PesqueWeb.OAuth.Proof
 
@@ -78,7 +79,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
 
   defp decide(%{"decision" => "approve"} = params, request_uri, request) do
     with {:ok, user} <- login(params) do
-      OAuth.approve(request_uri, request.client_id, user)
+      OAuth.approve(request_uri, request.client_id, user, checked_scopes(params))
     end
   end
 
@@ -87,6 +88,12 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   end
 
   defp decide(_params, _request_uri, _request), do: {:error, :invalid_credentials}
+
+  # The checkbox values the consent page posted. One value arrives as a bare
+  # binary, several as a list, and none at all means the account holder
+  # unticked everything.
+  defp checked_scopes(%{"scopes" => scopes}), do: List.wrap(scopes)
+  defp checked_scopes(_params), do: []
 
   defp login(%{"identifier" => identifier, "password" => password}) do
     case Accounts.verify_login(identifier, password) do
@@ -132,6 +139,10 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   defp page_csp,
     do: "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
+  # The scope list is the consent itself: atproto is always granted and is
+  # shown as the fixed line the profile describes it by, and every other
+  # requested scope is one pre-ticked checkbox the account holder can untick,
+  # named by the sentence the permission grammar writes for it.
   defp page(request, request_uri) do
     """
     <!DOCTYPE html>
@@ -145,8 +156,8 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
         <main>
           <h1>Authorize #{escape(request.client_id)}</h1>
           <p>This application is asking to act as you with these scopes:</p>
-          <ul>#{scopes_list(request.scope)}</ul>
           <form method="post" action="/oauth/authorize">
+            <ul>#{scope_items(request.scope)}</ul>
             <input type="hidden" name="client_id" value="#{escape(request.client_id)}">
             <input type="hidden" name="request_uri" value="#{escape(request_uri)}">
             <p>
@@ -170,10 +181,29 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     """
   end
 
-  defp scopes_list(scope) do
+  defp scope_items(scope) do
     scope
     |> String.split(" ", trim: true)
-    |> Enum.map_join("\n", fn scope -> "<li>#{escape(scope)}</li>" end)
+    |> Enum.uniq()
+    |> Enum.map_join("\n", &scope_item/1)
+  end
+
+  defp scope_item(scope) do
+    case Permission.parse_scope(scope) do
+      {:ok, %Permission{resource: :atproto} = permission} ->
+        "<li>#{escape(Permission.describe(permission))}</li>"
+
+      {:ok, permission} ->
+        value = escape(Permission.serialize(permission))
+
+        "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
+          "#{escape(Permission.describe(permission))}</label></li>"
+
+      # A request on this page was validated at PAR, so this reads only as
+      # what it is: a scope string this build could not describe.
+      {:error, _reason} ->
+        "<li>#{escape(scope)}</li>"
+    end
   end
 
   # The client_id is attacker-chosen text rendered into a page, and so is the

@@ -17,6 +17,7 @@ defmodule Pesque.OAuth do
   alias Pesque.OAuth.Client
   alias Pesque.OAuth.Jwt
   alias Pesque.OAuth.Keys
+  alias Pesque.OAuth.Permission
   alias Pesque.OAuth.Request
   alias Pesque.OAuth.Scopes
   alias Pesque.OAuth.Token
@@ -141,14 +142,16 @@ defmodule Pesque.OAuth do
 
   The account is the one the caller authenticated as. `login_hint` binds it
   when the client supplied one, so a flow that started with a handle cannot end
-  up on a different account than the user asked for. Setting `did` and
-  `code_hash` is one conditional update, so an approved request cannot be
-  approved twice.
+  up on a different account than the user asked for. `checked` is what the
+  account holder left ticked on the consent page; the granted scope is built
+  from it and written in the same conditional update that spends the request,
+  so an approved request cannot be approved twice and cannot be re-narrowed
+  either.
   """
-  def approve(request_uri, client_id, %User{} = user) do
+  def approve(request_uri, client_id, %User{} = user, checked) when is_list(checked) do
     with {:ok, row, _uri} <- fetch_request(request_uri, client_id),
          :ok <- check_hint(row, user),
-         {:ok, code} <- spend_request(row, user.did) do
+         {:ok, code} <- spend_request(row, user.did, granted_scope(row, checked)) do
       {:ok,
        %{
          redirect_uri: row.redirect_uri,
@@ -170,7 +173,7 @@ defmodule Pesque.OAuth do
     end
   end
 
-  defp spend_request(row, did) do
+  defp spend_request(row, did, granted_scope) do
     code = "cod-" <> random(32)
 
     {count, _} =
@@ -182,11 +185,58 @@ defmodule Pesque.OAuth do
         set: [
           did: did,
           code_hash: Request.hash(code),
-          code_expires_at: DateTime.add(now(), @code_ttl_seconds, :second)
+          code_expires_at: DateTime.add(now(), @code_ttl_seconds, :second),
+          granted_scope: granted_scope
         ]
       )
 
     if count == 1, do: {:ok, code}, else: {:error, :request_already_used}
+  end
+
+  # The granted set is atproto plus what the account holder left ticked, and
+  # nothing else: a checked value that was never asked for is dropped rather
+  # than honored, and one the account holder unticked narrows the grant. The
+  # chat scope depends on the generic one, so unchecking the dependency
+  # removes the dependent too. The answer is a subset of a request that was
+  # already validated at PAR, so validation here cannot fail; it is there to
+  # keep the invariant in one place.
+  defp granted_scope(%Request{scope: scope}, checked) do
+    requested =
+      scope
+      |> String.split(" ", trim: true)
+      |> Enum.uniq()
+      |> MapSet.new(&canonical_scope/1)
+
+    granted =
+      checked
+      |> List.wrap()
+      |> Enum.uniq()
+      |> Enum.filter(fn value ->
+        case Permission.parse_scope(value) do
+          {:ok, permission} -> MapSet.member?(requested, Permission.serialize(permission))
+          {:error, _reason} -> false
+        end
+      end)
+
+    granted = ["atproto" | granted]
+
+    granted =
+      if "transition:generic" in granted,
+        do: granted,
+        else: List.delete(granted, "transition:chat.bsky")
+
+    {:ok, joined} = Scopes.validate(Enum.join(granted, " "))
+    joined
+  end
+
+  # Two strings name the same permission when they serialize onto the same
+  # canonical form, so a checkbox value that rides a different spelling of an
+  # asked-for permission is still the asked-for permission.
+  defp canonical_scope(scope) do
+    case Permission.parse_scope(scope) do
+      {:ok, permission} -> Permission.serialize(permission)
+      {:error, _reason} -> scope
+    end
   end
 
   # A denial marks the request spent without minting anything. It writes a DID
@@ -217,7 +267,9 @@ defmodule Pesque.OAuth do
          :ok <- check_code_redirect(row, params["redirect_uri"]),
          :ok <- check_jkt(row, jkt),
          true <- spend_code(row) do
-      issue(row.did, row.client_id, row.scope, jkt, nil)
+      # A row approved by an older build has no granted scope; the requested
+      # one is what such a flow granted, so that is the fallback.
+      issue(row.did, row.client_id, row.granted_scope || row.scope, jkt, nil)
     else
       false -> {:error, :invalid_grant}
       {:error, reason} -> {:error, reason}

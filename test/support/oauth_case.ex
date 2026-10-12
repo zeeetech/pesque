@@ -185,15 +185,57 @@ defmodule PesqueWeb.OAuthCase do
     |> dispatch(Endpoint, :get, "/oauth/authorize?" <> query)
   end
 
-  @doc "Posts the login form with a decision, answering the conn."
+  @doc """
+  Posts the login form with a decision, answering the conn.
+
+  The consent checkboxes the page showed are submitted as they were shown:
+  this is the account holder who approves what is on the screen. A test that
+  wants to narrow passes `scopes:` with exactly the values it ticked, which
+  is what the form would post.
+  """
   def decide(request_uri, client_id, identifier, decision \\ "approve", password \\ @password) do
+    scopes = if decision == "approve", do: shown_checkboxes(request_uri, client_id), else: []
+
+    decide_scopes(request_uri, client_id, identifier, scopes, decision, password)
+  end
+
+  @doc "Posts the login form with an explicit list of ticked consent checkboxes."
+  def decide_scopes(
+        request_uri,
+        client_id,
+        identifier,
+        scopes,
+        decision \\ "approve",
+        password \\ @password
+      )
+      when is_list(scopes) do
     post_form("/oauth/authorize", %{
       "client_id" => client_id,
       "request_uri" => request_uri,
       "identifier" => identifier,
       "password" => password,
-      "decision" => decision
+      "decision" => decision,
+      "scopes" => scopes
     })
+  end
+
+  # The values the page pre-ticked, read back out of the checkbox inputs the
+  # way a form would submit them.
+  defp shown_checkboxes(request_uri, client_id) do
+    page = authorize_page(request_uri, client_id)
+
+    Regex.scan(~r/name="scopes" value="([^"]*)"/, page.resp_body, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.map(&unescape/1)
+  end
+
+  defp unescape(value) do
+    value
+    |> String.replace("&amp;", "&")
+    |> String.replace("&quot;", "\"")
+    |> String.replace("&#39;", "'")
+    |> String.replace("&lt;", "<")
+    |> String.replace("&gt;", ">")
   end
 
   @doc """
@@ -301,14 +343,14 @@ defmodule PesqueWeb.OAuthCase do
     |> put_req_header("content-type", "application/x-www-form-urlencoded")
     |> put_req_header("x-forwarded-for", address())
     |> put_req_header("dpop", proof(key, "POST", path, nonce: nonce, overrides: claims))
-    |> dispatch(Endpoint, :post, path, URI.encode_query(stringify(params)))
+    |> dispatch(Endpoint, :post, path, Plug.Conn.Query.encode(params))
   end
 
   defp post_form(path, params) do
     conn()
     |> put_req_header("content-type", "application/x-www-form-urlencoded")
     |> put_req_header("x-forwarded-for", address())
-    |> dispatch(Endpoint, :post, path, URI.encode_query(stringify(params)))
+    |> dispatch(Endpoint, :post, path, Plug.Conn.Query.encode(params))
   end
 
   defp conn, do: build_conn()
@@ -316,9 +358,5 @@ defmodule PesqueWeb.OAuthCase do
   defp address do
     <<a, b, _::binary>> = :crypto.strong_rand_bytes(4)
     "203.0.#{a}.#{b}"
-  end
-
-  defp stringify(params) do
-    Map.new(params, fn {key, value} -> {to_string(key), to_string(value)} end)
   end
 end

@@ -386,6 +386,86 @@ defmodule PesqueWeb.OAuth.FlowTest do
     end
   end
 
+  describe "the consent page" do
+    test "atproto is a fixed line and the rest are pre-ticked checkboxes", ctx do
+      client = Client.client_id(scope: "atproto transition:generic")
+      pushed = Client.par(ctx.key, client_id: client, scope: "atproto transition:generic")
+      page = Client.authorize_page(pushed.request_uri, pushed.params["client_id"])
+
+      assert page.status == 200
+      assert page.resp_body =~ "Confirms this app uses the atproto OAuth profile"
+      refute page.resp_body =~ "name=\"scopes\" value=\"atproto\""
+
+      assert page.resp_body =~
+               ~s(name="scopes" value="transition:generic" checked)
+
+      assert page.resp_body =~ "broad compatibility grant"
+    end
+
+    test "approving as shown keeps every requested scope", ctx do
+      granted = Client.approve(ctx.user, ctx.key)
+      assert exchanged_scope(ctx, granted) == "atproto transition:generic"
+    end
+
+    test "unticking a requested scope narrows the grant", ctx do
+      pushed = Client.par(ctx.key)
+
+      conn =
+        Client.decide_scopes(pushed.request_uri, pushed.params["client_id"], ctx.user.handle, [])
+
+      assert conn.status == 302
+      granted = returned(ctx, conn, pushed)
+
+      assert exchanged_scope(ctx, granted) == "atproto"
+    end
+
+    test "a value that was never requested is never honored", ctx do
+      pushed = Client.par(ctx.key)
+
+      conn =
+        Client.decide_scopes(pushed.request_uri, pushed.params["client_id"], ctx.user.handle, [
+          "transition:email",
+          "transition:generic"
+        ])
+
+      assert conn.status == 302
+      granted = returned(ctx, conn, pushed)
+
+      assert exchanged_scope(ctx, granted) == "atproto transition:generic"
+    end
+
+    defp returned(_ctx, conn, pushed) do
+      location = conn |> get_resp_header("location") |> hd()
+      returned = URI.decode_query(URI.parse(location).query)
+
+      %{
+        code: returned["code"],
+        client_id: pushed.params["client_id"],
+        redirect_uri: pushed.params["redirect_uri"],
+        verifier: pushed.verifier,
+        nonce: pushed.nonce
+      }
+    end
+
+    defp exchanged_scope(ctx, granted) do
+      conn =
+        Client.exchange(
+          ctx.key,
+          %{
+            "grant_type" => "authorization_code",
+            "client_id" => granted.client_id,
+            "code" => granted.code,
+            "code_verifier" => granted.verifier,
+            "redirect_uri" => granted.redirect_uri
+          },
+          nonce: granted.nonce
+        )
+
+      assert conn.status == 200
+      Client.json(conn)["scope"]
+    end
+  end
+
   describe "the token endpoint" do
     test "an unsupported grant type is refused", ctx do
       conn =

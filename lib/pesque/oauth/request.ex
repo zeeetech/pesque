@@ -23,6 +23,8 @@ defmodule Pesque.OAuth.Request do
     field :redirect_uri, :string
     field :state, :string
     field :scope, :string
+    # What the account holder granted, which may be narrower than `scope`.
+    field :granted_scope, :string
     field :code_challenge, :string
     field :code_challenge_method, :string
     field :login_hint, :string
@@ -44,6 +46,7 @@ defmodule Pesque.OAuth.Request do
       :redirect_uri,
       :state,
       :scope,
+      :granted_scope,
       :code_challenge,
       :code_challenge_method,
       :login_hint,
