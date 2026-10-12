@@ -12,9 +12,22 @@ const proc = @import("proc.zig");
 const driver = @import("driver.zig");
 const detect = @import("detect.zig");
 const fetch = @import("fetch.zig");
+const systemd = @import("drivers/systemd.zig");
 const testutil = @import("testutil.zig");
 
 const secret = "s3cr3t-pw";
+
+test "execStartExe reads the release path from both ExecStart forms" {
+    try testing.expectEqualStrings(
+        "/nix/store/abc-pesque-1.4.0/bin/pesque",
+        systemd.execStartExe("ExecStart={ path=/nix/store/abc-pesque-1.4.0/bin/pesque ; argv[]=/nix/store/abc-pesque-1.4.0/bin/pesque start ; }").?,
+    );
+    try testing.expectEqualStrings(
+        "/opt/pesque/bin/pesque",
+        systemd.execStartExe("ExecStart=/opt/pesque/bin/pesque start").?,
+    );
+    try testing.expect(systemd.execStartExe("nothing useful") == null);
+}
 
 fn composeDriver(ctx: *testutil.Ctx, project_dir: []const u8) driver.Driver {
     _ = ctx;

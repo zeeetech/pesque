@@ -86,6 +86,53 @@ fn unitValue(map: *std.StringHashMap([]const u8), key: []const u8, default: []co
     return map.get(key) orelse default;
 }
 
+/// The release directory the unit runs, from its ExecStart: a store path on
+/// NixOS, /opt/pesque on a tarball install. Null when it cannot be read.
+pub fn releaseFromUnit(host: *proc.Host, unit: []const u8) ?[]const u8 {
+    const argv = [_][]const u8{ host.progs.systemctl, "show", unit, "-p", "ExecStart" };
+    const cap = host.capture(&argv) catch return null;
+    defer host.freeCapture(cap);
+    if (!cap.ok()) return null;
+    const exe = execStartExe(cap.stdout) orelse return null;
+    const bin_dir = std.fs.path.dirname(exe) orelse return null;
+    const release = std.fs.path.dirname(bin_dir) orelse return null;
+    return host.gpa.dupe(u8, release) catch null;
+}
+
+/// The executable out of `ExecStart={ path=<exe> ; argv[]=<exe> ... }`, or the
+/// first token of a plain `ExecStart=<exe> <args>`.
+pub fn execStartExe(output: []const u8) ?[]const u8 {
+    if (std.mem.indexOf(u8, output, "path=")) |i| {
+        const rest = output[i + "path=".len ..];
+        const end = std.mem.indexOfAny(u8, rest, " ;") orelse rest.len;
+        if (end > 0) return rest[0..end];
+    }
+    if (std.mem.indexOf(u8, output, "ExecStart=")) |i| {
+        const rest = output[i + "ExecStart=".len ..];
+        const end = std.mem.indexOfAny(u8, rest, " \r\n") orelse rest.len;
+        if (end > 0) return rest[0..end];
+    }
+    return null;
+}
+
+/// `data_dir` from the conf the unit points PDS_CONFIG at. The NixOS module
+/// writes it there rather than into the unit environment.
+fn confDataDir(host: *proc.Host, path: []const u8) ?[]const u8 {
+    const content = Io.Dir.cwd().readFileAlloc(host.io, path, host.gpa, .limited(1 << 20)) catch return null;
+    defer host.gpa.free(content);
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0 or line[0] == '#') continue;
+        const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
+        if (!std.mem.eql(u8, std.mem.trim(u8, line[0..eq], " \t"), "data_dir")) continue;
+        const value = std.mem.trim(u8, line[eq + 1 ..], " \t\"");
+        if (value.len == 0) return null;
+        return host.gpa.dupe(u8, value) catch null;
+    }
+    return null;
+}
+
 // --- run_once ---------------------------------------------------------------
 
 pub fn runOnce(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error!u8 {
@@ -283,7 +330,13 @@ pub fn dataDir(self: driver.Systemd, host: *proc.Host) Error!driver.DataDir {
     var pairs: std.StringHashMap([]const u8) = .init(host.gpa);
     defer pairs.deinit();
     try unitEnv(self, host, &pairs);
-    return .{ .path = host.gpa.dupe(u8, unitValue(&pairs, "PDS_DATA_DIR", "/var/lib/pesque")) catch return error.OutOfMemory };
+    if (pairs.get("PDS_DATA_DIR")) |dir| {
+        return .{ .path = host.gpa.dupe(u8, dir) catch return error.OutOfMemory };
+    }
+    if (pairs.get("PDS_CONFIG")) |conf| {
+        if (confDataDir(host, conf)) |dir| return .{ .path = dir };
+    }
+    return .{ .path = "/var/lib/pesque" };
 }
 
 // --- pull: download the release tarball and swap the /opt/pesque symlink ----

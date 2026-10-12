@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const Io = std.Io;
 const proc = @import("proc.zig");
 const driver = @import("driver.zig");
+const systemd = @import("drivers/systemd.zig");
 
 const Error = proc.Error;
 
@@ -79,8 +80,9 @@ fn explicit(host: *proc.Host, kind: driver.Kind) Error!driver.Driver {
                 host.err("the systemd backend is not supported on windows (docker and compose are).", .{});
                 return error.DriverFailed;
             }
-            try verifyUnit(host, host.get("PESQUE_SERVICE") orelse "pesque");
-            return .{ .systemd = .{ .unit = host.get("PESQUE_SERVICE") orelse "pesque" } };
+            const unit = host.get("PESQUE_SERVICE") orelse "pesque";
+            try verifyUnit(host, unit);
+            return .{ .systemd = .{ .unit = unit, .release = resolveRelease(host, unit) } };
         },
         .nixos => {
             if (builtin.os.tag == .windows) {
@@ -89,9 +91,17 @@ fn explicit(host: *proc.Host, kind: driver.Kind) Error!driver.Driver {
             }
             const unit = host.get("PESQUE_SERVICE") orelse "pesque";
             try verifyUnit(host, unit);
-            return .{ .nixos = .{ .unit = unit, .release = host.get("PESQUE_RELEASE") orelse "/opt/pesque" } };
+            return .{ .nixos = .{ .unit = unit, .release = resolveRelease(host, unit) } };
         },
     }
+}
+
+/// The release directory: PESQUE_RELEASE wins, else the unit's ExecStart, else
+/// /opt/pesque (the tarball install's default).
+fn resolveRelease(host: *proc.Host, unit: []const u8) []const u8 {
+    if (host.get("PESQUE_RELEASE")) |r| return r;
+    if (systemd.releaseFromUnit(host, unit)) |r| return r;
+    return "/opt/pesque";
 }
 
 fn buildFlag(host: *proc.Host) bool {
@@ -180,7 +190,7 @@ fn unitCheck(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.
     if (nixos_system) {
         return driver.Driver{ .nixos = .{
             .unit = unit,
-            .release = host.get("PESQUE_RELEASE") orelse "/opt/pesque",
+            .release = resolveRelease(host, unit),
         } };
     } else |_| {}
     return driver.Driver{ .systemd = .{ .unit = unit } };
@@ -220,7 +230,7 @@ pub fn printReport(host: *proc.Host, d: driver.Driver) Error!u8 {
         },
         .nixos => |n| {
             host.out("unit:    {s}", .{n.unit});
-            host.out("release: {s} (PESQUE_RELEASE)", .{n.release});
+            host.out("release: {s}", .{n.release});
         },
     }
     const data = try d.dataDir(host);
