@@ -88,16 +88,23 @@ audited against a schema it can change.
 **HTTP edge.**
 
 ```
-lib/pesque_web/endpoint.ex      plugs, parsers, static legal pages
+lib/pesque_web/endpoint.ex      plugs, parsers, static assets
 lib/pesque_web/router.ex        every route, and where the rate limits live
 lib/pesque_web/xrpc.ex          the error shape
 lib/pesque_web/xrpc/errors.ex   domain reason to status and message
 lib/pesque_web/xrpc/*_controller.ex
 lib/pesque_web/firehose.ex      the websocket
-lib/pesque_web/plugs/*.ex       auth, admin, CORS, rate limit, security headers
+lib/pesque_web/plugs/*.ex       auth, admin, CORS, rate limit, headers, locale
 lib/pesque_web/oauth/*.ex       PAR, the authorize page, token, revocation, metadata
 lib/pesque_web/oauth/errors.ex  domain reason to OAuth error code
 lib/pesque_web/oauth/proof.ex   reads and checks the DPoP proof on a request
+lib/pesque_web/page_controller.ex  the landing and the handle pages
+lib/pesque_web/page_html.ex     their bodies
+lib/pesque_web/layout.ex        the shell every browser page shares
+lib/pesque_web/html.ex          escaping for the browser pages
+lib/pesque_web/csp.ex           the page content-security policies
+lib/pesque_web/host.ex          which names the server answers for
+lib/pesque_web/gettext.ex       the browser pages' translations
 ```
 
 Controllers parse, delegate, and map. `Pesque.Accounts.authorize_write/2` and
