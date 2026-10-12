@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.10.0](https://github.com/zeeetech/pesque/compare/pesque-v1.9.0...pesque-v1.10.0) (2026-10-12)
+
+
+### Features
+
+* **migrate:** run a move off-request so a page can watch it ([8a73d6d](https://github.com/zeeetech/pesque/commit/8a73d6d483d839903d3a233f95616b1b9c5f2c36))
+* **web:** lead the landing with the move ([8db802e](https://github.com/zeeetech/pesque/commit/8db802eba3db2190a2ad11d93da684234f4b790a))
+* **web:** the page that brings an existing account here ([75533d9](https://github.com/zeeetech/pesque/commit/75533d9b82a0d6b15e44d40b3b6056959867090f))
+
+
+### Bug Fixes
+
+* **oauth:** grant every scope the consent page ticks ([493f92f](https://github.com/zeeetech/pesque/commit/493f92fb016d301a2d189a293f11cc1057069e4d))
+
 ## [1.9.0](https://github.com/zeeetech/pesque/compare/pesque-v1.8.2...pesque-v1.9.0) (2026-10-12)
 
 
