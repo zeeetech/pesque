@@ -32,6 +32,7 @@ defmodule Pesque.DataCase do
 
   @doc "Checks a connection out for the calling test. Call from a test's setup block."
   def setup do
+    Pesque.FakeStore.clear()
     owner = Sandbox.start_owner!(Repo, shared: true)
     keys = key_files()
     blobs = blob_dirs()

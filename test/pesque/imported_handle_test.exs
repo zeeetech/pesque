@@ -154,13 +154,13 @@ defmodule Pesque.ImportedHandleTest do
 
     test "refuses a handle that resolves to another DID before the directory is touched" do
       user = create_account("alice")
-      Process.delete(:plc_last_submit)
+      Pesque.FakeStore.put(:plc_last_submit, nil)
 
       put_env(:handle_resolver_dns, fn _name -> {:ok, ["did=" <> did()]} end)
       put_env(:handle_resolver_http, fn _url -> flunk("the well-known endpoint was fetched") end)
 
       assert {:error, :handle_mismatch} = Accounts.update_handle(user, "alice.zeetech.io")
-      assert Process.get(:plc_last_submit) == nil
+      assert Pesque.FakeStore.get(:plc_last_submit) == nil
       assert Accounts.get_user(user.did).handle == user.handle
     end
 

@@ -2,17 +2,19 @@ defmodule Pesque.Plc.TestClient do
   @moduledoc """
   A stand-in for `Pesque.Plc.Directory` that never reaches the network.
 
-  `Pesque.Plc` reads its client from `:plc_client`, so a test swaps this in and
-  drives submit and resolve through the process dictionary. The calls are
-  synchronous in the process that makes them, so no ETS or Agent is needed.
+  `Pesque.Plc` reads its client from `:plc_client`, so a test swaps this in
+  and drives submit and resolve through `Pesque.FakeStore`, which a spawned
+  move's task reads as well as the process that seeded it.
   """
+
+  alias Pesque.FakeStore
 
   @doc "Records the last submitted operation and answers the configured result."
   def submit(did, op) do
-    Process.put(:plc_last_submit, {did, op})
-    Process.get(:plc_submit_result, :ok)
+    FakeStore.put(:plc_last_submit, {did, op})
+    FakeStore.get(:plc_submit_result, :ok)
   end
 
   @doc "Answers the configured resolution result."
-  def resolve(_did), do: Process.get(:plc_resolve_result, {:error, :not_found})
+  def resolve(_did), do: FakeStore.get(:plc_resolve_result, {:error, :not_found})
 end

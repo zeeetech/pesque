@@ -31,16 +31,30 @@ defmodule Pesque.Application do
         Pesque.OAuth.PermissionSets.Cache,
         {Registry, keys: :duplicate, name: Pesque.EventRegistry},
         {Registry, keys: :unique, name: Pesque.RepoRegistry},
+        {Registry, keys: :unique, name: Pesque.Migrate.Registry},
+        {Task.Supervisor, name: Pesque.Migrate.Supervisor},
         Pesque.RepoSupervisor,
         Pesque.EventReaper
       ] ++ endpoint()
 
     with {:ok, pid} <-
            Supervisor.start_link(children, strategy: :one_for_one, name: Pesque.Supervisor) do
+      reap_interrupted_moves()
       log_boot()
       announce_to_relays()
       {:ok, pid}
     end
+  end
+
+  # A move runs in a task under Pesque.Migrate.Supervisor, so a restart took
+  # it down with the node while its row still says it is running. This sweep
+  # marks those failed. It cannot run earlier than here: the Repo is up by
+  # now, and Pesque.Release.migrate/0, above, runs before the tree and stops
+  # the Repo it starts itself.
+  defp reap_interrupted_moves do
+    _ = Pesque.Migrate.Jobs.reap_interrupted()
+
+    :ok
   end
 
   # A one-off task sets :serve to false, so it does not stand up an HTTP

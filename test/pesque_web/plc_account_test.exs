@@ -49,7 +49,7 @@ defmodule PesqueWeb.PlcAccountTest do
   end
 
   test "a directory submission failure leaves no account and no keys" do
-    Process.put(:plc_submit_result, {:error, :plc_unreachable})
+    Pesque.FakeStore.put(:plc_submit_result, {:error, :plc_unreachable})
 
     handle = unique("ghost") <> ".localhost"
     before = File.ls!(Storage.keys_dir())
@@ -81,7 +81,7 @@ defmodule PesqueWeb.PlcAccountTest do
     user = create_account("alice")
     {:ok, _} = Accounts.deactivate_account(user)
 
-    Process.put(:plc_resolve_result, {:ok, document("https://elsewhere.example")})
+    Pesque.FakeStore.put(:plc_resolve_result, {:ok, document("https://elsewhere.example")})
 
     assert {:error, :pds_mismatch} = Accounts.activate_account(Accounts.get_user(user.did))
     refute Accounts.repo_active?(user.did)
@@ -92,7 +92,7 @@ defmodule PesqueWeb.PlcAccountTest do
     {:ok, _} = Accounts.deactivate_account(user)
 
     endpoint = Pesque.service_endpoint()
-    Process.put(:plc_resolve_result, {:ok, document(endpoint)})
+    Pesque.FakeStore.put(:plc_resolve_result, {:ok, document(endpoint)})
 
     assert {:ok, did} = Accounts.activate_account(Accounts.get_user(user.did))
     assert did == user.did

@@ -2,7 +2,7 @@ defmodule Pesque.MigrateTest do
   @moduledoc """
   The migration orchestration, with the old PDS faked.
 
-  The fake client records every call and answers from the process dictionary,
+  The fake client records every call and answers from `Pesque.FakeStore`,
   so the whole move runs without a network. The PLC directory is
   `Pesque.Plc.TestClient`, driven the same way. The account, repo and blobs are
   real, so the new-server half is exercised as it runs.
@@ -25,7 +25,7 @@ defmodule Pesque.MigrateTest do
     Application.put_env(:pesque, :mode, :path_multi)
     Application.put_env(:pesque, :identity, :plc)
     Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
-    Process.put(:plc_submit_result, :ok)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
     :ok
   end
 
@@ -106,7 +106,7 @@ defmodule Pesque.MigrateTest do
                old_pds: "https://old.example.com",
                handle: handle,
                password: @password,
-               client: Pesque.MigrateTest.FakeOldPds
+               client: Pesque.Migrate.FakeOldPds
              )
 
     assert :request_plc_signature in calls()
@@ -128,7 +128,7 @@ defmodule Pesque.MigrateTest do
                handle: handle,
                email: handle <> "@localhost",
                password: @password,
-               client: Pesque.MigrateTest.FakeOldPds,
+               client: Pesque.Migrate.FakeOldPds,
                prompt: fn _prompt -> "email-code" end,
                log: fn line -> send(test_pid, {:progress, line}) end
              )
@@ -148,7 +148,7 @@ defmodule Pesque.MigrateTest do
     assert :ok = run(handle)
     assert RepoStore.get_blob(did, blob_cid())
 
-    Process.put(:fake_calls, [])
+    Pesque.FakeStore.put(:fake_calls, [])
 
     assert :ok = run(handle)
 
@@ -159,7 +159,7 @@ defmodule Pesque.MigrateTest do
   test "a create_session failure returns the error and creates no account" do
     did = old_did()
     handle = unique("bob") <> ".localhost"
-    Process.put(:fake_create_session, {:error, :invalid_credentials})
+    Pesque.FakeStore.put(:fake_create_session, {:error, :invalid_credentials})
 
     assert {:error, :invalid_credentials} = run(handle)
     refute Accounts.get_user(did)
@@ -185,7 +185,7 @@ defmodule Pesque.MigrateTest do
         handle: handle,
         email: handle <> "@localhost",
         password: @password,
-        client: Pesque.MigrateTest.FakeOldPds,
+        client: Pesque.Migrate.FakeOldPds,
         prompt: fn _prompt -> "email-code" end,
         log: fn _line -> :ok end
       ] ++ extra
@@ -193,11 +193,15 @@ defmodule Pesque.MigrateTest do
   end
 
   defp configure_happy_path(did, handle) do
-    Process.put(:fake_create_session, {:ok, %{access_jwt: "access", did: did, handle: handle}})
-    Process.put(:fake_repo_car, source_car())
-    Process.put(:fake_blobs, {:ok, [blob_cid()]})
-    Process.put(:fake_blob, {:ok, "blob bytes", "text/plain"})
-    Process.put(:plc_resolve_result, {:ok, pds_document(did)})
+    Pesque.FakeStore.put(
+      :fake_create_session,
+      {:ok, %{access_jwt: "access", did: did, handle: handle}}
+    )
+
+    Pesque.FakeStore.put(:fake_repo_car, source_car())
+    Pesque.FakeStore.put(:fake_blobs, {:ok, [blob_cid()]})
+    Pesque.FakeStore.put(:fake_blob, {:ok, "blob bytes", "text/plain"})
+    Pesque.FakeStore.put(:plc_resolve_result, {:ok, pds_document(did)})
   end
 
   # The CID the fake's bytes hash to, so a re-run finds the stored blob under
@@ -238,7 +242,7 @@ defmodule Pesque.MigrateTest do
 
   defp unique(prefix), do: prefix <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower)
 
-  defp calls, do: Process.get(:fake_calls, [])
+  defp calls, do: Pesque.FakeStore.get(:fake_calls, [])
 
   defp collected(acc \\ []) do
     receive do
@@ -271,57 +275,4 @@ defmodule Pesque.MigrateTest do
       Enum.each(previous, fn {key, value} -> Application.put_env(:pesque, key, value) end)
     end)
   end
-end
-
-defmodule Pesque.MigrateTest.FakeOldPds do
-  @moduledoc """
-  An old PDS that never reaches the network: canned answers read from the
-  process dictionary, and a record of every call.
-  """
-
-  @behaviour Pesque.Migrate.OldPds
-
-  @impl true
-  def create_session(_base_url, handle, _password) do
-    record({:create_session, handle})
-    Process.get(:fake_create_session, {:error, :not_configured})
-  end
-
-  @impl true
-  def get_repo(_base_url, _access_jwt, did) do
-    record({:get_repo, did})
-    {:ok, Process.get(:fake_repo_car, <<>>)}
-  end
-
-  @impl true
-  def list_blobs(_base_url, _access_jwt, did) do
-    record({:list_blobs, did})
-    Process.get(:fake_blobs, {:ok, []})
-  end
-
-  @impl true
-  def get_blob(_base_url, did, cid) do
-    record({:get_blob, did, cid})
-    Process.get(:fake_blob, {:ok, "blob", "text/plain"})
-  end
-
-  @impl true
-  def request_plc_signature(_base_url, _access_jwt) do
-    record(:request_plc_signature)
-    :ok
-  end
-
-  @impl true
-  def sign_plc_operation(_base_url, _access_jwt, credentials, token) do
-    record({:sign_plc_operation, token})
-    {:ok, Map.put(credentials, "type", "plc_operation")}
-  end
-
-  @impl true
-  def deactivate(_base_url, _access_jwt) do
-    record(:deactivate)
-    :ok
-  end
-
-  defp record(call), do: Process.put(:fake_calls, [call | Process.get(:fake_calls, [])])
 end

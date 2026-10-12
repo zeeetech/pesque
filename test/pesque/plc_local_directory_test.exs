@@ -13,6 +13,7 @@ defmodule Pesque.Plc.LocalDirectoryTest do
   alias Pesque.Plc.LocalDirectory
 
   setup do
+    Pesque.FakeStore.clear()
     did = "did:plc:" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
     previous = Application.get_env(:pesque, :plc_local_remote)
 
@@ -47,7 +48,7 @@ defmodule Pesque.Plc.LocalDirectoryTest do
 
   test "a DID nothing was written for goes to the real directory", %{did: did} do
     Application.put_env(:pesque, :plc_local_remote, Pesque.Plc.TestClient)
-    Process.put(:plc_resolve_result, {:ok, %{"id" => did}})
+    Pesque.FakeStore.put(:plc_resolve_result, {:ok, %{"id" => did}})
 
     assert {:ok, %{"id" => ^did}} = LocalDirectory.resolve(did)
   end

@@ -66,12 +66,12 @@ defmodule PesqueWeb.MigrationEndpointsTest do
     test "a valid operation is submitted and stored" do
       user = create_plc_account("alice")
       operation = operation(user)
-      Process.put(:plc_resolve_result, {:ok, pds_document(user.did, Pesque.base_url())})
+      Pesque.FakeStore.put(:plc_resolve_result, {:ok, pds_document(user.did, Pesque.base_url())})
 
       conn = xrpc_post(@submit_path, %{"operation" => operation}, token(user))
 
       assert conn.status == 200
-      assert {did, submitted} = Process.get(:plc_last_submit)
+      assert {did, submitted} = Pesque.FakeStore.get(:plc_last_submit)
       assert did == user.did
       assert submitted == operation
       assert JSON.decode!(stored_operation(user)) == operation
@@ -92,7 +92,7 @@ defmodule PesqueWeb.MigrationEndpointsTest do
 
       assert conn.status == 400
       assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
-      refute Process.get(:plc_last_submit)
+      refute Pesque.FakeStore.get(:plc_last_submit)
       assert stored_operation(user) == before
     end
 
@@ -107,7 +107,7 @@ defmodule PesqueWeb.MigrationEndpointsTest do
       conn = xrpc_post(@submit_path, %{"operation" => operation}, token(user))
 
       assert conn.status == 400
-      refute Process.get(:plc_last_submit)
+      refute Pesque.FakeStore.get(:plc_last_submit)
       assert stored_operation(user) == before
     end
 
@@ -119,14 +119,14 @@ defmodule PesqueWeb.MigrationEndpointsTest do
       conn = xrpc_post(@submit_path, %{"operation" => operation}, token(user))
 
       assert conn.status == 400
-      refute Process.get(:plc_last_submit)
+      refute Pesque.FakeStore.get(:plc_last_submit)
       assert stored_operation(user) == before
     end
 
     test "a submit the directory refuses leaves the account untouched" do
       user = create_plc_account("alice")
       before = stored_operation(user)
-      Process.put(:plc_submit_result, {:error, :plc_unreachable})
+      Pesque.FakeStore.put(:plc_submit_result, {:error, :plc_unreachable})
 
       conn = xrpc_post(@submit_path, %{"operation" => operation(user)}, token(user))
 
@@ -137,7 +137,7 @@ defmodule PesqueWeb.MigrationEndpointsTest do
 
   defp create_plc_account(name) do
     user = create_account(name)
-    Process.delete(:plc_last_submit)
+    Pesque.FakeStore.put(:plc_last_submit, nil)
     user
   end
 

@@ -33,6 +33,10 @@ defmodule Pesque.Migrate do
   password: the PLC endpoints require a full-access session, which an app
   password never carries, so the old PDS answers `400 Bad token scope`.
 
+  On a server whose registration is closed the move also needs `:invite_code`:
+  the code is claimed when the account row is created, and without one the
+  account step answers `{:error, :invalid_invite_code}`.
+
   Seams: `:client` (default `Pesque.Migrate.Http`), `:prompt` (a 1-arity fun
   for the PLC email code, default `&IO.gets/1`), `:log` (a 1-arity fun,
   default `&IO.puts/1`) and `:plc_token` (a code already requested from the old
@@ -49,6 +53,7 @@ defmodule Pesque.Migrate do
     prompt = Keyword.get(opts, :prompt, &IO.gets/1)
     log = Keyword.get(opts, :log, &IO.puts/1)
     plc_token = Keyword.get(opts, :plc_token)
+    invite_code = Keyword.get(opts, :invite_code)
 
     with {:ok, old_pds} <- fetch(opts, :old_pds),
          {:ok, handle} <- fetch(opts, :handle),
@@ -57,7 +62,7 @@ defmodule Pesque.Migrate do
          {:ok, session} <- client.create_session(old_pds, handle, password),
          did = session.did,
          :ok <- note(log, "opened a session on #{old_pds} for #{handle}"),
-         {:ok, _user} <- ensure_account(did, handle, email, password, log),
+         {:ok, _user} <- ensure_account(did, handle, email, password, invite_code, log),
          :ok <- import_repo(client, old_pds, session.access_jwt, did, log),
          :ok <- import_blobs(client, old_pds, session.access_jwt, did, log),
          {:ok, user} <- current_user(did),
@@ -112,14 +117,18 @@ defmodule Pesque.Migrate do
 
   # A re-run reuses the account a previous run created, so the account step is
   # the one place a migration is resumable rather than one-shot.
-  defp ensure_account(did, handle, email, password, log) do
+  defp ensure_account(did, handle, email, password, invite_code, log) do
     case Accounts.get_user(did) do
       %User{} = user ->
         log.("account #{did} already exists; reusing it")
         {:ok, user}
 
       nil ->
-        case Accounts.create_imported_account(handle, email, password, did) do
+        # An option is built only when a code was given: with none, the insert
+        # claims nothing, which is what a caller with no code has always meant.
+        opts = if invite_code, do: [invite_code: invite_code], else: []
+
+        case Accounts.create_imported_account(handle, email, password, did, opts) do
           {:ok, user} ->
             log.("created account #{did} (deactivated)")
             {:ok, user}

@@ -50,18 +50,18 @@ defmodule Pesque.ServerIdentityTest do
 
     :ok = Identity.load!()
     did = Identity.did()
-    Process.delete(:plc_last_submit)
+    Pesque.FakeStore.put(:plc_last_submit, nil)
 
     :ok = Identity.load!()
 
     assert Identity.did() == did
-    assert Process.get(:plc_last_submit) == nil
+    assert Pesque.FakeStore.get(:plc_last_submit) == nil
   end
 
   test "the single account is created with the server's did:plc and mints no second one" do
     configure_plc()
     :ok = Identity.load!()
-    Process.delete(:plc_last_submit)
+    Pesque.FakeStore.put(:plc_last_submit, nil)
 
     assert {:ok, user} =
              Accounts.create_account(Identity.handle(), "server@localhost", @password)
@@ -69,7 +69,7 @@ defmodule Pesque.ServerIdentityTest do
     assert user.did == Identity.did()
     assert String.starts_with?(user.did, "did:plc:")
     assert user.plc_operation == Identity.server_operation()
-    assert Process.get(:plc_last_submit) == nil
+    assert Pesque.FakeStore.get(:plc_last_submit) == nil
   end
 
   # A did:plc resolves through plc.directory, so this route must not publish a
@@ -136,7 +136,7 @@ defmodule Pesque.ServerIdentityTest do
     Application.put_env(:pesque, :mode, :conformant_single)
     Application.put_env(:pesque, :identity, :plc)
     Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
-    Process.put(:plc_submit_result, :ok)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
   end
 
   defp remove_identity_file do

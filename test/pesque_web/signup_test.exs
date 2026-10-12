@@ -186,7 +186,7 @@ defmodule PesqueWeb.SignupTest do
   test "a failure the page cannot explain is logged with its reason" do
     put_identity(:plc)
     put_client(Pesque.Plc.TestClient)
-    Process.put(:plc_submit_result, {:error, :plc_unreachable})
+    Pesque.FakeStore.put(:plc_submit_result, {:error, :plc_unreachable})
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -203,7 +203,7 @@ defmodule PesqueWeb.SignupTest do
   end
 
   # The PLC directory is a stub here, so a mint that must fail is driven through
-  # the process dictionary rather than the network. ConnCase already restores
+  # the fake store rather than the network. ConnCase already restores
   # every :pesque setting when the test ends.
   defp put_identity(identity), do: Application.put_env(:pesque, :identity, identity)
 
