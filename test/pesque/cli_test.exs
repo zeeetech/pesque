@@ -7,6 +7,7 @@ defmodule Pesque.CliTest do
 
   use ExUnit.Case, async: false
 
+  alias Pesque.Accounts
   alias Pesque.Cli
 
   describe "dispatch totality" do
@@ -82,6 +83,118 @@ defmodule Pesque.CliTest do
       on_exit(fn -> restore_config(previous) end)
 
       assert {:error, {:unknown_key, "hostnmae", 1}} = Cli.run(["config", "validate"])
+    end
+  end
+
+  describe "account app-passwords" do
+    # The verbs boot the app themselves, like every account verb; the database
+    # setup is what makes the rows the verbs read.
+    setup do
+      Pesque.DataCase.setup()
+
+      # path_multi so the account gets a handle: under conformant_single the
+      # seeded server row has no handle and every account compares as taken.
+      previous = Application.get_env(:pesque, :mode)
+      on_exit(fn -> Application.put_env(:pesque, :mode, previous) end)
+      Application.put_env(:pesque, :mode, :path_multi)
+
+      handle =
+        "appword" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"
+
+      {:ok, user} = Accounts.create_account(handle, "alice@localhost", "hunter2hunter2")
+
+      %{user: user}
+    end
+
+    test "the list verb prints rows with names and privileges", %{user: user} do
+      {:ok, _} = Accounts.create_app_password(user, "listed", true)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["account", "app-passwords", "--did", user.did])
+        end)
+
+      assert output =~ "listed"
+      assert output =~ "privileged"
+    end
+
+    test "the list verb names the empty case", %{user: user} do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["account", "app-passwords", "--handle", user.handle])
+        end)
+
+      assert output =~ "no app passwords for #{user.handle}"
+    end
+
+    test "revoke-app-password reads the name from the flag, then the environment", %{user: user} do
+      # No flag, no env, and a closed stdin: the prompt is unanswerable, so
+      # the verb refuses naming it.
+      assert {:error, :no_input} = Cli.run(["account", "revoke-app-password", "--did", user.did])
+
+      {:ok, _} = Accounts.create_app_password(user, "envnamed", false)
+
+      System.put_env("APP_PASSWORD_NAME", "envnamed")
+      on_exit(fn -> System.delete_env("APP_PASSWORD_NAME") end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["account", "revoke-app-password", "--did", user.did])
+        end)
+
+      assert output =~ "revoked app password envnamed"
+    end
+
+    test "revoke-app-password revokes by name and distinguishes nothing to do", %{user: user} do
+      {:ok, _} = Accounts.create_app_password(user, "doomed", false)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok =
+                   Cli.run([
+                     "account",
+                     "revoke-app-password",
+                     "--did",
+                     user.did,
+                     "--name",
+                     "doomed"
+                   ])
+        end)
+
+      assert output =~ "revoked app password doomed"
+      assert output =~ "its sessions are revoked"
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok =
+                   Cli.run([
+                     "account",
+                     "revoke-app-password",
+                     "--did",
+                     user.did,
+                     "--name",
+                     "doomed"
+                   ])
+        end)
+
+      assert output =~ "nothing to do"
+    end
+
+    test "an unknown account answers not_found for both verbs", %{user: user} do
+      assert {:error, :not_found} =
+               Cli.run(["account", "app-passwords", "--did", "did:web:nope:nobody"])
+
+      assert {:error, :not_found} =
+               Cli.run([
+                 "account",
+                 "revoke-app-password",
+                 "--did",
+                 "did:web:nope:nobody",
+                 "--name",
+                 "n"
+               ])
+
+      _ = user
     end
   end
 

@@ -110,6 +110,59 @@ test "dispatch: account plc-token forwards the selector and needs no password" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "plc-token", "--handle", "alice.example.com" });
 }
 
+test "dispatch: account app-passwords forwards the selector and needs no password" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "app-passwords", "--did", "did:web:alice.example.com" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "app-passwords", "--did", "did:web:alice.example.com" });
+
+    // Unknown flags are refused, and a bare selector verb takes no arguments.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "app-passwords", "--handle", "h", "--name", "n" }));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "app-passwords" }));
+}
+
+test "dispatch: account revoke-app-password forwards the selector and requires --name" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
+        "account", "revoke-app-password", "--handle", "alice.example.com", "--name", "my-app",
+    }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{
+        "pesque", "/app/bin/pesque", "account", "revoke-app-password", "--handle", "alice.example.com", "--name", "my-app",
+    });
+
+    // A missing name is usage, not a crash: the verb would have nothing to
+    // revoke by.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "account", "revoke-app-password", "--handle", "alice.example.com",
+    }));
+
+    // Both selectors at once is refused, like every selector verb.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "account", "revoke-app-password", "--did", "d1", "--handle", "h", "--name", "n",
+    }));
+}
+
+test "dispatch: account app-password subcommands are refused as unknown without them" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+
+    // A typo'd subcommand stays usage, and --name on a verb that does not
+    // take one is refused by the selector parser.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "app-password", "--handle", "h" }));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "account", "app-passwords", "--handle", "h", "--name", "n",
+    }));
+}
+
 test "dispatch: passwords without a source are refused when stdin is not a tty" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();

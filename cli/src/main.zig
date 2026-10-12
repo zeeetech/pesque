@@ -38,6 +38,8 @@ const usage_text =
     \\  account activate --did D | --handle H
     \\  account reset-password --did D | --handle H
     \\  account plc-token --did D | --handle H    (code for signPlcOperation)
+    \\  account app-passwords --did D | --handle H
+    \\  account revoke-app-password --did D | --handle H --name N
     \\  invite create [--count N] [--uses N] [--for DID]
     \\  migrate --old-pds URL --handle H --email E
     \\  doctor                     run the federation preflight
@@ -294,7 +296,7 @@ fn failInput(host: *proc.Host, comptime fmt: []const u8, args: anytype) Error {
 }
 
 fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
-    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password or plc-token", .{});
+    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password, plc-token, app-passwords or revoke-app-password", .{});
     const sub = args[0];
     const rest = args[1..];
 
@@ -320,6 +322,14 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
             try env.append(host.gpa, try passwordInput(host, sel.password_env, "ACCOUNT_PASSWORD", "Account password (not shown): "));
         }
         return runDomain(host, "account", argv.items, env.items);
+    }
+    if (std.mem.eql(u8, sub, "app-passwords")) {
+        const sel = try parseSelector(host, rest);
+        return runDomain(host, "account", &.{ "app-passwords", sel.flag, sel.value }, &.{});
+    }
+    if (std.mem.eql(u8, sub, "revoke-app-password")) {
+        const parsed = try parseSelectorNamed(host, rest);
+        return runDomain(host, "account", &.{ "revoke-app-password", parsed.sel.flag, parsed.sel.value, "--name", parsed.name }, &.{});
     }
     return usage(host, "unknown account subcommand '{s}'", .{sub});
 }
@@ -407,6 +417,40 @@ fn valueFlag(host: *proc.Host, args: []const []const u8, i: *usize, name: []cons
     i.* += 1;
     if (i.* >= args.len) return failUsage(host, "{s} needs a value", .{name});
     return args[i.*];
+}
+
+/// `--did D` XOR `--handle H`, plus a required `--name N`. The name is not a
+/// secret, so it may travel by flag.
+fn parseSelectorNamed(host: *proc.Host, args: []const []const u8) Error!struct { sel: Selector, name: []const u8 } {
+    var did: ?[]const u8 = null;
+    var handle: ?[]const u8 = null;
+    var name: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--did")) {
+            if (did != null) return failUsage(host, "--did given twice", .{});
+            did = try valueFlag(host, args, &i, "--did");
+        } else if (std.mem.eql(u8, args[i], "--handle")) {
+            if (handle != null) return failUsage(host, "--handle given twice", .{});
+            handle = try valueFlag(host, args, &i, "--handle");
+        } else if (std.mem.eql(u8, args[i], "--name")) {
+            if (name != null) return failUsage(host, "--name given twice", .{});
+            name = try valueFlag(host, args, &i, "--name");
+        } else {
+            return failUsage(host, "unknown option '{s}' (use --did D or --handle H, plus --name N)", .{args[i]});
+        }
+    }
+    if ((did == null) == (handle == null)) {
+        return failInput(host, "pick exactly one: --did D or --handle H.", .{});
+    }
+    if (name == null) {
+        return failInput(host, "revoke-app-password needs --name N, the name the app password was created with.", .{});
+    }
+    const sel: Selector = if (did) |d|
+        .{ .flag = "--did", .value = d }
+    else
+        .{ .flag = "--handle", .value = handle.? };
+    return .{ .sel = sel, .name = name.? };
 }
 
 /// Run a domain verb that is a plain passthrough (no inputs to resolve).

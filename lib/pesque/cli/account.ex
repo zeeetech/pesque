@@ -1,7 +1,7 @@
 defmodule Pesque.Cli.Account do
   @moduledoc """
   The account verbs, wired straight to the domain: create, list, delete,
-  takedown, activate, reset-password and plc-token.
+  takedown, activate, reset-password, plc-token and the app-password verbs.
   """
 
   alias Pesque.Accounts
@@ -21,6 +21,8 @@ defmodule Pesque.Cli.Account do
     activate --did D | --handle H
     reset-password --did D | --handle H
     plc-token --did D | --handle H
+    app-passwords --did D | --handle H
+    revoke-app-password --did D | --handle H --name N
 
   Input order is the flag, then the conventional environment
   (ACCOUNT_HANDLE, ACCOUNT_EMAIL, ACCOUNT_PASSWORD), then a prompt.
@@ -141,6 +143,58 @@ defmodule Pesque.Cli.Account do
       IO.puts("plc operation token for #{user.did}: #{token}")
       IO.puts("expires at #{DateTime.to_iso8601(expires_at)}; single use,")
       IO.puts("then request another. signPlcOperation spends it.")
+      :ok
+    end
+  end
+
+  # The operator's view of a user's app passwords: the XRPC endpoints need a
+  # session the operator does not hold, so the recovery path (a user reporting
+  # a compromised app password) is here. Names and privileges only; the
+  # passwords themselves are unrecoverable by construction.
+  def run(["app-passwords" | argv]) do
+    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+         {:ok, identifier} <- identifier(opts),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier) do
+      rows = Accounts.list_app_passwords(user.did)
+
+      if rows == [] do
+        IO.puts("no app passwords for #{user.handle || user.did}")
+      else
+        Enum.each(rows, fn row ->
+          priv = if row.privileged, do: "privileged", else: "-"
+
+          IO.puts(
+            String.pad_trailing(row.name, 32) <>
+              String.pad_trailing(priv, 12) <>
+              DateTime.to_iso8601(row.inserted_at)
+          )
+        end)
+      end
+
+      :ok
+    end
+  end
+
+  def run(["revoke-app-password" | argv]) do
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches ++ [name: :string], @usage),
+         {:ok, identifier} <- identifier(opts),
+         {:ok, name} <- Input.text(opts, :name, "APP_PASSWORD_NAME", "name: "),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier) do
+      # Distinguish "nothing to do" from a real revoke; both exit 0 (the
+      # endpoint is idempotent the same way).
+      if Enum.any?(Accounts.list_app_passwords(user.did), &(&1.name == name)) do
+        :ok = Accounts.revoke_app_password(user, name)
+
+        IO.puts(
+          "revoked app password #{name} for #{user.handle || user.did}; its sessions are revoked"
+        )
+      else
+        IO.puts("no app password named #{name} for #{user.handle || user.did} (nothing to do)")
+      end
+
       :ok
     end
   end

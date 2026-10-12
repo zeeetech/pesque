@@ -92,6 +92,17 @@ Secrets are `0600` and `keys/` is `0700`; the data directory takes your umask.
   minutes and single use; `signPlcOperation` spends it. The signed operation is
   the answer, not a submission: hand it to the client, which submits it to the
   PLC directory or to the PDS the account is moving to.
+- App passwords (`com.atproto.server.createAppPassword` and friends) are
+  named, revocable credentials an account's apps log in with. A plain one
+  opens a reduced session (records, blobs, preferences, non-chat rpc); a
+  privileged one reaches the account state a password login does, except that
+  it cannot create app passwords. `pesque account app-passwords --did D |
+  --handle H` lists an account's credentials (name, privilege, created at;
+  the passwords themselves are unrecoverable by construction) and `pesque
+  account revoke-app-password --did D | --handle H --name N` revokes one and
+  every session opened with it. That is the recovery path when a user reports
+  a compromised or forgotten app password: a password reset revives the
+  account password but leaves the app-password rows alone.
 - `com.atproto.server.createInviteCodes` mints codes, operator-only (see below).
 
 ## Replace the legal pages
