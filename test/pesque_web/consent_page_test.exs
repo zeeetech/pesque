@@ -28,10 +28,10 @@ defmodule PesqueWeb.ConsentPageTest do
     assert get_resp_header(conn, "cache-control") == ["no-store"]
   end
 
-  test "the consent policy allows the form and the stylesheet, and no script", %{key: key} do
+  test "the consent policy allows the form, its redirect and the stylesheet", %{key: key} do
     csp = consent(key) |> get_resp_header("content-security-policy") |> hd()
 
-    assert csp =~ "form-action 'self'"
+    assert csp =~ "form-action 'self' http://127.0.0.1:8080"
     assert csp =~ "style-src 'self'"
     refute csp =~ "unsafe-inline"
     refute csp =~ "unsafe-eval"

@@ -16,8 +16,9 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   browser surface: the shell is `PesqueWeb.Layout`, the body is the consent
   form, and the language is whatever `PesqueWeb.Plugs.SetLocale` resolved for
   the request, the same locale the permission sets are shown in. It is served
-  with a CSP that permits the stylesheet and a form posting to this origin and
-  nothing else: no script, no framing.
+  with a CSP that permits the stylesheet, a form posting to this origin and the
+  redirect to the client's origin it is answered with, and nothing else: no
+  script, no framing.
 
   The scope list is shown because the spec requires the approval prompt to
   identify the client and describe what was asked for, and the full client_id
@@ -147,7 +148,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
     conn
     |> put_resp_content_type("text/html")
     |> Errors.no_store()
-    |> put_resp_header("content-security-policy", Csp.form())
+    |> put_resp_header("content-security-policy", Csp.form(request.redirect_uri))
     |> html(html)
   end
 

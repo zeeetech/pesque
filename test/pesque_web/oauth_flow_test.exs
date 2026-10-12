@@ -333,7 +333,7 @@ defmodule PesqueWeb.OAuth.FlowTest do
       assert Client.error(conn) == "invalid_request"
     end
 
-    test "the login page is not cacheable and posts only to this origin", ctx do
+    test "the login page is not cacheable and posts to this origin and the client", ctx do
       pushed = Client.par(ctx.key)
       conn = Client.authorize_page(pushed.request_uri, pushed.params["client_id"])
 
@@ -341,7 +341,7 @@ defmodule PesqueWeb.OAuth.FlowTest do
 
       csp = get_resp_header(conn, "content-security-policy") |> hd()
       assert csp =~ "default-src 'none'"
-      assert csp =~ "form-action 'self'"
+      assert csp =~ "form-action 'self' http://127.0.0.1:8080"
     end
   end
 
