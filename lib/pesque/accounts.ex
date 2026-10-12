@@ -1116,6 +1116,12 @@ defmodule Pesque.Accounts do
     end
   end
 
+  # One resolution for every shape login accepts, so the OAuth login_hint check
+  # and the login it guards cannot disagree about what names an account: a did
+  # matched exactly, a handle case-insensitively (handles are case-insensitive
+  # on the wire), an email as stored. repo_did/1 already owns the did/handle
+  # half, so this reuses it rather than growing a second, drifting copy.
+  #
   # Two lookups on single-column unique indexes, never one query with an `or`
   # across both columns: that shape raises MultipleResultsError on a string
   # that is one account's handle and another's email, and login is reachable
@@ -1126,7 +1132,12 @@ defmodule Pesque.Accounts do
   # collision unrepresentable, but until there is an email-edit path it is
   # not worth a third table.
   defp find_by_identifier(identifier) when is_binary(identifier) do
-    Repo.get_by(User, handle: identifier) || Repo.get_by(User, email: identifier)
+    identifier = String.trim(identifier)
+
+    case repo_did(identifier) do
+      {:ok, did} -> get_user(did)
+      {:error, _reason} -> Repo.get_by(User, email: identifier)
+    end
   end
 
   defp find_by_identifier(_identifier), do: nil

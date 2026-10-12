@@ -70,10 +70,14 @@ defmodule Pesque.Cli.Input do
     end
   end
 
+  # Trimmed like a prompt line: a value written with `echo` or `$(cat file)`
+  # carries a trailing newline, and a password hashed from "secret\n" is not
+  # the "secret" a browser sends back. The prompt already trims, so this only
+  # makes the two sources agree.
   defp env_value(name) do
     case System.get_env(name) do
       nil -> :no_value
-      value -> {:ok, value}
+      value -> {:ok, String.trim(value)}
     end
   end
 

@@ -100,6 +100,21 @@ defmodule Pesque.Cli.InputTest do
                )
     end
 
+    # `export ACCOUNT_PASSWORD=$(cat pw.txt)` and `echo` both leave a trailing
+    # newline, and a hash of "secret\n" is not the "secret" a browser sends
+    # back: the env source has to trim like the prompt already does.
+    test "an environment value is trimmed" do
+      System.put_env("PESQUE_TEST_PASSWORD", "secret\n")
+      on_exit(fn -> System.delete_env("PESQUE_TEST_PASSWORD") end)
+
+      assert {:ok, "secret"} =
+               Input.password(
+                 [password_env: "PESQUE_TEST_PASSWORD"],
+                 "ACCOUNT_PASSWORD",
+                 no_prompt()
+               )
+    end
+
     test "the conventional environment is next" do
       System.put_env("ACCOUNT_PASSWORD", "conventional")
       on_exit(fn -> System.delete_env("ACCOUNT_PASSWORD") end)

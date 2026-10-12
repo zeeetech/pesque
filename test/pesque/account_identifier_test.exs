@@ -65,6 +65,26 @@ defmodule Pesque.AccountIdentifierTest do
     end
   end
 
+  # Tangled opens the OAuth flow with the DID as login_hint, and the check that
+  # accepts a hint (repo_did/1) accepts a did. Login has to resolve the same
+  # shapes, or the hint check passes and the login it guards then answers
+  # invalid credentials for a correct password.
+  test "login resolves a did the way the login_hint check does" do
+    user = insert_account("alice")
+
+    assert {:ok, %User{did: did}} = Accounts.verify_login(user.did, @password)
+    assert did == user.did
+  end
+
+  # A handle is case-insensitive on the wire, so a hint in different casing has
+  # to name the account repo_did/1 said it names instead of falling through.
+  test "login resolves a handle case-insensitively" do
+    user = insert_account("alice")
+
+    assert {:ok, %User{did: did}} = Accounts.verify_login(String.upcase(user.handle), @password)
+    assert did == user.did
+  end
+
   test "an email equal to an existing handle is refused" do
     victim = insert_account("victim")
     before = key_files()
