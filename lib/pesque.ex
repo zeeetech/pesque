@@ -48,8 +48,13 @@ defmodule Pesque do
   @doc "The host this server is reached at, without scheme or port."
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
 
-  @doc "The domain accounts get handles under. Defaults to the hostname."
-  def handle_domain, do: Application.get_env(:pesque, :handle_domain, hostname())
+  # Handles are case-insensitive and stored lowercase, so the domain they are
+  # minted under is normalized once, here, for every reader. A lowercase read
+  # (repo_did/1 downcases the query) cannot find a handle stored with capitals,
+  # so a mixed-case domain would otherwise make its accounts unreachable.
+  @doc "The domain accounts get handles under, lowercased. Defaults to the hostname."
+  def handle_domain,
+    do: Application.get_env(:pesque, :handle_domain, hostname()) |> String.downcase()
 
   @doc """
   Whether the configured hostname is an IP literal rather than a DNS name.

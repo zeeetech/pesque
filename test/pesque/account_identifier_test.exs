@@ -85,6 +85,22 @@ defmodule Pesque.AccountIdentifierTest do
     assert did == user.did
   end
 
+  # conformant_single's stored handle is Pesque.handle_domain/0, and repo_did/1
+  # downcases the query, so a domain written with capitals has to come back
+  # lowercase or the account it minted is unreachable.
+  test "handle_domain is normalized to lowercase" do
+    previous = Application.get_env(:pesque, :handle_domain)
+    Application.put_env(:pesque, :handle_domain, "Example.COM")
+
+    on_exit(fn ->
+      if previous == nil,
+        do: Application.delete_env(:pesque, :handle_domain),
+        else: Application.put_env(:pesque, :handle_domain, previous)
+    end)
+
+    assert Pesque.handle_domain() == "example.com"
+  end
+
   test "an email equal to an existing handle is refused" do
     victim = insert_account("victim")
     before = key_files()
