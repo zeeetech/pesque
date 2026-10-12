@@ -24,7 +24,7 @@ defmodule PesqueWeb.PlcSignatureTest do
   alias Pesque.Plc
   alias Pesque.Plc.Keys, as: PlcKeys
   alias Pesque.Plc.Operation
-  alias Pesque.Plc.Token
+  alias Pesque.Accounts.Token
   alias Pesque.Repo
   alias Pesque.Secp256k1
 
@@ -46,7 +46,7 @@ defmodule PesqueWeb.PlcSignatureTest do
       assert conn.status == 200
       assert json_body(conn) == %{}
 
-      assert %Token{token_hash: hash, did: did, used_at: nil} =
+      assert %Token{token_hash: hash, did: did, used_at: nil, purpose: :plc_operation} =
                Repo.one!(from t in Token, where: t.did == ^user.did)
 
       assert did == user.did
@@ -251,7 +251,7 @@ defmodule PesqueWeb.PlcSignatureTest do
 
       {1, _} =
         Repo.update_all(
-          from(t in Token, where: t.did == ^user.did),
+          from(t in Token, where: t.did == ^user.did and t.purpose == :plc_operation),
           set: [expires_at: DateTime.add(DateTime.utc_now(), -1)]
         )
 
@@ -338,7 +338,10 @@ defmodule PesqueWeb.PlcSignatureTest do
   defp stored_operation(user), do: JSON.decode!(Accounts.get_user(user.did).plc_operation)
 
   defp spent_tokens(user) do
-    from(t in Token, where: t.did == ^user.did and not is_nil(t.used_at)) |> Repo.all()
+    from(t in Token,
+      where: t.did == ^user.did and t.purpose == :plc_operation and not is_nil(t.used_at)
+    )
+    |> Repo.all()
   end
 
   defp account_key_did(user) do

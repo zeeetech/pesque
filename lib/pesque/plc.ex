@@ -27,16 +27,14 @@ defmodule Pesque.Plc do
   from the operation log; see `Pesque.Plc.Keys`.
   """
 
+  alias Pesque.Accounts.Token
   alias Pesque.Accounts.User
   alias Pesque.Did
   alias Pesque.Plc.Directory
   alias Pesque.Plc.Keys
   alias Pesque.Plc.Operation
-  alias Pesque.Plc.Token
   alias Pesque.Repo
   alias Pesque.Secp256k1
-
-  import Ecto.Query
 
   require Logger
 
@@ -193,25 +191,13 @@ defmodule Pesque.Plc do
   Answers `{:ok, %{token:, expires_at:}}` or `{:error, reason}`.
   """
   def request_operation_signature(%User{did: "did:plc:" <> _} = user) do
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-
-    expires_at =
-      DateTime.shift(DateTime.utc_now(), second: @plc_token_ttl_seconds)
-      |> DateTime.truncate(:second)
-
-    attrs = %{
-      token_hash: Token.hash_token(token),
-      did: user.did,
-      expires_at: expires_at
-    }
-
-    case Token.changeset(attrs) |> Repo.insert() do
-      {:ok, _row} ->
+    case Token.issue(:plc_operation, user.did, @plc_token_ttl_seconds) do
+      {:ok, %{token: token} = issued} ->
         Logger.info("plc operation token issued", did: user.did, token: token)
-        {:ok, %{token: token, expires_at: expires_at}}
+        {:ok, issued}
 
-      {:error, _changeset} ->
-        {:error, :plc_token_failed}
+      {:error, _reason} ->
+        {:error, :token_failed}
     end
   end
 
@@ -241,12 +227,15 @@ defmodule Pesque.Plc do
   """
   def sign_operation(%User{did: "did:plc:" <> _} = user, input) do
     with {:ok, token, patches} <- read_input(input),
-         {:ok, row} <- fetch_token(user.did, token),
+         {:ok, row} <- Token.fetch(:plc_operation, token, user.did),
          {:ok, prev} <- decode_operation(user.plc_operation),
          {:ok, rotation_priv} <- load_rotation(user.did) do
       op = Operation.update(prev, patches, rotation_priv)
 
-      if spend_token(row), do: {:ok, op}, else: {:error, :invalid_token}
+      case Token.spend(row) do
+        :ok -> {:ok, op}
+        :invalid_token -> {:error, :invalid_token}
+      end
     end
   end
 
@@ -311,38 +300,6 @@ defmodule Pesque.Plc do
     do: {:ok, token}
 
   defp input_token(_input), do: {:error, :plc_token_required}
-
-  # Expiry is answered separately from validity, the way the deletion token's
-  # is: a client told ExpiredToken asks for a new code instead of guessing
-  # whether the one it holds is merely wrong.
-  defp fetch_token(did, token) do
-    case Repo.get_by(Token, token_hash: Token.hash_token(token)) do
-      nil -> {:error, :invalid_token}
-      %Token{did: ^did, used_at: nil} = row -> check_not_expired(row)
-      %Token{} -> {:error, :invalid_token}
-    end
-  end
-
-  defp check_not_expired(%Token{expires_at: expires_at} = row) do
-    if DateTime.before?(expires_at, DateTime.utc_now()) do
-      {:error, :expired_token}
-    else
-      {:ok, row}
-    end
-  end
-
-  # Single use is a conditional update, not a read followed by a write, for
-  # the reason the deletion token gives: two callers holding one code both
-  # read it unused, and only the one whose update matches a row proceeds.
-  defp spend_token(%Token{id: id}) do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
-
-    {count, _} =
-      from(t in Token, where: t.id == ^id and is_nil(t.used_at))
-      |> Repo.update_all(set: [used_at: now])
-
-    count == 1
-  end
 
   @doc """
   Validates a signed PLC operation, submits it, and records it on the account.

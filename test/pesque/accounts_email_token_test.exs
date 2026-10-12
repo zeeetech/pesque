@@ -10,8 +10,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
   import Ecto.Query
 
   alias Pesque.Accounts
-  alias Pesque.Accounts.EmailToken
-  alias Pesque.Accounts.PasswordResetToken
+  alias Pesque.Accounts.Token
   alias Pesque.Repo
 
   @password "hunter2hunter2"
@@ -39,10 +38,10 @@ defmodule Pesque.Accounts.EmailTokenTest do
     test "the code is stored hashed and bound to the address", %{user: user} do
       {:ok, %{token: token}} = Accounts.request_email_confirmation(user)
 
-      assert %EmailToken{token_hash: hash, email: email} =
-               Repo.one!(from t in EmailToken, where: t.did == ^user.did)
+      assert %Token{token_hash: hash, email: email} =
+               Repo.one!(from t in Token, where: t.did == ^user.did and t.purpose == :email)
 
-      assert hash == EmailToken.hash_token(token)
+      assert hash == Token.hash_token(token)
       refute hash == token
       assert email == user.email
     end
@@ -67,7 +66,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
 
     test "an expired code is refused", %{user: user} do
       {:ok, %{token: token}} = Accounts.request_email_confirmation(user)
-      expire_all(EmailToken)
+      expire_all(:email)
 
       assert {:error, :expired_token} = Accounts.confirm_email(user, user.email, token)
     end
@@ -96,16 +95,18 @@ defmodule Pesque.Accounts.EmailTokenTest do
 
     test "an address with no account answers :ok and mints nothing", %{user: _user} do
       assert :ok = Accounts.request_password_reset("nobody@localhost")
-      assert Repo.aggregate(PasswordResetToken, :count) == 0
+      assert Repo.aggregate(from(t in Token, where: t.purpose == :reset_password), :count) == 0
     end
 
     test "the code is stored hashed, never in the clear", %{user: user} do
       {:ok, %{token: token}} = Accounts.request_password_reset(user.email)
 
-      assert %PasswordResetToken{token_hash: hash} =
-               Repo.one!(from t in PasswordResetToken, where: t.did == ^user.did)
+      assert %Token{token_hash: hash} =
+               Repo.one!(
+                 from t in Token, where: t.did == ^user.did and t.purpose == :reset_password
+               )
 
-      assert hash == PasswordResetToken.hash_token(token)
+      assert hash == Token.hash_token(token)
       refute hash == token
     end
 
@@ -126,7 +127,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
 
     test "an expired code is refused and nothing changes", %{user: user} do
       {:ok, %{token: token}} = Accounts.request_password_reset(user.email)
-      expire_all(PasswordResetToken)
+      expire_all(:reset_password)
 
       assert {:error, :expired_token} =
                Accounts.reset_password_with_token(token, "the new password")
@@ -179,7 +180,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
       assert {:ok, _updated} = Accounts.update_email(confirmed, "new@localhost", token)
 
       spent =
-        Repo.one!(from t in EmailToken, where: t.token_hash == ^EmailToken.hash_token(token))
+        Repo.one!(from t in Token, where: t.token_hash == ^Token.hash_token(token))
 
       refute is_nil(spent.used_at)
     end
@@ -199,7 +200,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
     test "an expired code is refused", %{user: user} do
       confirmed = confirm(user)
       {:ok, %{token: token}} = Accounts.request_email_update(confirmed)
-      expire_all(EmailToken)
+      expire_all(:email)
 
       assert {:error, :expired_token} = Accounts.update_email(confirmed, "new@localhost", token)
     end
@@ -227,8 +228,8 @@ defmodule Pesque.Accounts.EmailTokenTest do
     user
   end
 
-  defp expire_all(schema) do
-    Repo.update_all(from(t in schema),
+  defp expire_all(purpose) do
+    Repo.update_all(from(t in Token, where: t.purpose == ^purpose),
       set: [expires_at: DateTime.add(DateTime.utc_now(), -1, :second)]
     )
   end

@@ -6,9 +6,10 @@ defmodule PesqueWeb.EmailTokenTest do
 
   use PesqueWeb.ConnCase, async: false
 
+  import Ecto.Query
+
   alias Pesque.Accounts
-  alias Pesque.Accounts.EmailToken
-  alias Pesque.Accounts.PasswordResetToken
+  alias Pesque.Accounts.Token
   alias Pesque.Repo
 
   @request_email "/xrpc/com.atproto.server.requestEmailConfirmation"
@@ -34,7 +35,7 @@ defmodule PesqueWeb.EmailTokenTest do
 
       assert conn.status == 200
       assert JSON.decode!(conn.resp_body) == %{}
-      assert Repo.aggregate(EmailToken, :count) == 1
+      assert Repo.aggregate(from(t in Token, where: t.purpose == :email), :count) == 1
     end
   end
 
@@ -83,14 +84,14 @@ defmodule PesqueWeb.EmailTokenTest do
 
       assert conn.status == 200
       assert JSON.decode!(conn.resp_body) == %{}
-      assert Repo.aggregate(PasswordResetToken, :count) == 1
+      assert Repo.aggregate(from(t in Token, where: t.purpose == :reset_password), :count) == 1
     end
 
     test "an unknown address answers the same and mints nothing", _ctx do
       conn = xrpc_post(@request_reset, %{"email" => "nobody@localhost"}, nil)
 
       assert conn.status == 200
-      assert Repo.aggregate(PasswordResetToken, :count) == 0
+      assert Repo.aggregate(from(t in Token, where: t.purpose == :reset_password), :count) == 0
     end
 
     test "needs an email" do

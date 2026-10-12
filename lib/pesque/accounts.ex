@@ -4,11 +4,9 @@ defmodule Pesque.Accounts do
   import Ecto.Query
 
   alias Pesque.Accounts.AppPassword
-  alias Pesque.Accounts.DeletionToken
-  alias Pesque.Accounts.EmailToken
   alias Pesque.Accounts.InviteCode
-  alias Pesque.Accounts.PasswordResetToken
   alias Pesque.Accounts.RefreshToken
+  alias Pesque.Accounts.Token
   alias Pesque.Accounts.User
   alias Pesque.Base32
   alias Pesque.Did
@@ -453,9 +451,9 @@ defmodule Pesque.Accounts do
   `:invalid_token` or `:expired_token`.
   """
   def reset_password_with_token(token, password) when is_binary(token) do
-    with {:ok, row} <- fetch_password_reset_token(token),
+    with {:ok, row} <- Token.fetch(:reset_password, token),
          %User{} = user <- get_user(row.did) do
-      apply_reset(user, password, fn -> spend_password_reset_token(row) end)
+      apply_reset(user, password, fn -> Token.spend(row) end)
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :invalid_token}
@@ -537,10 +535,10 @@ defmodule Pesque.Accounts do
   def confirm_email(%User{} = user, email, token) do
     with :ok <- check_email(email),
          :ok <- check_confirmation_address(user, email),
-         {:ok, row} <- fetch_email_token(user.did, token) do
+         {:ok, row} <- Token.fetch(:email, token, user.did) do
       result =
         Repo.transaction(fn ->
-          with :ok <- spend_email_token(row) do
+          with :ok <- Token.spend(row) do
             case User.email_confirmed_changeset(user) |> Repo.update() do
               {:ok, _updated} -> :ok
               {:error, _changeset} -> Repo.rollback(:account_not_updated)
@@ -627,7 +625,7 @@ defmodule Pesque.Accounts do
   defp update_email_requirement(%User{email_confirmed_at: nil}, _token), do: {:ok, nil}
 
   defp update_email_requirement(%User{} = user, token) when is_binary(token) and token != "" do
-    case fetch_email_token(user.did, token) do
+    case Token.fetch(:email, token, user.did) do
       {:ok, %{email: email} = row} ->
         if email == user.email, do: {:ok, row}, else: {:error, :invalid_token}
 
@@ -639,7 +637,7 @@ defmodule Pesque.Accounts do
   defp update_email_requirement(%User{}, _token), do: {:error, :token_required}
 
   defp spend_update_token(nil), do: :ok
-  defp spend_update_token(row), do: spend_email_token(row)
+  defp spend_update_token(row), do: Token.spend(row)
 
   # The request's email has to be the account's own, or the confirm names an
   # address this account does not have. That is an InvalidEmail, not a wrong
@@ -686,26 +684,13 @@ defmodule Pesque.Accounts do
   end
 
   defp issue_password_reset(%User{did: did}) do
-    token = single_use_token()
-
-    expires_at =
-      DateTime.utc_now()
-      |> DateTime.add(@email_token_ttl_seconds, :second)
-      |> DateTime.truncate(:second)
-
-    attrs = %{
-      token_hash: PasswordResetToken.hash_token(token),
-      did: did,
-      expires_at: expires_at
-    }
-
-    case PasswordResetToken.changeset(attrs) |> Repo.insert() do
-      {:ok, _row} ->
+    case Token.issue(:reset_password, did, @email_token_ttl_seconds) do
+      {:ok, %{token: token} = issued} ->
         Logger.info("password reset token issued", did: did, token: token)
-        {:ok, %{token: token, expires_at: expires_at}}
+        {:ok, issued}
 
-      {:error, _changeset} ->
-        {:error, :reset_token_failed}
+      {:error, _reason} ->
+        {:error, :token_failed}
     end
   end
 
@@ -713,84 +698,15 @@ defmodule Pesque.Accounts do
   # account's current address, which is what both confirmEmail and updateEmail
   # prove control of.
   defp issue_email_token(%User{did: did, email: email}) do
-    token = single_use_token()
-
-    expires_at =
-      DateTime.utc_now()
-      |> DateTime.add(@email_token_ttl_seconds, :second)
-      |> DateTime.truncate(:second)
-
-    attrs = %{
-      token_hash: EmailToken.hash_token(token),
-      did: did,
-      email: email,
-      expires_at: expires_at
-    }
-
-    case EmailToken.changeset(attrs) |> Repo.insert() do
-      {:ok, _row} ->
+    case Token.issue(:email, did, @email_token_ttl_seconds, email) do
+      {:ok, %{token: token} = issued} ->
         Logger.info("email token issued", did: did, token: token)
-        {:ok, %{token: token, expires_at: expires_at}}
+        {:ok, issued}
 
-      {:error, _changeset} ->
-        {:error, :email_token_failed}
+      {:error, _reason} ->
+        {:error, :token_failed}
     end
   end
-
-  defp fetch_email_token(did, token) when is_binary(token) do
-    case Repo.get_by(EmailToken, token_hash: EmailToken.hash_token(token)) do
-      nil -> {:error, :invalid_token}
-      %EmailToken{did: ^did, used_at: nil} = row -> check_token_not_expired(row)
-      %EmailToken{} -> {:error, :invalid_token}
-    end
-  end
-
-  defp fetch_email_token(_did, _token), do: {:error, :invalid_token}
-
-  # The caller guards that the token is a binary, so this clause is the whole
-  # lookup: a token that names no row, was already spent, or has expired is
-  # each its own refusal.
-  defp fetch_password_reset_token(token) when is_binary(token) do
-    case Repo.get_by(PasswordResetToken, token_hash: PasswordResetToken.hash_token(token)) do
-      nil -> {:error, :invalid_token}
-      %PasswordResetToken{used_at: nil} = row -> check_token_not_expired(row)
-      %PasswordResetToken{} -> {:error, :invalid_token}
-    end
-  end
-
-  # Single use is a conditional update, not a read followed by a write: two
-  # callers holding one code both read it unused, and only the one whose update
-  # matches a row proceeds.
-  defp spend_email_token(%EmailToken{id: id}) do
-    spend_single_use_token(EmailToken, id)
-  end
-
-  defp spend_password_reset_token(%PasswordResetToken{id: id}) do
-    spend_single_use_token(PasswordResetToken, id)
-  end
-
-  defp spend_single_use_token(schema, id) do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
-
-    {count, _} =
-      from(t in schema, where: t.id == ^id and is_nil(t.used_at))
-      |> Repo.update_all(set: [used_at: now])
-
-    if count == 1, do: :ok, else: :invalid_token
-  end
-
-  # Expiry is answered separately from validity: the lexicon names both, and a
-  # caller told ExpiredToken asks for a new code instead of guessing whether
-  # the one it holds is merely wrong.
-  defp check_token_not_expired(%{expires_at: expires_at} = row) do
-    if DateTime.before?(expires_at, DateTime.utc_now()) do
-      {:error, :expired_token}
-    else
-      {:ok, row}
-    end
-  end
-
-  defp single_use_token, do: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
   # A did:plc account is activated only once the directory's document names
   # this server as its PDS, or every client resolves the account away from
@@ -1408,22 +1324,7 @@ defmodule Pesque.Accounts do
   Only the hash is stored, so this table is not a set of live delete buttons.
   """
   def request_account_delete(%User{did: did}) do
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-
-    expires_at =
-      DateTime.shift(DateTime.utc_now(), second: @deletion_token_ttl_seconds)
-      |> DateTime.truncate(:second)
-
-    attrs = %{
-      token_hash: DeletionToken.hash_token(token),
-      did: did,
-      expires_at: expires_at
-    }
-
-    case DeletionToken.changeset(attrs) |> Repo.insert() do
-      {:ok, _row} -> {:ok, %{token: token, expires_at: expires_at}}
-      {:error, _changeset} -> {:error, :deletion_token_failed}
-    end
+    Token.issue(:account_delete, did, @deletion_token_ttl_seconds)
   end
 
   @doc """
@@ -1450,7 +1351,7 @@ defmodule Pesque.Accounts do
   def delete_account(%User{} = user, did, password, token) do
     with :ok <- check_did(user, did),
          :ok <- check_account_password(user, password),
-         {:ok, row} <- fetch_deletion_token(user.did, token) do
+         {:ok, row} <- Token.fetch(:account_delete, token, user.did) do
       RepoServer.stop(user.did)
       Events.emit_account(user.did, :deleted)
       purge(user, row)
@@ -1468,39 +1369,18 @@ defmodule Pesque.Accounts do
     if verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
   end
 
-  # Expiry is answered separately from validity: the lexicon names both, and a
-  # client told ExpiredToken can ask for a new one instead of guessing whether
-  # the token it holds is merely wrong.
-  defp fetch_deletion_token(did, token) when is_binary(token) do
-    case Repo.get_by(DeletionToken, token_hash: DeletionToken.hash_token(token)) do
-      nil -> {:error, :invalid_token}
-      %DeletionToken{did: ^did, used_at: nil} = row -> check_not_expired(row)
-      %DeletionToken{} -> {:error, :invalid_token}
-    end
-  end
-
-  defp fetch_deletion_token(_did, _token), do: {:error, :invalid_token}
-
-  defp check_not_expired(%DeletionToken{expires_at: expires_at} = row) do
-    if DateTime.before?(expires_at, DateTime.utc_now()) do
-      {:error, :expired_token}
-    else
-      {:ok, row}
-    end
-  end
-
   defp purge(user, token_row) do
     result =
       Repo.transaction(fn ->
-        with true <- spend_token(token_row) do
+        with :ok <- Token.spend(token_row) do
           RepoStore.delete_repo_data!(user.did)
           Repo.delete_all(from t in RefreshToken, where: t.did == ^user.did)
-          Repo.delete_all(from t in DeletionToken, where: t.did == ^user.did)
+          Repo.delete_all(from t in Token, where: t.did == ^user.did)
           Repo.delete_all(from p in AppPassword, where: p.did == ^user.did)
           Repo.delete!(user)
           :ok
         else
-          false -> Repo.rollback(:invalid_token)
+          :invalid_token -> Repo.rollback(:invalid_token)
         end
       end)
 
@@ -1513,19 +1393,6 @@ defmodule Pesque.Accounts do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  # Single use is a conditional update, not a read followed by a write: two
-  # callers holding the same token both read it unused, and only the one whose
-  # update matches a row proceeds.
-  defp spend_token(%DeletionToken{id: id}) do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
-
-    {count, _} =
-      from(t in DeletionToken, where: t.id == ^id and is_nil(t.used_at))
-      |> Repo.update_all(set: [used_at: now])
-
-    count == 1
   end
 
   # The blobs row is gone with the rest, so the bytes are unreachable already;

@@ -14,7 +14,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
   import Process, only: [alive?: 1]
 
   alias Pesque.Accounts
-  alias Pesque.Accounts.DeletionToken
+  alias Pesque.Accounts.Token
   alias Pesque.Blob
   alias Pesque.CBOR
   alias Pesque.CID
@@ -120,8 +120,10 @@ defmodule PesqueWeb.AccountLifecycleTest do
       assert is_binary(body["token"])
       assert {:ok, _, 0} = DateTime.from_iso8601(body["expiresAt"])
 
-      assert %DeletionToken{did: did} =
-               Repo.one!(from t in DeletionToken, where: t.did == ^ctx.alice.did)
+      assert %Token{did: did} =
+               Repo.one!(
+                 from t in Token, where: t.did == ^ctx.alice.did and t.purpose == :account_delete
+               )
 
       assert did == ctx.alice.did
       assert is_nil(did_used_at())
@@ -132,10 +134,12 @@ defmodule PesqueWeb.AccountLifecycleTest do
     test "the token is stored hashed", ctx do
       body = request_delete(ctx.token)
 
-      assert %DeletionToken{token_hash: hash} =
-               Repo.one!(from t in DeletionToken, where: t.did == ^ctx.alice.did)
+      assert %Token{token_hash: hash} =
+               Repo.one!(
+                 from t in Token, where: t.did == ^ctx.alice.did and t.purpose == :account_delete
+               )
 
-      assert hash == DeletionToken.hash_token(body["token"])
+      assert hash == Token.hash_token(body["token"])
       refute hash == body["token"]
     end
 
@@ -418,20 +422,20 @@ defmodule PesqueWeb.AccountLifecycleTest do
 
   defp expire!(did) do
     Repo.update_all(
-      from(t in DeletionToken, where: t.did == ^did),
+      from(t in Token, where: t.did == ^did and t.purpose == :account_delete),
       set: [expires_at: ~U[2000-01-01 00:00:00Z]]
     )
   end
 
   defp spend!(did) do
     Repo.update_all(
-      from(t in DeletionToken, where: t.did == ^did),
+      from(t in Token, where: t.did == ^did and t.purpose == :account_delete),
       set: [used_at: DateTime.truncate(DateTime.utc_now(), :second)]
     )
   end
 
   defp did_used_at do
-    Repo.one(from t in DeletionToken, select: t.used_at, limit: 1)
+    Repo.one(from t in Token, where: t.purpose == :account_delete, select: t.used_at, limit: 1)
   end
 
   defp decode(frame) do
