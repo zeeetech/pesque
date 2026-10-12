@@ -342,6 +342,79 @@ defmodule PesqueWeb.Xrpc.SessionController do
   def revoke_app_password(conn, _params),
     do: Xrpc.error(conn, 400, "InvalidRequest", "a name is required")
 
+  # The confirmation code the spec emails to the account holder. There is no
+  # mail here: on a self-hosted PDS the account holder is the operator, so the
+  # code is logged (the `token` metadata, info level) and mintable again through
+  # `pesque account email-token`. The lexicon declares no output, so the answer
+  # is the empty object.
+  def request_email_confirmation(conn, _params) do
+    case Accounts.request_email_confirmation(conn.assigns.current_user) do
+      {:ok, _issued} -> json(conn, %{})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  def confirm_email(conn, %{"email" => email, "token" => token})
+      when is_binary(email) and is_binary(token) do
+    case Accounts.confirm_email(conn.assigns.current_user, email, token) do
+      :ok -> json(conn, %{})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  def confirm_email(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "email and token are required")
+  end
+
+  # Whether updateEmail needs a code, and if so, the code itself: minted when
+  # the current address is confirmed, and logged for the operator like every
+  # other emailed code here. The answer is the lexicon's `tokenRequired`.
+  def request_email_update(conn, _params) do
+    case Accounts.request_email_update(conn.assigns.current_user) do
+      {:ok, %{token_required: required}} -> json(conn, %{"tokenRequired" => required})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  def update_email(conn, %{"email" => email} = params) when is_binary(email) do
+    case Accounts.update_email(conn.assigns.current_user, email, params["token"]) do
+      {:ok, _user} -> json(conn, %{})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  def update_email(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "email is required")
+  end
+
+  # The requester is anonymous, so the code is never answered in the body: it is
+  # logged and mintable through `pesque account reset-token`, and the answer is
+  # the empty object whether or not the address has an account here. The lexicon
+  # declares no output, and saying "sent" for an address with no account is what
+  # keeps the endpoint from being an account oracle.
+  def request_password_reset(conn, %{"email" => email}) when is_binary(email) do
+    case Accounts.request_password_reset(email) do
+      {:error, reason} -> Xrpc.error(conn, reason)
+      _issued_or_miss -> json(conn, %{})
+    end
+  end
+
+  def request_password_reset(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "email is required")
+  end
+
+  def reset_password(conn, %{"token" => token, "password" => password})
+      when is_binary(token) and is_binary(password) do
+    case Accounts.reset_password_with_token(token, password) do
+      :ok -> json(conn, %{})
+      {:error, reason} -> Xrpc.error(conn, reason)
+    end
+  end
+
+  def reset_password(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "token and password are required")
+  end
+
   # The lexicon has this token delivered by email and answers an empty object.
   # There is no mail here, so it is answered in the body: a token that was
   # recorded and never delivered would make the account undeletable.

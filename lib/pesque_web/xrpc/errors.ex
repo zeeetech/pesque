@@ -171,6 +171,24 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:deletion_token_failed),
     do: {500, "InternalServerError", "a deletion token could not be issued"}
 
+  # confirmEmail and resetPassword both spend a code the request endpoint
+  # issued. The code has to reach the account holder, and there is no mail here,
+  # so it is logged and mintable through the CLI; these are the refusals of the
+  # two flows' own shapes.
+  def to_xrpc(:invalid_email),
+    do: {400, "InvalidEmail", "the email does not match the account it confirms"}
+
+  # updateEmail needs a code when the current address is confirmed, and this is
+  # a missing one rather than a wrong one: the caller skipped requestEmailUpdate.
+  def to_xrpc(:token_required),
+    do: {400, "TokenRequired", "a token from requestEmailUpdate is required"}
+
+  def to_xrpc(:email_token_failed),
+    do: {500, "InternalServerError", "an email confirmation token could not be issued"}
+
+  def to_xrpc(:reset_token_failed),
+    do: {500, "InternalServerError", "a password reset token could not be issued"}
+
   # A did:plc account moving out needs this server to sign the operation, and
   # the signature is gated on the code requestPlcOperationSignature issued.
   # An unknown, spent or foreign code is the same refusal the deletion token

@@ -71,6 +71,14 @@ defmodule PesqueWeb.Router do
     post "/com.atproto.server.createSession", SessionController, :create_session
     post "/com.atproto.server.refreshSession", SessionController, :refresh_session
     post "/com.atproto.server.deleteSession", SessionController, :delete_session
+
+    # The password reset flow is the one session endpoint a caller reaches
+    # without a credential at all, so it takes the tight, unauthenticated
+    # budget alongside the session verbs it belongs with. requestPasswordReset
+    # is a no-op against an unknown address; resetPassword spends a code the
+    # request logged.
+    post "/com.atproto.server.requestPasswordReset", SessionController, :request_password_reset
+    post "/com.atproto.server.resetPassword", SessionController, :reset_password
   end
 
   # Every client asks this one first, so it answers without a rate limit of its
@@ -153,6 +161,20 @@ defmodule PesqueWeb.Router do
     pipe_through :auth_session
 
     get "/com.atproto.server.getSession", SessionController, :get_session
+
+    # Confirming an email is about the caller's own account, so a valid session
+    # is the whole requirement: the code requestEmailConfirmation logs is bound
+    # to the account's address, and confirmEmail only spends it.
+    post "/com.atproto.server.requestEmailConfirmation",
+         SessionController,
+         :request_email_confirmation
+
+    post "/com.atproto.server.confirmEmail", SessionController, :confirm_email
+
+    # A confirmed address takes a code to move; an unconfirmed one does not.
+    # Both endpoints stay behind a valid session, like the confirmation pair.
+    post "/com.atproto.server.requestEmailUpdate", SessionController, :request_email_update
+    post "/com.atproto.server.updateEmail", SessionController, :update_email
   end
 
   scope "/xrpc", PesqueWeb.Xrpc do
