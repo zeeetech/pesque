@@ -35,6 +35,14 @@ config :pesque, ecto_repos: [Pesque.Repo]
 # they are off rather than printed as noise no test asked for.
 config :pesque, boot_warnings: config_env() != :test
 
+# The browser-facing pages only. Protocol text stays English, so gettext never
+# touches the XRPC surface. Portuguese is the default because the server is
+# self-hosted in Brazil, and English is the translation that keeps a page
+# legible to the network at large.
+config :pesque, PesqueWeb.Gettext,
+  default_locale: "pt_BR",
+  locales: ~w(pt_BR en)
+
 config :phoenix, :json_library, JSON
 
 # The same library for the adapter, which defaults to Jason to store its array
