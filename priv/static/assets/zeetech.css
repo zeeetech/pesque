@@ -73,9 +73,22 @@
 * {
   box-sizing: border-box;
 }
+
+/* Mobile basics: keep iOS from inflating text, keep the overscroll area and
+   the form controls dark so the brand surface is the whole screen, not a white
+   flash at the edges. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: #000a0f;
+  color-scheme: dark;
+}
 body {
   margin: 0;
   min-height: 100vh;
+  /* dvh tracks the visible viewport on mobile, where 100vh includes the
+     browser chrome and leaves the footer a scroll behind on load. */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: var(--preto);
@@ -165,7 +178,10 @@ body::after {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.6rem 0;
+  /* Only the vertical padding: a `padding: x 0` shorthand here would wipe the
+     horizontal padding `.wrap` gives the header, gluing the brand to the edge. */
+  padding-top: 1.6rem;
+  padding-bottom: 1.6rem;
 }
 .brand {
   display: inline-flex;
@@ -431,7 +447,9 @@ ul.scopes details ul {
 }
 .field input {
   font-family: var(--sans);
-  font-size: 0.98rem;
+  /* 16px is the floor: a smaller font makes iOS Safari zoom the viewport when
+     the field is focused, which reads as the page jumping on a phone. */
+  font-size: 1rem;
   color: var(--ink);
   background: rgba(247, 247, 255, 0.04);
   border: 1px solid var(--roxo-line);
@@ -500,6 +518,53 @@ summary:focus-visible {
 }
 .skip:focus {
   top: 0.6rem;
+}
+
+/* -- small screens ------------------------------------------ */
+/* The fluid rules above already reflow the page; this only tightens the
+   vertical rhythm so a small phone (375px and down) fits the hero, the facts
+   and the consent form without extra scrolling. */
+@media (max-width: 30rem) {
+  .top {
+    padding-top: 1.1rem;
+    padding-bottom: 1.1rem;
+  }
+  section {
+    padding: 2.6rem 0;
+  }
+  .hero {
+    padding-top: 2rem;
+  }
+  h1 {
+    font-size: clamp(1.7rem, 8vw, 2.4rem);
+  }
+  h2.head {
+    font-size: clamp(1.25rem, 5.5vw, 1.6rem);
+  }
+  .cta,
+  .actions {
+    gap: 0.6rem;
+  }
+  .btn {
+    padding: 0.8rem 1.1rem;
+  }
+}
+
+/* -- touch -------------------------------------------------- */
+/* A finger needs a bigger target than a cursor: the language links and the
+   buttons grow to a comfortable tap area wherever the pointer is coarse. */
+@media (pointer: coarse) {
+  .locales a {
+    padding: 0.45rem 0.6rem;
+  }
+  .btn {
+    min-height: 2.75rem;
+    justify-content: center;
+  }
+  ul.scopes input[type="checkbox"] {
+    min-width: 1.25rem;
+    min-height: 1.25rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

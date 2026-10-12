@@ -25,9 +25,17 @@ defmodule PesqueWeb.ErrorPagesTest do
 
     assert conn.status == 404
     assert content_type(conn) =~ "text/html"
+    assert conn.resp_body =~ "<!doctype html>"
     assert conn.resp_body =~ "não encontrado"
     assert conn.resp_body =~ "/assets/zeetech.css"
     refute conn.resp_body =~ "<script"
+  end
+
+  test "the error page is delivered as markup, not as escaped text" do
+    conn = request("/nothing/here", accept: "text/html")
+
+    refute conn.resp_body =~ "&lt;"
+    refute conn.resp_body =~ "&gt;"
   end
 
   test "the error page gets the policy that lets it load the stylesheet" do
@@ -66,7 +74,7 @@ defmodule PesqueWeb.ErrorPagesTest do
           {"500.html", "erro no servidor"},
           {"503.html", "erro no servidor"}
         ] do
-      page = PesqueWeb.ErrorHTML.render(template, %{})
+      page = PesqueWeb.ErrorHTML.render(template, %{}) |> elem(1)
 
       assert page =~ "<!doctype html>", "#{template} did not render a document"
       assert page =~ needle, "#{template} did not render #{needle}"

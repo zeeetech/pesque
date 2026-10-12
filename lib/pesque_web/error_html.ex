@@ -13,6 +13,11 @@ defmodule PesqueWeb.ErrorHTML do
   so an error reads in the same language as the page that failed. The shell
   carries no language switcher here: an error page has no meaningful target for
   one.
+
+  `render/2` returns `{:safe, html}`, the shape Phoenix's HTML encoder expects.
+  The document is built here and already escaped where it interpolates, so
+  handing back a bare binary would make the encoder escape the markup a second
+  time and the browser would render the tags as text.
   """
 
   use Gettext, backend: PesqueWeb.Gettext
@@ -22,7 +27,7 @@ defmodule PesqueWeb.ErrorHTML do
   alias PesqueWeb.Layout
 
   @doc "Phoenix's error-view entry point, called with `\"<status>.html\"`."
-  def render(template, _assigns), do: template |> status() |> page()
+  def render(template, _assigns), do: {:safe, template |> status() |> page()}
 
   defp status(template) do
     case Integer.parse(template) do

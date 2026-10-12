@@ -89,7 +89,7 @@ msgstr ""
 msgid "invite only"
 msgstr ""
 
-#: lib/pesque_web/layout.ex:96
+#: lib/pesque_web/layout.ex:97
 #, elixir-autogen, elixir-format
 msgid "language"
 msgstr ""
@@ -119,7 +119,7 @@ msgstr ""
 msgid "single account"
 msgstr ""
 
-#: lib/pesque_web/layout.ex:53
+#: lib/pesque_web/layout.ex:54
 #, elixir-autogen, elixir-format
 msgid "skip to content"
 msgstr ""
@@ -189,57 +189,57 @@ msgstr ""
 msgid "sign in to authorize"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:67
+#: lib/pesque_web/error_html.ex:72
 #, elixir-autogen, elixir-format
 msgid "Nothing answers at this address."
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:70
+#: lib/pesque_web/error_html.ex:75
 #, elixir-autogen, elixir-format
 msgid "Something went wrong on this server. The error has been logged."
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:64
+#: lib/pesque_web/error_html.ex:69
 #, elixir-autogen, elixir-format
 msgid "The request could not be read. Check the address and try again."
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:65
+#: lib/pesque_web/error_html.ex:70
 #, elixir-autogen, elixir-format
 msgid "This page needs a sign-in you did not provide."
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:66
+#: lib/pesque_web/error_html.ex:71
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to see this."
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:52
+#: lib/pesque_web/error_html.ex:57
 #, elixir-autogen, elixir-format
 msgid "back to the start"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:58
+#: lib/pesque_web/error_html.ex:63
 #, elixir-autogen, elixir-format
 msgid "bad request"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:60
+#: lib/pesque_web/error_html.ex:65
 #, elixir-autogen, elixir-format
 msgid "forbidden"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:61
+#: lib/pesque_web/error_html.ex:66
 #, elixir-autogen, elixir-format
 msgid "not found"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:62
+#: lib/pesque_web/error_html.ex:67
 #, elixir-autogen, elixir-format
 msgid "server error"
 msgstr ""
 
-#: lib/pesque_web/error_html.ex:59
+#: lib/pesque_web/error_html.ex:64
 #, elixir-autogen, elixir-format
 msgid "unauthorized"
 msgstr ""
