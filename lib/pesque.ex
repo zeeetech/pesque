@@ -110,4 +110,14 @@ defmodule Pesque do
   @doc "Largest proxied response body accepted, in bytes."
   def proxy_response_limit,
     do: Application.get_env(:pesque, :proxy_response_limit, 10 * 1024 * 1024)
+
+  @doc """
+  The permission-set aggregator's base URL, or nil when none is configured.
+
+  With no aggregator, only the sets this server holds locally resolve; an
+  `include:` naming anything else is refused at PAR. The default is nil
+  because the ten sets an atproto client asks for are vendored already, and
+  fetching from a host nobody chose is not a default anybody wants.
+  """
+  def lexicon_aggregator, do: Application.get_env(:pesque, :lexicon_aggregator, nil)
 end
