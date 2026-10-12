@@ -109,10 +109,11 @@ defmodule PesqueWeb.PagesTest do
     assert conn.resp_body =~ "não encontrado"
   end
 
-  test "the landing offers signup where accounts are many" do
+  test "the landing offers the move first and signup second where accounts are many" do
     conn = request("/", Pesque.hostname())
 
-    assert conn.resp_body =~ ~s(<a class="btn primary" href="/signup">criar conta</a>)
+    assert conn.resp_body =~ ~s(<a class="btn primary" href="/migrate">trazer minha conta</a>)
+    assert conn.resp_body =~ ~s(<a class="btn" href="/signup">criar conta</a>)
   end
 
   test "the landing keeps the explainer out of the action row" do
@@ -122,11 +123,12 @@ defmodule PesqueWeb.PagesTest do
     refute conn.resp_body =~ ~s(class="btn" href="https://atproto.com")
   end
 
-  test "the landing offers no signup where the server is its single account" do
+  test "the landing offers no signup and no move where the server is its single account" do
     put_mode(:conformant_single)
 
     conn = request("/", Pesque.hostname())
 
     refute conn.resp_body =~ ~s(href="/signup")
+    refute conn.resp_body =~ ~s(href="/migrate")
   end
 end

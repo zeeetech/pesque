@@ -93,9 +93,12 @@ defmodule PesqueWeb.PageHTML do
   # The actions, primary first: the row reads as an answer with options rather
   # than as a button buried between two others. "What is atproto?" is not here,
   # because it is not an action: a reader may want the network explained before
-  # choosing one, so it sits under the row as a link.
+  # choosing one, so it sits under the row as a link. The move leads because it
+  # is the action a person with an account elsewhere is looking for; creating
+  # an account here is the other way in, not the first one.
   defp cta(mode) do
     [
+      migrate_link(mode),
       signup_link(mode),
       ~s(<a class="btn" href="https://bsky.app">#{gettext("open a client")} →</a>)
     ]
@@ -103,11 +106,19 @@ defmodule PesqueWeb.PageHTML do
     |> Enum.join("\n        ")
   end
 
+  # A server with many accounts takes accounts that live elsewhere, so the
+  # landing offers the way over. A server that is its single account has no
+  # move page, and the link would be a dead end.
+  defp migrate_link(:path_multi),
+    do: ~s(<a class="btn primary" href="/migrate">#{gettext("move my account")}</a>)
+
+  defp migrate_link(_mode), do: ""
+
   # A server with many accounts takes them by invite, so the landing offers the
   # way in. A server that is its single account has no signup page, and the
   # link would be a dead end.
   defp signup_link(:path_multi),
-    do: ~s(<a class="btn primary" href="/signup">#{gettext("create account")}</a>)
+    do: ~s(<a class="btn" href="/signup">#{gettext("create account")}</a>)
 
   defp signup_link(_mode), do: ""
 

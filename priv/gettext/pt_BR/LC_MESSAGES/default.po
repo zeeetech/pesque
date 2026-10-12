@@ -16,12 +16,12 @@ msgstr ""
 msgid "A personal data server for the atproto network. It stores an account's records, signs every change and answers the network on its own. Self-hosted, so the data stays where its owner put it."
 msgstr "Um personal data server da rede atproto. Guarda os registros de uma conta, assina cada mudança e responde à rede sozinho. Self-hosted, então os dados ficam onde quem cuida deles deixou."
 
-#: lib/pesque_web/page_html.ex:136
+#: lib/pesque_web/page_html.ex:147
 #, elixir-autogen, elixir-format
 msgid "This handle is hosted here, but the account is dormant. Everything below is public."
 msgstr "Este handle é hospedado aqui, mas a conta está inativa. Tudo abaixo é público."
 
-#: lib/pesque_web/page_html.ex:132
+#: lib/pesque_web/page_html.ex:143
 #, elixir-autogen, elixir-format
 msgid "This handle is hosted here. Everything below is public."
 msgstr "Este handle é hospedado aqui. Tudo abaixo é público."
@@ -37,7 +37,7 @@ msgstr "sobre este servidor"
 msgid "accounts"
 msgstr "contas"
 
-#: lib/pesque_web/page_html.ex:129
+#: lib/pesque_web/page_html.ex:140
 #, elixir-autogen, elixir-format
 msgid "active"
 msgstr "ativa"
@@ -47,24 +47,24 @@ msgstr "ativa"
 msgid "atproto account on this server"
 msgstr "conta atproto neste servidor"
 
-#: lib/pesque_web/page_html.ex:121
+#: lib/pesque_web/page_html.ex:132
 #, elixir-autogen, elixir-format
 msgid "community server"
 msgstr "servidor comunitário"
 
 #: lib/pesque_web/page_html.ex:62
-#: lib/pesque_web/page_html.ex:117
+#: lib/pesque_web/page_html.ex:128
 #, elixir-autogen, elixir-format
 msgid "did"
 msgstr "did"
 
-#: lib/pesque_web/page_html.ex:130
+#: lib/pesque_web/page_html.ex:141
 #, elixir-autogen, elixir-format
 msgid "dormant"
 msgstr "inativa"
 
 #: lib/pesque_web/page_html.ex:61
-#: lib/pesque_web/page_html.ex:117
+#: lib/pesque_web/page_html.ex:128
 #, elixir-autogen, elixir-format
 msgid "handle"
 msgstr "handle"
@@ -85,7 +85,7 @@ msgstr "hostname"
 msgid "identity"
 msgstr "identidade"
 
-#: lib/pesque_web/page_html.ex:127
+#: lib/pesque_web/page_html.ex:138
 #, elixir-autogen, elixir-format
 msgid "invite only"
 msgstr "só com convite"
@@ -95,12 +95,12 @@ msgstr "só com convite"
 msgid "language"
 msgstr "idioma"
 
-#: lib/pesque_web/page_html.ex:126
+#: lib/pesque_web/page_html.ex:137
 #, elixir-autogen, elixir-format
 msgid "open"
 msgstr "aberto"
 
-#: lib/pesque_web/page_html.ex:100
+#: lib/pesque_web/page_html.ex:103
 #, elixir-autogen, elixir-format
 msgid "open a client"
 msgstr "abrir um cliente"
@@ -115,7 +115,7 @@ msgstr "personal data server"
 msgid "registration"
 msgstr "registro"
 
-#: lib/pesque_web/page_html.ex:120
+#: lib/pesque_web/page_html.ex:131
 #, elixir-autogen, elixir-format
 msgid "single account"
 msgstr "conta única"
@@ -330,7 +330,7 @@ msgstr "Sua conta está pronta. Pra entrar, abra o aplicativo oficial do Bluesky
 msgid "account created"
 msgstr "conta criada"
 
-#: lib/pesque_web/page_html.ex:110
+#: lib/pesque_web/page_html.ex:121
 #: lib/pesque_web/signup_controller.ex:139
 #: lib/pesque_web/signup_html.ex:29
 #, elixir-autogen, elixir-format
@@ -550,6 +550,7 @@ msgid "it did not work"
 msgstr "não deu"
 
 #: lib/pesque_web/migrate_html.ex:59
+#: lib/pesque_web/page_html.ex:113
 #, elixir-autogen, elixir-format
 msgid "move my account"
 msgstr "trazer minha conta"
