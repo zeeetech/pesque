@@ -172,11 +172,16 @@ defmodule Pesque.Config do
   One setting: the environment first, then the file, then the default.
 
   The environment variable is `PDS_` plus the key uppercased, so `port` is
-  `PDS_PORT` and the two layers need no second vocabulary. Lists are a
-  comma-separated string in either layer and are split by the caller.
+  `PDS_PORT` and the two layers need no second vocabulary. An empty
+  environment value reads as unset, the same rule resolution/0 reports, so
+  the file or the default answers instead. Lists are a comma-separated
+  string in either layer and are split by the caller.
   """
   def get(file, key, default) do
-    System.get_env("PDS_" <> String.upcase(key)) || Map.get(file, key) || default
+    case System.get_env("PDS_" <> String.upcase(key)) do
+      value when is_binary(value) and value != "" -> value
+      _unset -> Map.get(file, key) || default
+    end
   end
 
   defp resolve(key, file) do

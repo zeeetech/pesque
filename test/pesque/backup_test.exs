@@ -47,6 +47,10 @@ defmodule Pesque.BackupTest do
     for entry <- ["manifest.json", "pesque.db", "server.secret", "keys/signing.key"] do
       assert entry in names, "the archive is missing #{entry}"
     end
+
+    # Staging lives under out_dir (the system tmp dir can be tmpfs) and is
+    # gone when create is done.
+    assert Path.wildcard(Path.join(out, ".pesque-backup-staging-*")) == []
   end
 
   test "create refuses a data directory a server never booted in", %{out: out} do

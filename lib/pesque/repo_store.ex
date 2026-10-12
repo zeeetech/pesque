@@ -560,7 +560,7 @@ defmodule Pesque.RepoStore do
   does; `busy_timeout_ms` is how long it waits for a writer in flight before
   answering :locked.
   """
-  def write_lock(db_path, busy_timeout_ms \\ 5_000) do
+  def write_lock(db_path, busy_timeout_ms \\ 5_000) when is_integer(busy_timeout_ms) do
     case Exqlite.Sqlite3.open(db_path) do
       {:ok, conn} ->
         try do

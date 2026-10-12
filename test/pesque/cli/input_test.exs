@@ -86,6 +86,18 @@ defmodule Pesque.Cli.InputTest do
                  "ACCOUNT_PASSWORD",
                  no_prompt()
                )
+
+      # Set but empty is the same failure: an empty string travelling on as
+      # the password would surface as a misleading password_too_short.
+      System.put_env("PESQUE_EMPTY_PASSWORD", "")
+      on_exit(fn -> System.delete_env("PESQUE_EMPTY_PASSWORD") end)
+
+      assert {:error, {:password_env_empty, "PESQUE_EMPTY_PASSWORD"}} =
+               Input.password(
+                 [password_env: "PESQUE_EMPTY_PASSWORD"],
+                 "ACCOUNT_PASSWORD",
+                 no_prompt()
+               )
     end
 
     test "the conventional environment is next" do

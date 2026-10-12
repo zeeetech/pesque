@@ -11,14 +11,14 @@ defmodule Pesque.Cli.Crawl do
 
   def run(["request" | argv]) do
     with {:ok, _opts, []} <- Input.options(argv, [], @usage),
-         :ok <- Release.boot!(),
-         true <- Pesque.crawlers() != [] do
-      Pesque.Crawl.request_all()
-      Enum.each(Pesque.crawlers(), &IO.puts("asked #{&1} to crawl this server"))
-      :ok
-    else
-      false -> {:error, :no_crawler_configured}
-      other -> other
+         :ok <- Release.boot!() do
+      if Pesque.crawlers() == [] do
+        {:error, :no_crawler_configured}
+      else
+        Pesque.Crawl.request_all()
+        Enum.each(Pesque.crawlers(), &IO.puts("asked #{&1} to crawl this server"))
+        :ok
+      end
     end
   end
 

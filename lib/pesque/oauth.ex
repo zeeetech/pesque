@@ -287,15 +287,16 @@ defmodule Pesque.OAuth do
   Revokes every token an account holds, access and refresh alike.
 
   A password reset goes through here after the row is updated: a reset that
-  left the sessions it was killing live would not be a reset. Answers the
-  number of rows marked revoked.
+  left the sessions it was killing live would not be a reset. Answers
+  {:ok, count}, the number of rows marked revoked, the shape revoke_where/1
+  answers.
   """
   def revoke_all(did) do
     {count, _} =
       from(t in Token, where: t.did == ^did and t.revoked == false)
       |> Repo.update_all(set: [revoked: true])
 
-    count
+    {:ok, count}
   end
 
   @doc """

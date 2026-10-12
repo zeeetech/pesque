@@ -420,16 +420,32 @@ defmodule Pesque.Accounts do
 
   The hash and the teardown are one operation from the operator's point of
   view: a reset that left the attacker's sessions live would not be a reset.
-  The password goes through the same checks and the same hash as
-  create_account/4, so a reset cannot weaken the account it is fixing.
+  The row update, the refresh tokens and the OAuth tokens are one
+  transaction, so a crash between them cannot leave live sessions under a
+  new password. The password goes through the same checks and the same hash
+  as create_account/4, computed outside the transaction for the same reason
+  it is there: argon2 must not hold SQLite's single write lock.
   """
   def reset_password(%User{} = user, password) do
     with :ok <- check_password(password),
-         {:ok, password_hash} <- hash_password(password),
-         {:ok, _row} <- update_password(user, password_hash) do
-      revoke_sessions(user.did)
-      Logger.info("password reset", did: user.did)
-      :ok
+         {:ok, password_hash} <- hash_password(password) do
+      result =
+        Repo.transaction(fn ->
+          with {:ok, _row} <- update_password(user, password_hash) do
+            revoke_sessions(user.did)
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+      case result do
+        {:ok, :ok} ->
+          Logger.info("password reset", did: user.did)
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -445,7 +461,7 @@ defmodule Pesque.Accounts do
   # Both tables are keyed by DID, so one pass each is the whole teardown.
   defp revoke_sessions(did) do
     Repo.delete_all(from t in RefreshToken, where: t.did == ^did)
-    _count = OAuth.revoke_all(did)
+    _ = OAuth.revoke_all(did)
     :ok
   end
 

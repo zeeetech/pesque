@@ -18,7 +18,7 @@ defmodule Pesque.Cli.Restore do
 
   def run(argv) do
     with {:ok, opts, args} <- Input.options(argv, [archive: :string], @usage, true),
-         {:ok, archive} <- archive(opts[:archive] || List.first(args)),
+         {:ok, archive} <- archive(opts[:archive], args),
          :ok <- Release.boot!() do
       case Backup.restore(Pesque.data_dir(), archive) do
         :ok ->
@@ -31,7 +31,14 @@ defmodule Pesque.Cli.Restore do
     end
   end
 
-  defp archive(nil), do: {:usage, "an archive is required\n\n" <> @usage}
+  defp archive(archive, []) when is_binary(archive), do: {:ok, archive}
 
-  defp archive(archive), do: {:ok, archive}
+  defp archive(nil, [archive]) when is_binary(archive), do: {:ok, archive}
+
+  defp archive(nil, []), do: {:usage, "an archive is required\n\n" <> @usage}
+
+  # The usage offers exactly one source, (--archive PATH | PATH). Both given
+  # is not a silent preference but an ambiguity, and so is more than one
+  # positional: both are usage.
+  defp archive(_archive, _args), do: {:usage, @usage}
 end

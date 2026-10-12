@@ -63,6 +63,7 @@ defmodule Pesque.Cli.Input do
 
       name ->
         case env_value(name) do
+          {:ok, ""} -> {:error, {:password_env_empty, name}}
           {:ok, value} -> {:ok, value}
           :no_value -> {:error, {:password_env_empty, name}}
         end
@@ -88,11 +89,14 @@ defmodule Pesque.Cli.Input do
   # :io.get_password/0 takes an io device, not a prompt, so the prompt is
   # written first. The no-echo primitive needs a terminal (OTP 28 and up),
   # so a pipe falls back to an echoed read; a closed stdin answers
-  # :no_input there, which is the refusal.
+  # :no_input there, which is the refusal. A line that was read but cannot
+  # become a string answers :no_input too: the echo fallback would read a
+  # second line after the first was already consumed.
   defp no_echo_line(prompt) do
     case no_echo_read(prompt) do
       {:ok, value} -> {:ok, String.trim(value)}
       :fallback -> echo_line("")
+      error -> error
     end
   end
 
@@ -106,7 +110,7 @@ defmodule Pesque.Cli.Input do
           _no_data -> :fallback
         end
       rescue
-        _ -> :fallback
+        _ -> {:error, :no_input}
       catch
         _kind, _reason -> :fallback
       end

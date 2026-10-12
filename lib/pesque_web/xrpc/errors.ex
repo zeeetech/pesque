@@ -220,6 +220,13 @@ defmodule PesqueWeb.Xrpc.Errors do
   # neither answer is knowable from here.
   def to_xrpc(:busy), do: {503, "InternalServerError", "the repo is busy, retry the request"}
 
+  # The Registry reaps a dead process's entry asynchronously, and
+  # RepoSupervisor.ensure_started/1 gives up waiting on that gap rather than
+  # hand a caller a pid that is gone. Like :busy, a retry is the client's move:
+  # the repo was starting, not refusing.
+  def to_xrpc(:unavailable),
+    do: {503, "InternalServerError", "the repo is starting, retry the request"}
+
   # The authentication plug. A rejected token, a missing or wrong DPoP proof
   # and a scope that does not reach the route are three different answers,
   # because a client can act on all three differently: get a new token, send

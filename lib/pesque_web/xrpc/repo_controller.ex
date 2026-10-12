@@ -31,9 +31,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   def delete_record(conn, params) do
     with {:ok, _did} <- with_owned_repo(conn, params),
-         :ok <- require_params(params, ["collection", "rkey"]) do
-      {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
-
+         :ok <- require_params(params, ["collection", "rkey"]),
+         {:ok, pid} <- Pesque.RepoSupervisor.ensure_started(conn.assigns.did) do
       case Pesque.RepoServer.delete_record(pid, params["collection"], params["rkey"]) do
         {:ok, result} ->
           json(conn, %{"commit" => result["commit"]})
@@ -48,9 +47,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   def apply_writes(conn, params) do
     with {:ok, _did} <- with_owned_repo(conn, params),
-         {:ok, writes} <- require_writes(params["writes"]) do
-      {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
-
+         {:ok, writes} <- require_writes(params["writes"]),
+         {:ok, pid} <- Pesque.RepoSupervisor.ensure_started(conn.assigns.did) do
       validate = validate?(params)
 
       case Pesque.RepoServer.apply_writes(pid, writes,
@@ -106,9 +104,8 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp write(conn, params, action) do
     with {:ok, _did} <- with_owned_repo(conn, params),
          :ok <- require_params(params, ["collection"]),
-         :ok <- require_record(params["record"]) do
-      {:ok, pid} = Pesque.RepoSupervisor.ensure_started(conn.assigns.did)
-
+         :ok <- require_record(params["record"]),
+         {:ok, pid} <- Pesque.RepoSupervisor.ensure_started(conn.assigns.did) do
       validate = validate?(params)
 
       result =

@@ -42,7 +42,11 @@ defmodule Pesque.Backup do
   def create(data_dir, out_dir) do
     stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%SZ")
     archive = Path.join(out_dir, "pesque-backup-#{stamp}.tar.gz")
-    staging = Path.join(System.tmp_dir!(), "pesque-backup-#{System.unique_integer([:positive])}")
+
+    # Staging lives under out_dir, not the system tmp dir: that is tmpfs on
+    # common systemd hosts, and a database that outgrows it would fail every
+    # backup, and with it every update that runs a backup first.
+    staging = Path.join(out_dir, ".pesque-backup-staging-#{System.unique_integer([:positive])}")
 
     try do
       with :ok <- File.mkdir_p(out_dir),
@@ -73,9 +77,12 @@ defmodule Pesque.Backup do
     staged = Path.join(data_dir, ".pesque-restore-#{System.unique_integer([:positive])}")
 
     try do
-      with :ok <- check_lock(Path.join(data_dir, "pesque.db")),
-           :ok <- extract(archive, staged),
-           :ok <- verify(staged) do
+      with :ok <- extract(archive, staged),
+           :ok <- verify(staged),
+           # An answer about the lock is only good for a moment, so it is
+           # asked as late as the swap allows, not while a size-proportional
+           # extraction still runs ahead of it.
+           :ok <- check_lock(Path.join(data_dir, "pesque.db")) do
         case install(data_dir, staged) do
           :ok ->
             clear_old(data_dir)

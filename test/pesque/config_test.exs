@@ -65,6 +65,17 @@ defmodule Pesque.ConfigTest do
     test "the default is the last word" do
       assert Config.get(%{}, "port", "4000") == "4000"
     end
+
+    # resolution/0 reports an empty environment value as unset, and get/3
+    # decides what boot does, so both have to read "" the same way or
+    # `config validate` would lie about the server.
+    test "an empty environment value reads as unset" do
+      System.put_env("PDS_PORT", "")
+      on_exit(fn -> System.delete_env("PDS_PORT") end)
+
+      assert Config.get(%{}, "port", "4000") == "4000"
+      assert Config.get(%{"port" => "8000"}, "port", "4000") == "8000"
+    end
   end
 
   describe "load/0" do
