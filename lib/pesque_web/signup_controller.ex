@@ -24,6 +24,8 @@ defmodule PesqueWeb.SignupController do
 
   import Plug.Conn
 
+  require Logger
+
   alias Pesque.Accounts
   alias Pesque.Did
   alias PesqueWeb.Csp
@@ -50,10 +52,10 @@ defmodule PesqueWeb.SignupController do
           redirect(conn, to: "/signup/done?" <> URI.encode_query(%{"handle" => user.handle}))
 
         {:error, reason} ->
-          render_form(conn, typed(params, reason))
+          render_failure(conn, params, reason)
       end
     else
-      {:error, reason} -> render_form(conn, typed(params, reason))
+      {:error, reason} -> render_failure(conn, params, reason)
     end
   end
 
@@ -113,6 +115,18 @@ defmodule PesqueWeb.SignupController do
       email: params["email"],
       error: reason
     }
+  end
+
+  # A reason the page has a sentence for is the person's to fix and needs no
+  # log. One it does not is this server's own failure, and a sentence a person
+  # cannot act on is worth a line an operator can: without this the reason only
+  # ever reaches the page as "something went wrong".
+  defp render_failure(conn, params, reason) do
+    unless SignupHTML.named?(reason) do
+      Logger.warning("signup failed", reason: inspect(reason))
+    end
+
+    render_form(conn, typed(params, reason))
   end
 
   defp render_form(conn, assigns) do

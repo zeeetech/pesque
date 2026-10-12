@@ -129,6 +129,16 @@ defmodule PesqueWeb.SignupTest do
     assert conn.resp_body =~ ~s(value="new@example.com")
   end
 
+  test "an email another account already holds is refused with a way out" do
+    alice = create_account("alice")
+
+    conn = post_form(attrs(invite_code(), "bob", alice.email))
+
+    assert conn.status == 200
+    assert conn.resp_body =~ "Esse email já é de uma conta aqui"
+    assert conn.resp_body =~ "use outro email"
+  end
+
   test "a short password is refused" do
     conn =
       post_form(%{
@@ -161,7 +171,41 @@ defmodule PesqueWeb.SignupTest do
     assert post_form(%{"handle" => "x"}).status == 404
   end
 
+  test "a failure the page explains is not logged" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        conn =
+          post_form(%{"handle" => "frank", "email" => "f@example.com", "password" => @password})
+
+        assert conn.resp_body =~ "só com convite"
+      end)
+
+    refute log =~ "signup failed"
+  end
+
+  test "a failure the page cannot explain is logged with its reason" do
+    put_identity(:plc)
+    put_client(Pesque.Plc.TestClient)
+    Process.put(:plc_submit_result, {:error, :plc_unreachable})
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        conn = post_form(attrs(invite_code(), "zoe", "zoe@example.com"))
+        assert conn.resp_body =~ "Algo deu errado do nosso lado"
+      end)
+
+    assert log =~ "signup failed"
+    assert log =~ "plc_unreachable"
+  end
+
   defp attrs(code, label, email) do
     %{"invite_code" => code, "handle" => label, "email" => email, "password" => @password}
   end
+
+  # The PLC directory is a stub here, so a mint that must fail is driven through
+  # the process dictionary rather than the network. ConnCase already restores
+  # every :pesque setting when the test ends.
+  defp put_identity(identity), do: Application.put_env(:pesque, :identity, identity)
+
+  defp put_client(module), do: Application.put_env(:pesque, :plc_client, module)
 end

@@ -245,14 +245,9 @@ msgstr ""
 msgid "unauthorized"
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:127
+#: lib/pesque_web/signup_html.ex:155
 #, elixir-autogen, elixir-format
 msgid "An email is required."
-msgstr ""
-
-#: lib/pesque_web/signup_html.ex:131
-#, elixir-autogen, elixir-format
-msgid "Another account here already uses that email. If it is yours, ask whoever runs the server for help recovering it."
 msgstr ""
 
 #: lib/pesque_web/signup_html.ex:51
@@ -260,7 +255,7 @@ msgstr ""
 msgid "At least 8 characters."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:120
+#: lib/pesque_web/signup_html.ex:147
 #, elixir-autogen, elixir-format
 msgid "Choose a name with letters, numbers or hyphen. No dots and no spaces."
 msgstr ""
@@ -275,17 +270,17 @@ msgstr ""
 msgid "Letters, numbers and hyphen. This is the name people use to find you."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:139
+#: lib/pesque_web/signup_html.ex:119
 #, elixir-autogen, elixir-format
 msgid "Something went wrong on our side. Try again in a moment. If it keeps happening, tell whoever runs the server."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:115
+#: lib/pesque_web/signup_html.ex:142
 #, elixir-autogen, elixir-format
 msgid "That code is not valid. It may have expired or already been used. Ask whoever invited you for a new one."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:123
+#: lib/pesque_web/signup_html.ex:150
 #, elixir-autogen, elixir-format
 msgid "That name is already taken here. Choose another."
 msgstr ""
@@ -295,12 +290,12 @@ msgstr ""
 msgid "The code whoever invited you sent."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:125
+#: lib/pesque_web/signup_html.ex:153
 #, elixir-autogen, elixir-format
 msgid "The password needs at least 8 characters."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:135
+#: lib/pesque_web/signup_html.ex:165
 #, elixir-autogen, elixir-format
 msgid "This server already has its account."
 msgstr ""
@@ -310,7 +305,7 @@ msgstr ""
 msgid "This server is invite only. To create an account, you need a code from whoever invited you."
 msgstr ""
 
-#: lib/pesque_web/signup_html.ex:111
+#: lib/pesque_web/signup_html.ex:137
 #, elixir-autogen, elixir-format
 msgid "This server is invite only. You need a code to create an account."
 msgstr ""
@@ -325,14 +320,14 @@ msgstr ""
 msgid "Your account is ready. To sign in, open the official Bluesky app and use this name and the password you just chose."
 msgstr ""
 
-#: lib/pesque_web/signup_controller.ex:129
+#: lib/pesque_web/signup_controller.ex:143
 #: lib/pesque_web/signup_html.ex:65
 #, elixir-autogen, elixir-format
 msgid "account created"
 msgstr ""
 
 #: lib/pesque_web/page_html.ex:106
-#: lib/pesque_web/signup_controller.ex:125
+#: lib/pesque_web/signup_controller.ex:139
 #: lib/pesque_web/signup_html.ex:29
 #, elixir-autogen, elixir-format
 msgid "create account"
@@ -372,4 +367,9 @@ msgstr ""
 #: lib/pesque_web/signup_html.ex:49
 #, elixir-autogen, elixir-format
 msgid "your password"
+msgstr ""
+
+#: lib/pesque_web/signup_html.ex:160
+#, elixir-autogen, elixir-format
+msgid "That email already belongs to an account here. If it is yours, that account still works, and you sign in with it through the app. To create a new account, use a different email."
 msgstr ""

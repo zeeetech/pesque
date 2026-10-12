@@ -104,39 +104,65 @@ defmodule PesqueWeb.SignupHTML do
     ~s(<p class="notice error" role="alert">#{escape(message(reason))}</p>)
   end
 
-  # Every reason the domain answers with, said as what to do next. A reason
-  # this build does not name is the server's own failure, and it says so
-  # without pretending to know more than it does.
-  defp message(:invite_code_required),
-    do: gettext("This server is invite only. You need a code to create an account.")
+  @doc """
+  The sentence for a reason the domain answered with.
 
-  defp message(:invalid_invite_code),
+  A reason this build does not name is the server's own failure, and it gets the
+  one sentence that says so without pretending to know more.
+  """
+  def message(reason) do
+    case describe(reason) do
+      {:named, text} ->
+        text
+
+      :unnamed ->
+        gettext(
+          "Something went wrong on our side. Try again in a moment. If it keeps happening, tell whoever runs the server."
+        )
+    end
+  end
+
+  @doc """
+  Whether the page has a sentence of its own for `reason`.
+
+  The caller logs the ones it does not: a sentence a person cannot act on is
+  worth a line an operator can.
+  """
+  def named?(reason), do: match?({:named, _text}, describe(reason))
+
+  # Every reason the domain answers with, said as what to do next. One clause
+  # per reason, so `named?/1` and `message/1` cannot disagree about which ones
+  # the page explains.
+  defp describe(:invite_code_required),
+    do: {:named, gettext("This server is invite only. You need a code to create an account.")}
+
+  defp describe(:invalid_invite_code),
     do:
-      gettext(
-        "That code is not valid. It may have expired or already been used. Ask whoever invited you for a new one."
-      )
+      {:named,
+       gettext(
+         "That code is not valid. It may have expired or already been used. Ask whoever invited you for a new one."
+       )}
 
-  defp message(:invalid_handle),
-    do: gettext("Choose a name with letters, numbers or hyphen. No dots and no spaces.")
+  defp describe(:invalid_handle),
+    do: {:named, gettext("Choose a name with letters, numbers or hyphen. No dots and no spaces.")}
 
-  defp message(:handle_not_available),
-    do: gettext("That name is already taken here. Choose another.")
+  defp describe(:handle_not_available),
+    do: {:named, gettext("That name is already taken here. Choose another.")}
 
-  defp message(:password_too_short), do: gettext("The password needs at least 8 characters.")
+  defp describe(:password_too_short),
+    do: {:named, gettext("The password needs at least 8 characters.")}
 
-  defp message(:email_required), do: gettext("An email is required.")
+  defp describe(:email_required), do: {:named, gettext("An email is required.")}
 
-  defp message(:email_taken),
+  defp describe(:email_taken),
     do:
-      gettext(
-        "Another account here already uses that email. If it is yours, ask whoever runs the server for help recovering it."
-      )
+      {:named,
+       gettext(
+         "That email already belongs to an account here. If it is yours, that account still works, and you sign in with it through the app. To create a new account, use a different email."
+       )}
 
-  defp message(:account_exists), do: gettext("This server already has its account.")
+  defp describe(:account_exists),
+    do: {:named, gettext("This server already has its account.")}
 
-  defp message(_reason),
-    do:
-      gettext(
-        "Something went wrong on our side. Try again in a moment. If it keeps happening, tell whoever runs the server."
-      )
+  defp describe(_reason), do: :unnamed
 end
