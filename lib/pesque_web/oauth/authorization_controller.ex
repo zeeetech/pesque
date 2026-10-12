@@ -40,6 +40,8 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   alias PesqueWeb.OAuth.Errors
   alias PesqueWeb.OAuth.Proof
 
+  @scopes_field "scopes[]"
+
   @doc "RFC 9126: the client pushes the request and gets a reference back."
   def par(conn, params) do
     with {:ok, checked} <- Proof.check(conn),
@@ -98,11 +100,22 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
 
   defp decide(_params, _request_uri, _request), do: {:error, :invalid_credentials}
 
-  # The checkbox values the consent page posted. One value arrives as a bare
-  # binary, several as a list, and none at all means the account holder
-  # unticked everything.
+  # The checkbox values the consent page posted. The field carries the array
+  # suffix, so a submission arrives as a list, one entry per ticked box; none
+  # at all means the account holder unticked everything.
   defp checked_scopes(%{"scopes" => scopes}), do: List.wrap(scopes)
   defp checked_scopes(_params), do: []
+
+  @doc """
+  The consent checkboxes' field name.
+
+  Plug reads a repeated plain field name as its last value, so the name carries
+  the array suffix that makes the decoder build the list the grant is computed
+  from. It is a function because the tests post the form through this very
+  name: a page and a parser that share one string cannot drift apart the way
+  they did when each spelled the name out itself.
+  """
+  def scopes_field, do: @scopes_field
 
   defp login(%{"identifier" => identifier, "password" => password}) do
     case Accounts.verify_login(identifier, password) do
@@ -238,7 +251,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
 
     value = escape(Permission.serialize(permission))
 
-    "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
+    "<li><label><input type=\"checkbox\" name=\"#{@scopes_field}\" value=\"#{value}\" checked> " <>
       "#{escape(display.title)}</label>" <>
       "<p>#{escape(display.detail)}</p>" <>
       "<details><summary>#{gettext("What this set grants")}</summary><ul>#{items}</ul></details>" <>
@@ -248,7 +261,7 @@ defmodule PesqueWeb.OAuth.AuthorizationController do
   defp checkbox(permission, label_html) do
     value = escape(Permission.serialize(permission))
 
-    "<li><label><input type=\"checkbox\" name=\"scopes\" value=\"#{value}\" checked> " <>
+    "<li><label><input type=\"checkbox\" name=\"#{@scopes_field}\" value=\"#{value}\" checked> " <>
       "#{label_html}</label></li>"
   end
 end

@@ -22,6 +22,7 @@ defmodule PesqueWeb.OAuthCase do
   alias Pesque.OAuth.DPoP
   alias Pesque.OAuth.Jwt
   alias PesqueWeb.Endpoint
+  alias PesqueWeb.OAuth.AuthorizationController, as: Consent
 
   @password "hunter2hunter2"
   @redirect_uri "http://127.0.0.1:8080/callback"
@@ -208,7 +209,15 @@ defmodule PesqueWeb.OAuthCase do
     decide_scopes(request_uri, client_id, identifier, scopes, decision, password)
   end
 
-  @doc "Posts the login form with an explicit list of ticked consent checkboxes."
+  @doc """
+  Posts the login form with an explicit list of ticked consent checkboxes.
+
+  The body is built the way a browser builds one: the field name is repeated
+  once per ticked box, under the name the page itself declares. A params map
+  through `Plug.Conn.Query.encode/1` cannot express that, because it turns a
+  list into the array name on its own, which is the shape that hid the bug this
+  helper is meant to catch.
+  """
   def decide_scopes(
         request_uri,
         client_id,
@@ -218,22 +227,35 @@ defmodule PesqueWeb.OAuthCase do
         password \\ @password
       )
       when is_list(scopes) do
-    post_form("/oauth/authorize", %{
-      "client_id" => client_id,
-      "request_uri" => request_uri,
-      "identifier" => identifier,
-      "password" => password,
-      "decision" => decision,
-      "scopes" => scopes
-    })
+    body =
+      form([
+        {Consent.scopes_field(), scopes},
+        {"client_id", client_id},
+        {"request_uri", request_uri},
+        {"identifier", identifier},
+        {"password", password},
+        {"decision", decision}
+      ])
+
+    post_raw_form("/oauth/authorize", body)
+  end
+
+  # A browser body: each field name repeated once per value, url-encoded, with
+  # no bracket of this helper's own.
+  defp form(fields) do
+    for {name, value} <- fields, one <- List.wrap(value) do
+      URI.encode_www_form(name) <> "=" <> URI.encode_www_form(one)
+    end
+    |> Enum.join("&")
   end
 
   # The values the page pre-ticked, read back out of the checkbox inputs the
   # way a form would submit them.
   defp shown_checkboxes(request_uri, client_id) do
+    name = Regex.escape(Consent.scopes_field())
     page = authorize_page(request_uri, client_id)
 
-    Regex.scan(~r/name="scopes" value="([^"]*)"/, page.resp_body, capture: :all_but_first)
+    Regex.scan(~r/name="#{name}" value="([^"]*)"/, page.resp_body, capture: :all_but_first)
     |> List.flatten()
     |> Enum.map(&unescape/1)
   end
@@ -355,11 +377,13 @@ defmodule PesqueWeb.OAuthCase do
     |> dispatch(Endpoint, :post, path, Plug.Conn.Query.encode(params))
   end
 
-  defp post_form(path, params) do
+  # A body posted as-is, so a test can send the exact bytes a browser would
+  # rather than a re-encoding of a params map.
+  defp post_raw_form(path, body) do
     conn()
     |> put_req_header("content-type", "application/x-www-form-urlencoded")
     |> put_req_header("x-forwarded-for", address())
-    |> dispatch(Endpoint, :post, path, Plug.Conn.Query.encode(params))
+    |> dispatch(Endpoint, :post, path, body)
   end
 
   defp conn, do: build_conn()

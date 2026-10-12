@@ -394,10 +394,10 @@ defmodule PesqueWeb.OAuth.FlowTest do
 
       assert page.status == 200
       assert page.resp_body =~ "Confirms this app uses the atproto OAuth profile"
-      refute page.resp_body =~ "name=\"scopes\" value=\"atproto\""
+      refute page.resp_body =~ ~s(name="scopes[]" value="atproto")
 
       assert page.resp_body =~
-               ~s(name="scopes" value="transition:generic" checked)
+               ~s(name="scopes[]" value="transition:generic" checked)
 
       assert page.resp_body =~ "broad compatibility grant"
     end
@@ -405,6 +405,27 @@ defmodule PesqueWeb.OAuth.FlowTest do
     test "approving as shown keeps every requested scope", ctx do
       granted = Client.approve(ctx.user, ctx.key)
       assert exchanged_scope(ctx, granted) == "atproto transition:generic"
+    end
+
+    test "a browser body grants every ticked scope, not only the last", ctx do
+      # A browser repeats the field name once per ticked box. A name the
+      # decoder reads as a scalar keeps only the last value and drops the rest,
+      # which is why the checkbox name carries the array suffix the page and
+      # the helper share.
+      scope = "atproto repo:app.bsky.feed.post repo:app.bsky.feed.like"
+      client = Client.client_id(scope: scope)
+      pushed = Client.par(ctx.key, client_id: client, scope: scope)
+
+      conn =
+        Client.decide_scopes(pushed.request_uri, pushed.params["client_id"], ctx.user.handle, [
+          "repo:app.bsky.feed.post",
+          "repo:app.bsky.feed.like"
+        ])
+
+      assert conn.status == 302
+      granted = returned(ctx, conn, pushed)
+
+      assert exchanged_scope(ctx, granted) == scope
     end
 
     test "unticking a requested scope narrows the grant", ctx do
