@@ -161,6 +161,7 @@ defmodule PesqueWeb.Router do
     pipe_through :auth_session
 
     get "/com.atproto.server.getSession", SessionController, :get_session
+    get "/com.atproto.server.getAccountInviteCodes", SessionController, :get_account_invite_codes
 
     # Confirming an email is about the caller's own account, so a valid session
     # is the whole requirement: the code requestEmailConfirmation logs is bound
@@ -279,6 +280,13 @@ defmodule PesqueWeb.Router do
 
   scope "/xrpc", PesqueWeb.Xrpc do
     pipe_through :read_limits
+
+    # A signup helper a stranger calls before it has an account, so it takes the
+    # read budget rather than a token. The answer is public state: whether a
+    # handle is free, which listRepos already tells anyone.
+    get "/com.atproto.temp.checkHandleAvailability",
+        TempController,
+        :check_handle_availability
 
     get "/com.atproto.repo.getRecord", RepoController, :get_record
     get "/com.atproto.repo.listRecords", RepoController, :list_records

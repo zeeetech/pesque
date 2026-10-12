@@ -92,6 +92,48 @@ defmodule PesqueWeb.Xrpc.SessionController do
     }
   end
 
+  # The account's own invite codes: the ones the operator earmarked for it via
+  # `for_accounts`. The reference returns codes an account created; pesque's
+  # codes are created by the operator, so the closest honest mapping is "codes
+  # for this account", and one created for nobody is returned to no one. There
+  # are no earned invites to create, so createAvailable is accepted and inert.
+  def get_account_invite_codes(conn, params) do
+    did = conn.assigns.did
+    include_used = boolean(params["includeUsed"], true)
+
+    codes =
+      did
+      |> Accounts.invite_codes_for(include_used: include_used)
+      |> Enum.map(&invite_code(&1, did))
+
+    json(conn, %{"codes" => codes})
+  end
+
+  # Query parameters arrive as strings, so a boolean is read as one rather than
+  # trusted to be a JSON true. The default is the lexicon's.
+  defp boolean(nil, default), do: default
+  defp boolean("false", _default), do: false
+  defp boolean(_value, _default), do: true
+
+  defp invite_code(row, did) do
+    %{
+      "code" => row.code,
+      "available" => max(row.use_count - row.uses, 0),
+      "disabled" => false,
+      "forAccount" => did,
+      "createdBy" => Identity.did(),
+      "createdAt" => DateTime.to_iso8601(row.inserted_at),
+      "uses" => invite_code_uses(row)
+    }
+  end
+
+  # One account owns one entry in `used_by`/`used_at`: the table records the
+  # last use, not a history, so a code used twice reports the last use alone.
+  defp invite_code_uses(%{used_at: nil}), do: []
+
+  defp invite_code_uses(%{used_by: did, used_at: at}),
+    do: [%{"usedBy" => did, "usedAt" => DateTime.to_iso8601(at)}]
+
   # Open registration needs nothing from the caller. Closed registration is
   # invite-only, which is what describeServer already advertises: a code the
   # operator handed out, spent exactly once.
@@ -228,11 +270,17 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
         # The email is sensitive account state: a non-privileged app password
         # never sees it, here or in getSession, or the getSession gate would be
-        # decorative.
+        # decorative. `emailConfirmed` rides with the email it describes, the
+        # way the lexicon pairs them, so a caller that cannot see the address
+        # is not told whether it was confirmed either.
         body =
-          if app_password == nil or app_password.privileged,
-            do: Map.put(body, "email", user.email),
-            else: body
+          if app_password == nil or app_password.privileged do
+            body
+            |> Map.put("email", user.email)
+            |> Map.put("emailConfirmed", not is_nil(user.email_confirmed_at))
+          else
+            body
+          end
 
         json(conn, body)
 
@@ -497,7 +545,7 @@ defmodule PesqueWeb.Xrpc.SessionController do
 
     # The email is the account holder's to grant, not the method's to leak: a
     # token whose grants do not name it gets the session without it, which the
-    # lexicon marks as not required.
+    # lexicon marks as not required. `emailConfirmed` rides with the email.
     reply = %{
       "handle" => user.handle,
       "did" => user.did,
@@ -505,9 +553,13 @@ defmodule PesqueWeb.Xrpc.SessionController do
     }
 
     reply =
-      if Grants.email_visible?(conn.assigns.grants),
-        do: Map.put(reply, "email", user.email),
-        else: reply
+      if Grants.email_visible?(conn.assigns.grants) do
+        reply
+        |> Map.put("email", user.email)
+        |> Map.put("emailConfirmed", not is_nil(user.email_confirmed_at))
+      else
+        reply
+      end
 
     json(conn, reply)
   end
