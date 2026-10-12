@@ -80,6 +80,23 @@ identity =
 # deployment choice, so it is configuration rather than a constant.
 plc_directory = get.("plc_directory", "https://plc.directory")
 
+# Where a permission set that is not vendored with the server is fetched from,
+# when a client asks for one through include:. Empty is the default: nothing is
+# fetched, and an include: for a set this server does not carry fails the auth
+# request by name rather than resolving to nothing. The fetch is https only, so
+# an address that cannot be fetched is refused here instead of at request time.
+lexicon_aggregator =
+  case get.("lexicon_aggregator", "") do
+    "" ->
+      nil
+
+    "https://" <> _rest = url ->
+      url
+
+    other ->
+      raise "lexicon_aggregator must be an https URL, got: #{other}"
+  end
+
 # Relays to announce this server to at boot. Comma separated, empty by default:
 # a relay also discovers PDS instances other ways, so an operator who names none
 # still works.
@@ -183,6 +200,7 @@ config :pesque,
   mode: mode,
   identity: identity,
   plc_directory: plc_directory,
+  lexicon_aggregator: lexicon_aggregator,
   crawlers: crawlers,
   hostname: hostname,
   handle_domain: handle_domain,

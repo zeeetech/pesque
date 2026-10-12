@@ -32,6 +32,8 @@ defmodule Pesque.Config do
      "The advertised port. Defaults to 443 under https, and to port otherwise."},
     {"plc_directory", "https://plc.directory", :default,
      "The PLC directory. Only read when identity = plc."},
+    {"lexicon_aggregator", "https://lexicon.example.com", :default,
+     "The https base URL permission sets are fetched from when they are not\nvendored with the server. Unset (or empty) fetches nothing, so only the\nvendored sets resolve."},
     {"blob_upload_limit", "5242880", :default,
      "The largest uploadBlob accepts, in bytes. 5242880 is 5 MiB."},
     {"repo_import_limit", "104857600", :default,

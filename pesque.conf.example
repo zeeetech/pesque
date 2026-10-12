@@ -54,6 +54,11 @@ registration = closed
 # The PLC directory. Only read when identity = plc.
 # plc_directory = https://plc.directory
 
+# The https base URL permission sets are fetched from when they are not
+# vendored with the server. Unset (or empty) fetches nothing, so only the
+# vendored sets resolve.
+# lexicon_aggregator = https://lexicon.example.com
+
 # The largest uploadBlob accepts, in bytes. 5242880 is 5 MiB.
 # blob_upload_limit = 5242880
 

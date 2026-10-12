@@ -346,6 +346,7 @@ docker compose restart pesque
 | `PDS_URL_PORT` | `url_port` | `443` (`port` for http) | The advertised port |
 | `PDS_REGISTRATION` | `registration` | `closed` | `open`, or invite codes |
 | `PDS_PLC_DIRECTORY` | `plc_directory` | `https://plc.directory` | PLC directory, read only when `identity = plc` |
+| `PDS_LEXICON_AGGREGATOR` | `lexicon_aggregator` | empty | https base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored. Unset resolves only the vendored sets |
 | `PDS_CRAWLER` | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
 | `PDS_BLOB_UPLOAD_LIMIT` | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `PDS_REPO_IMPORT_LIMIT` | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
