@@ -76,6 +76,12 @@ mix pesque.account create --handle alice.example.com --email alice@example.com
 `mix pesque.create_account` is the same task under the old name, kept so older
 guides and scripts keep working.
 
+Signing up needs `PDS_MODE=path_multi`, which mints `did:plc` accounts and
+submits them to the public PLC directory. To sign up or migrate in development
+without minting a real DID there, add `PDS_PLC_LOCAL=true`: the operations are
+kept under `data_dir` instead. The setting is refused outside the dev and test
+environments.
+
 Migrations run on boot and `_health` reads the users table, so a server whose
 migrations never ran answers `503` instead of a cheerful ok.
 

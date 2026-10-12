@@ -80,6 +80,28 @@ identity =
 # deployment choice, so it is configuration rather than a constant.
 plc_directory = get.("plc_directory", "https://plc.directory")
 
+# A PLC directory that keeps its operations in a file instead of submitting
+# them, so a development server that signs up or migrates does not mint a real
+# DID in a directory the whole network reads. Development only: the module is
+# compiled into dev and test and never into a release, and an account minted
+# against a local directory resolves to this server and nowhere else, which on a
+# real deployment is a silent federation break.
+plc_local = get.("plc_local", "false") == "true"
+
+if plc_local and config_env() not in [:dev, :test] do
+  raise "plc_local is a development setting and is not available in the " <>
+          "#{config_env()} environment"
+end
+
+# Two keys, not one: Pesque.Plc submits through :plc_client and
+# Pesque.DidResolver reads through :did_resolver_directory. Setting only the
+# first would mint accounts this server then could not resolve.
+if plc_local do
+  config :pesque,
+    plc_client: Pesque.Plc.LocalDirectory,
+    did_resolver_directory: Pesque.Plc.LocalDirectory
+end
+
 # Where a permission set that is not vendored with the server is fetched from,
 # when a client asks for one through include:. Empty is the default: nothing is
 # fetched, and an include: for a set this server does not carry fails the auth

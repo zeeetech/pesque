@@ -54,10 +54,10 @@ defmodule Pesque.Config do
 
   @keys for {key, _value, _shown, _prose} <- @settings, do: key
 
-  # Internal PDS_* variables the tooling sets around the server's config
-  # keys. PDS_SERVE needs no entry (serve is a config key), and nothing else
-  # may use the namespace.
-  @internal_env ~w(PDS_CONFIG PDS_PUBLIC_IP PDS_TAG)
+  # Internal PDS_* variables the tooling and the development environment set
+  # around the server's config keys. PDS_SERVE needs no entry (serve is a config
+  # key), and nothing else may use the namespace.
+  @internal_env ~w(PDS_CONFIG PDS_PUBLIC_IP PDS_TAG PDS_PLC_LOCAL)
 
   @template_header """
   # pesque configuration.
