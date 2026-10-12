@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.0](https://github.com/zeeetech/pesque/compare/pesque-v1.8.2...pesque-v1.9.0) (2026-10-12)
+
+
+### Features
+
+* **web:** name the requester in the access log and log error bodies ([8227ab2](https://github.com/zeeetech/pesque/commit/8227ab2c6c4955ac453bd3136d04fbdf02308c36))
+
+
+### Bug Fixes
+
+* **oauth:** unwrap a fetched jwks_uri document into its keys ([7899693](https://github.com/zeeetech/pesque/commit/78996931985118b38b2123b663e478ccaf8d66ed))
+
 ## [1.8.2](https://github.com/zeeetech/pesque/compare/pesque-v1.8.1...pesque-v1.8.2) (2026-10-12)
 
 
