@@ -13,6 +13,7 @@ defmodule PesqueWeb.PageController do
   alias Pesque.Accounts
   alias Pesque.Identity
   alias PesqueWeb.Csp
+  alias PesqueWeb.ErrorHTML
   alias PesqueWeb.Host
   alias PesqueWeb.Layout
   alias PesqueWeb.PageHTML
@@ -21,7 +22,7 @@ defmodule PesqueWeb.PageController do
     cond do
       Host.server_host?(conn.host, [Pesque.hostname()]) -> render_landing(conn)
       match?({:ok, _did}, Accounts.resolve_handle(conn.host)) -> render_handle(conn)
-      true -> send_resp(conn, 404, "")
+      true -> render_not_found(conn)
     end
   end
 
@@ -51,6 +52,17 @@ defmodule PesqueWeb.PageController do
     }
 
     render_page(conn, PageHTML.handle(assigns), user.handle, Pesque.base_url())
+  end
+
+  # A name that is neither the server nor a handle this server hosts. The page
+  # is the same one Phoenix renders for a path nothing answers, so an unknown
+  # name and an unknown path read alike.
+  defp render_not_found(conn) do
+    conn
+    |> put_resp_content_type("text/html")
+    |> put_resp_header("content-security-policy", Csp.pages())
+    |> put_resp_header("cache-control", "no-cache")
+    |> send_resp(404, ErrorHTML.render("404.html", %{}))
   end
 
   # Under conformant_single the server is the one account, so the landing also

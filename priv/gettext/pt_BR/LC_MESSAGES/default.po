@@ -89,7 +89,7 @@ msgstr "identidade"
 msgid "invite only"
 msgstr "só com convite"
 
-#: lib/pesque_web/layout.ex:94
+#: lib/pesque_web/layout.ex:96
 #, elixir-autogen, elixir-format
 msgid "language"
 msgstr "idioma"
@@ -188,3 +188,58 @@ msgstr "autorizar"
 #, elixir-autogen, elixir-format
 msgid "sign in to authorize"
 msgstr "entrar para autorizar"
+
+#: lib/pesque_web/error_html.ex:67
+#, elixir-autogen, elixir-format
+msgid "Nothing answers at this address."
+msgstr "Nada responde neste endereço."
+
+#: lib/pesque_web/error_html.ex:70
+#, elixir-autogen, elixir-format
+msgid "Something went wrong on this server. The error has been logged."
+msgstr "Algo deu errado neste servidor. O erro foi registrado."
+
+#: lib/pesque_web/error_html.ex:64
+#, elixir-autogen, elixir-format
+msgid "The request could not be read. Check the address and try again."
+msgstr "Não deu pra ler a requisição. Confere o endereço e tenta de novo."
+
+#: lib/pesque_web/error_html.ex:65
+#, elixir-autogen, elixir-format
+msgid "This page needs a sign-in you did not provide."
+msgstr "Esta página precisa de um login que você não forneceu."
+
+#: lib/pesque_web/error_html.ex:66
+#, elixir-autogen, elixir-format
+msgid "You are not allowed to see this."
+msgstr "Você não tem permissão pra ver isto."
+
+#: lib/pesque_web/error_html.ex:52
+#, elixir-autogen, elixir-format
+msgid "back to the start"
+msgstr "voltar pro início"
+
+#: lib/pesque_web/error_html.ex:58
+#, elixir-autogen, elixir-format
+msgid "bad request"
+msgstr "requisição inválida"
+
+#: lib/pesque_web/error_html.ex:60
+#, elixir-autogen, elixir-format
+msgid "forbidden"
+msgstr "proibido"
+
+#: lib/pesque_web/error_html.ex:61
+#, elixir-autogen, elixir-format
+msgid "not found"
+msgstr "não encontrado"
+
+#: lib/pesque_web/error_html.ex:62
+#, elixir-autogen, elixir-format
+msgid "server error"
+msgstr "erro no servidor"
+
+#: lib/pesque_web/error_html.ex:59
+#, elixir-autogen, elixir-format
+msgid "unauthorized"
+msgstr "não autorizado"

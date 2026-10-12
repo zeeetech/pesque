@@ -17,5 +17,11 @@ defmodule PesqueWeb.Endpoint do
     json_decoder: JSON,
     length: 8_000_000
 
+  # The locale is a request-scoped concern, resolved once here so an error page
+  # Phoenix renders after the router fails reads in the same language as the
+  # page that would have answered. It reads the query and the cookies, so it
+  # runs after the parsers.
+  plug PesqueWeb.Plugs.SetLocale
+
   plug PesqueWeb.Router
 end

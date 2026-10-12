@@ -102,9 +102,10 @@ defmodule PesqueWeb.PagesTest do
     assert conn.resp_body =~ "inativa"
   end
 
-  test "a name that is neither the server nor a handle is a 404" do
+  test "a name that is neither the server nor a handle is a 404 page" do
     conn = request("/", "nobody.localhost")
 
     assert conn.status == 404
+    assert conn.resp_body =~ "não encontrado"
   end
 end

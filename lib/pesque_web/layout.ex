@@ -84,6 +84,8 @@ defmodule PesqueWeb.Layout do
     ~s(<meta name="description" content="#{escape(text)}">)
   end
 
+  defp switcher(_locale, []), do: ""
+
   defp switcher(locale, hrefs) do
     links =
       Enum.map_join(hrefs, fn {name, href} ->

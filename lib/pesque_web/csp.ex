@@ -1,21 +1,22 @@
 defmodule PesqueWeb.Csp do
   @moduledoc """
-  The content-security policies the browser pages answer with.
+  The content-security policies the server answers with.
 
-  The global policy in `PesqueWeb.Plugs.SecurityHeaders` is `default-src
-  'none'`, which is right for the JSON surface and too strict for a page that
-  links a stylesheet. A page that renders HTML replaces it with one of these,
-  and neither allows a script: these pages ship no JavaScript, so a script
-  would have nothing legitimate to run.
+  `strict/0` is the API surface: nothing loads, nothing frames. A page that
+  links this origin's stylesheet, fonts and icon widens it to `pages/0`, and
+  the consent page, the one page that posts a form, widens it once more with
+  `form-action 'self'`. None of them allows a script: the browser pages ship no
+  JavaScript, so a script would have nothing legitimate to run.
   """
 
-  @pages "default-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'"
-
-  # The consent page is the one page that posts a form, and it posts to this
-  # origin. Nothing else is added.
+  @strict "default-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  @pages @strict <> "; style-src 'self'; img-src 'self'; font-src 'self'"
   @consent @pages <> "; form-action 'self'"
 
-  @doc "The policy for the landing and the handle page."
+  @doc "The policy for the JSON and protocol surface."
+  def strict, do: @strict
+
+  @doc "The policy for the landing, the handle page and the error pages."
   def pages, do: @pages
 
   @doc "The policy for the OAuth consent page."

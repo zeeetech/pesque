@@ -25,7 +25,13 @@ config :logger, :default_handler, level: :info
 
 config :pesque, PesqueWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,
-  render_errors: [formats: [json: PesqueWeb.ErrorJSON], layout: false]
+  # JSON is first so it is the fallback: a request that names no format, or
+  # only */*, is API traffic. A request that accepts HTML is a browser, and
+  # gets the page error view instead.
+  render_errors: [
+    formats: [json: PesqueWeb.ErrorJSON, html: PesqueWeb.ErrorHTML],
+    layout: false
+  ]
 
 config :pesque, ecto_repos: [Pesque.Repo]
 
