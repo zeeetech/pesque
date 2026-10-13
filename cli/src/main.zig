@@ -689,7 +689,9 @@ fn lexicon(host: *proc.Host, args: []const []const u8) Error!u8 {
     // runs as root, and a 0700 directory would be unreadable to it.
     const tmp = try host.makeTempDir();
     defer host.removeTempDir(tmp);
-    Io.Dir.cwd().setFilePermissions(host.io, tmp, .fromMode(0o755), .{}) catch {};
+    if (builtin.os.tag != .windows) {
+        Io.Dir.cwd().setFilePermissions(host.io, tmp, .fromMode(0o755), .{}) catch {};
+    }
     const checkout = std.fs.path.join(host.gpa, &.{ tmp, "repo" }) catch return error.OutOfMemory;
 
     var clone: std.ArrayList([]const u8) = .empty;
