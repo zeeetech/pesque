@@ -2,22 +2,17 @@ defmodule Pesque.Lexicon.Registry do
   @moduledoc """
   Every lexicon the server knows, keyed by NSID.
 
-  Extension is a file on disk. Drop a lexicon JSON into `priv/lexicons` (the
-  vendored upstream set, where `mix pesque.sync_lexicons` writes) or into
-  `data/lexicons` (yours, survives an upstream refresh), and it is loaded on
-  the next boot. There is no registration call, no plugin manifest and no
-  config knob: a directory listing is the whole configuration.
+  One root, and it is the set this server ships: `priv/lexicons`, where
+  `mix pesque.sync_lexicons` mirrors the upstream namespaces the server
+  enforces. There is no registration call, no plugin manifest and no config
+  knob: a directory listing is the whole configuration.
 
-  Both roots are read in that order, so a file in `data/lexicons` carrying an
-  NSID an upstream file already uses replaces it. That is what makes
-  overriding `app.bsky.feed.post` a local edit rather than a fork.
-
-  Which root a document came from is kept. The vendored set is the one this
-  server ships, and it is the only one the write path enforces; a document added
-  to `data/lexicons` is served for resolution (a client asking for a permission
-  set, say) without becoming a rule a writer has to satisfy. An appview and a
-  PDS are run by different parties, so a server that happens to hold someone
-  else's schema must not refuse the records that schema describes.
+  What is loaded is also what the write path enforces. The reference PDS
+  validates the lexicons it bundles and stores every other collection
+  unvalidated, because an appview and a PDS are run by different parties; this
+  server follows the same line, with `priv/lexicons` as its bundle. A schema
+  nobody ships is not a rule anybody can impose, so there is no second root to
+  drop one into.
 
   The index is built once at boot into `:persistent_term`. Lexicons only change
   when someone edits a file, and a server that re-read 400 JSON files on every
@@ -52,26 +47,16 @@ defmodule Pesque.Lexicon.Registry do
   """
   def vendored_dir, do: Path.join(:code.priv_dir(:pesque), "lexicons")
 
-  @doc "The directory of lexicons the operator added."
-  def user_dir, do: Path.join(Pesque.data_dir(), "lexicons")
-
   @doc """
-  Loads every lexicon from every root, replacing whatever was loaded before.
+  Loads every lexicon from the vendored tree, replacing whatever was loaded.
 
   A file that does not parse, or one with no `id`, is logged and skipped
-  rather than raised on: one broken custom lexicon should not be the reason a
-  server that was up is now down. Later roots replace earlier ones, keyed by
-  the `id` each file declares rather than by where it sits, so a copy that
-  moved between directories keeps its identity.
+  rather than raised on: one broken file should not be the reason a server that
+  was up is now down. Documents are keyed by the `id` each file declares rather
+  than by where it sits, so a file that moved keeps its identity.
   """
   def reload do
-    # The roots are read in order and the second wins, but which root a document
-    # came from is kept: the vendored set is the one this server ships and the
-    # only one the write path enforces, while a document the operator added is
-    # served for resolution without becoming a rule a writer has to satisfy.
-    vendored = read_dir(vendored_dir(), %{})
-    owned = MapSet.new(Map.keys(vendored))
-    entries = read_dir(user_dir(), vendored)
+    entries = read_dir(vendored_dir(), %{})
 
     # Every collection's schema is resolved here rather than on the write that
     # needs it, so the cost lands once at boot instead of once per record. A
@@ -80,19 +65,16 @@ defmodule Pesque.Lexicon.Registry do
     records =
       Map.new(entries, fn {nsid, _document} -> {nsid, resolve_record(nsid, entries)} end)
 
-    :persistent_term.put(@table, %{entries: entries, records: records, owned: owned})
+    :persistent_term.put(@table, %{entries: entries, records: records})
 
     Logger.info("lexicons loaded",
       count: map_size(entries),
-      owned: MapSet.size(owned),
       records: map_size(Map.reject(records, fn {_nsid, schema} -> is_nil(schema) end))
     )
 
     if entries == %{} do
-      Logger.warning(
-        "no lexicons loaded: every record write will be stored unvalidated",
-        vendored_dir: vendored_dir(),
-        user_dir: user_dir()
+      Logger.warning("no lexicons loaded: every record write will be stored unvalidated",
+        vendored_dir: vendored_dir()
       )
     end
 
@@ -152,8 +134,7 @@ defmodule Pesque.Lexicon.Registry do
   @doc "The object schema a collection's records are checked against, or nil."
   def record(collection) when is_binary(collection), do: Map.get(cache().records, collection)
 
-  defp cache,
-    do: :persistent_term.get(@table, %{entries: %{}, records: %{}, owned: MapSet.new()})
+  defp cache, do: :persistent_term.get(@table, %{entries: %{}, records: %{}})
 
   # The schema is the `record` key of the def whose own type is "record".
   # A collection's lexicon is named after the collection, not after the record
@@ -178,17 +159,6 @@ defmodule Pesque.Lexicon.Registry do
   @doc "Whether this server holds a lexicon for a collection."
   def knows?(collection) when is_binary(collection), do: record(collection) != nil
   def knows?(_collection), do: false
-
-  @doc """
-  Whether this server ships the lexicon for a collection, i.e. owns it.
-
-  True only for a document under `priv/lexicons`. A document the operator added
-  to `data/lexicons` is not owned, and the write path does not enforce it: it is
-  answered for by the resolver but is not a rule this server imposes on a
-  writer.
-  """
-  def owned?(collection) when is_binary(collection), do: MapSet.member?(cache().owned, collection)
-  def owned?(_collection), do: false
 
   # Refs are pointers, and following them here rather than inside the validator
   # is what keeps that one pure: it takes a schema and reads no registry.

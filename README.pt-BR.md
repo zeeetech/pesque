@@ -126,10 +126,10 @@ Os guias são só em inglês. Este README tem espelho em
   qual este servidor não embarca lexicon é guardada como veio e reportada
   `validationStatus: "unknown"`, a mesma resposta do PDS de referência; a
   escrita só é recusada quando quebra um lexicon que o servidor embarca
-  (`priv/lexicons`). `pesque lexicon add --from https://github.com/org/lexicons`
-  instala mais documentos em `data/lexicons` pra resolução (permission sets do
-  OAuth), não pra enforcement; arquivos `com.atproto` são pulados pra um
-  terceiro não sobrepor o set vendido.
+  (`com.atproto`, `app.bsky`, `chat.bsky`, `tools.ozone`). Não há nada pra
+  instalar: `mix pesque.sync_lexicons` espelha exatamente essas quatro
+  namespaces, e um permission set do OAuth que o servidor não embarca é buscado
+  pelo agregador (`PDS_LEXICON_AGGREGATOR`).
 - **Onde fica o código?** Aqui. As primitivas de protocolo moram em
   `lib/pesque` de propósito; [Arquitetura](docs/reference/architecture.md) é o
   mapa.

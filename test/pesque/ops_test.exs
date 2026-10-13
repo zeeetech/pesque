@@ -37,7 +37,7 @@ defmodule Pesque.OpsTest do
 
   test "the verbs are the fixed list the spec's wrapper names" do
     assert Pesque.Cli.verbs() ==
-             ~w(account invite migrate doctor backup restore config crawl lexicon health)
+             ~w(account invite migrate doctor backup restore config crawl health)
   end
 
   test "the release wrapper dispatches the CLI's verbs through one eval" do

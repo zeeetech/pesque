@@ -6,11 +6,13 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
 
       mix pesque.sync_lexicons
 
-  The only thing that touches the vendored tree, and never needed to add a
-  lexicon of your own: drop a file in `data/lexicons` and restart, it is read
-  alongside the vendored ones. A file already on disk with the same NSID is
-  replaced, and files upstream does not publish are left alone. Downloads
-  with `:httpc`, so this task starts `:inets` itself.
+  Only the namespaces this server enforces are mirrored: `com`, `app`, `chat`
+  and `tools`, the four the reference PDS bundles. Everything else upstream
+  publishes (`site`, `internal`, `place`, `social`) is a third-party schema this
+  server does not validate against, so shipping it would only add files nobody
+  reads. A file already on disk with the same NSID is replaced, and files
+  upstream no longer publishes are left alone. Downloads with `:httpc`, so this
+  task starts `:inets` itself.
   """
 
   use Mix.Task
@@ -19,6 +21,10 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
   @branch "main"
   @tree "https://api.github.com/repos/#{@repo}/git/trees/#{@branch}?recursive=1"
   @raw "https://raw.githubusercontent.com/#{@repo}/#{@branch}"
+
+  # The namespaces the server ships and therefore enforces. A lexicon upstream
+  # adds under any other root is not vendored on purpose.
+  @namespaces ~w(app chat com tools)
 
   @impl Mix.Task
   def run(_args) do
@@ -34,14 +40,14 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
   end
 
   # The tree API rather than a tarball: no unpacking, and the paths come back
-  # already filtered to the lexicons directory.
+  # filtered to the namespaces this server vendors.
   defp list do
     case get(@tree) do
       {:ok, body} ->
         with {:ok, %{"tree" => tree}} <- JSON.decode(body) do
           {:ok,
            tree
-           |> Enum.filter(&match?(%{"path" => "lexicons/" <> _, "type" => "blob"}, &1))
+           |> Enum.filter(&bundled?/1)
            |> Enum.map(& &1["path"])}
         else
           {:error, _reason} -> {:error, "unexpected response"}
@@ -51,6 +57,16 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
         {:error, reason}
     end
   end
+
+  # A blob under `lexicons/<namespace>/...` whose namespace is one this server
+  # vendors. The tree API returns directories too, and everything the server
+  # does not ship is dropped here rather than written and never read.
+  defp bundled?(%{"type" => "blob", "path" => "lexicons/" <> rest}) do
+    [namespace | _] = String.split(rest, "/", parts: 2)
+    namespace in @namespaces
+  end
+
+  defp bundled?(_entry), do: false
 
   defp write_all(target, paths) do
     {written, failed} = Enum.split_with(paths, &fetch!(target, &1))

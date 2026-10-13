@@ -468,12 +468,17 @@ defmodule Pesque.Lexicon.ValidateTest do
     end
 
     test "every lexicon in priv/lexicons loaded and keyed by its own id" do
-      assert map_size(Registry.all()) >= 400
+      on_disk = Registry.vendored_dir() |> Path.join("**/*.json") |> Path.wildcard() |> length()
+      assert map_size(Registry.all()) == on_disk
     end
 
-    test "app.bsky.feed.post and com.atproto.repo.strongRef are present" do
+    test "the four bundled namespaces are present" do
       assert %{"id" => "app.bsky.feed.post"} = Registry.get("app.bsky.feed.post")
       assert %{"id" => "com.atproto.repo.strongRef"} = Registry.get("com.atproto.repo.strongRef")
+      assert %{"id" => "chat.bsky.convo.defs"} = Registry.get("chat.bsky.convo.defs")
+
+      assert %{"id" => "tools.ozone.moderation.defs"} =
+               Registry.get("tools.ozone.moderation.defs")
     end
 
     # The record schema is the object inside the schema whose type is "record",
@@ -675,44 +680,15 @@ defmodule Pesque.Lexicon.ValidateTest do
                Validate.validate(schema, Map.put(base, "text", under_bytes))
     end
 
-    # site.standard.document declares its content union as closed false with no
-    # refs at all, which the spec calls "similar to unknown": all it asks of the
-    # value is a $type. Treating it as closed meant the collection could not
-    # carry a content block whatsoever.
-    test "an open union in a real lexicon takes a content block" do
-      schema = Registry.record("site.standard.document")
-
-      assert %{"closed" => false, "refs" => []} = schema["properties"]["content"]
-
-      doc = %{
-        "$type" => "site.standard.document",
-        "site" => "https://example.com",
-        "title" => "A post",
-        "publishedAt" => "1985-04-12T23:20:50.123Z"
-      }
-
-      assert :ok =
-               Validate.validate(
-                 schema,
-                 Map.put(doc, "content", %{"$type" => "app.bsky.richtext.richtextFacet"})
-               )
-
-      assert {:error, [{["content"], :missing_type}]} =
-               Validate.validate(schema, Map.put(doc, "content", %{"text" => "hi"}))
-    end
-
-    # The cover is a blob with a maxSize and an accept list, and both are what
+    # The avatar is a blob with a maxSize and an accept list, and both are what
     # the lexicon states about it. The size is the client's claim, which is what
     # a record carries; uploadBlob is where the real size is enforced.
     test "a blob in a real lexicon is checked against its maxSize and accept" do
-      schema = Registry.record("site.standard.document")
+      schema = Registry.record("app.bsky.actor.profile")
 
-      doc = %{
-        "$type" => "site.standard.document",
-        "site" => "https://example.com",
-        "title" => "A post",
-        "publishedAt" => "1985-04-12T23:20:50.123Z",
-        "coverImage" => %{
+      profile = %{
+        "$type" => "app.bsky.actor.profile",
+        "avatar" => %{
           "$type" => "blob",
           "ref" => %{"$link" => "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a"},
           "mimeType" => "image/png",
@@ -720,17 +696,17 @@ defmodule Pesque.Lexicon.ValidateTest do
         }
       }
 
-      assert :ok = Validate.validate(schema, doc)
+      assert :ok = Validate.validate(schema, profile)
 
       assert {:error, errors} =
-               Validate.validate(schema, put_in(doc, ["coverImage", "size"], 5_000_000))
+               Validate.validate(schema, put_in(profile, ["avatar", "size"], 5_000_000))
 
-      assert {["coverImage"], :too_large} in errors
+      assert {["avatar"], :too_large} in errors
 
       assert {:error, errors} =
-               Validate.validate(schema, put_in(doc, ["coverImage", "mimeType"], "text/html"))
+               Validate.validate(schema, put_in(profile, ["avatar", "mimeType"], "text/html"))
 
-      assert {["coverImage"], :bad_mime_type} in errors
+      assert {["avatar"], :bad_mime_type} in errors
     end
 
     test "every vendored record lexicon is one this server can check" do
@@ -742,7 +718,7 @@ defmodule Pesque.Lexicon.ValidateTest do
           doc |> Map.get("defs", %{}) |> Enum.filter(fn {_n, d} -> d["type"] == "record" end)
         end)
 
-      assert length(records) == 27
+      assert length(records) == 22
 
       for record <- records do
         assert {:error, _} = Validate.validate(record, "definitely not an object")

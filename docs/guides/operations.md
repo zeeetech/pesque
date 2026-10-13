@@ -56,7 +56,6 @@ data/
 ├── keys/<digest>.rotation.key   did:plc rotation key, the account's only recovery path
 ├── keys/oauth.p256.key          P-256 key OAuth tokens and the JWKS are signed with
 ├── blobs/<digest>/<cid> blob bytes, addressed by CID
-└── lexicons/            lexicon overrides, if any
 ```
 
 Key files are named after a SHA-256 digest of the DID, because a DID is not a

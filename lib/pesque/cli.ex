@@ -14,12 +14,11 @@ defmodule Pesque.Cli do
     Doctor,
     Health,
     Invite,
-    Lexicon,
     Migrate,
     Restore
   }
 
-  @verbs ~w(account invite migrate doctor backup restore config crawl lexicon health)
+  @verbs ~w(account invite migrate doctor backup restore config crawl health)
 
   @doc "The verbs the release wrapper dispatches, in the order it names them."
   def verbs, do: @verbs
@@ -48,7 +47,6 @@ defmodule Pesque.Cli do
   def run(["restore" | rest]), do: Restore.run(rest)
   def run(["config" | rest]), do: Config.run(rest)
   def run(["crawl" | rest]), do: Crawl.run(rest)
-  def run(["lexicon" | rest]), do: Lexicon.run(rest)
   def run(["health" | rest]), do: Health.run(rest)
   def run([]), do: {:usage, usage()}
   def run([unknown | _]), do: {:usage, "unknown command: #{unknown}\n\n" <> usage()}
@@ -80,7 +78,6 @@ defmodule Pesque.Cli do
       config validate
       config template [--out PATH]
       crawl request
-      lexicon add --from DIR [--dir SUBPATH]
       health
 
     Passwords come from a no-echo prompt, or from a line on stdin so they

@@ -164,8 +164,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   # "valid" is a claim that a lexicon this server ships was checked and the
   # record passed it. Every other case is "unknown": validation was turned off,
-  # or the collection is one this server holds no rule for (a lexicon the
-  # operator added to data/lexicons, or none at all). Answering "valid" for a
+  # or the collection is one no shipped lexicon names. Answering "valid" for a
   # record nobody checked would be the one lie this field exists to avoid.
   defp validation_status(validate, collection) do
     if validate and Record.enforced?(collection), do: "valid", else: "unknown"

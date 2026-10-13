@@ -132,11 +132,11 @@ The guides are English only. This README is mirrored in
 - **How do I accept records for another app's collection?** You already do. A
   collection this server ships no lexicon for is stored as it came and reported
   `validationStatus: "unknown"`, the same answer the reference PDS gives; writes
-  are only refused when they break a lexicon this server ships
-  (`priv/lexicons`). `pesque lexicon add --from https://github.com/org/lexicons`
-  installs more documents into `data/lexicons` for resolution (OAuth permission
-  sets), not for enforcement; `com.atproto` files are skipped so a third party
-  cannot shadow the vendored set.
+  are only refused when they break a lexicon this server ships (`com.atproto`,
+  `app.bsky`, `chat.bsky`, `tools.ozone`). There is nothing to install:
+  `mix pesque.sync_lexicons` mirrors exactly those four namespaces, and an OAuth
+  permission set this server does not ship is fetched through the aggregator
+  (`PDS_LEXICON_AGGREGATOR`).
 - **Where is the code?** Here. The protocol primitives live in `lib/pesque` on
   purpose; [Architecture](docs/reference/architecture.md) is the map.
 

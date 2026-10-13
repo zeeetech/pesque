@@ -79,16 +79,15 @@ defmodule Pesque.RecordTest do
 
   # A collection no lexicon names is not a statement about the record, and the
   # reference PDS stores such a write with validationStatus "unknown" rather
-  # than refusing it. Refusing would make the operator's missing file the
-  # writer's problem, which is the wrong way round.
+  # than refusing it. Refusing would make a missing file the writer's problem,
+  # which is the wrong way round.
   test "a collection this server holds no lexicon for is stored, not refused" do
     assert {:ok, %{"$type" => "com.example.nope"}} = Record.check("com.example.nope", %{})
     refute Record.enforced?("com.example.nope")
   end
 
-  # Enforcement is for the lexicons this server ships. A schema the operator
-  # dropped in is served for resolution but is not a rule a writer has to
-  # satisfy.
+  # Enforcement is exactly "this server ships a schema for it": a post is
+  # checked, a collection nothing names is not.
   test "only a lexicon this server ships is enforced" do
     assert Record.enforced?("app.bsky.feed.post")
     refute Record.enforced?("com.example.nope")

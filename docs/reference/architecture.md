@@ -25,7 +25,6 @@ lib/pesque/token.ex             HS256 JWT
 lib/pesque/lexicon.ex           $link and $bytes conversion
 lib/pesque/lexicon/validate.ex  record validation, pure and total
 lib/pesque/lexicon/registry.ex  lexicon index in :persistent_term
-lib/pesque/lexicon/install.ex   third-party lexicons into data/lexicons
 lib/pesque/did.ex               DID and handle derivation, DID documents
 lib/pesque/commit.ex            the commit protocol, and the frames
 lib/pesque/event_frames.ex      the #identity and #account frames
@@ -168,7 +167,6 @@ data/
 ├── keys/<sha256(did)>.rotation.key
 ├── keys/oauth.p256.key
 ├── blobs/<sha256(did)>/<cid>
-└── lexicons/
 ```
 
 `records` holds only the latest version of each key, which is what `listRecords`
@@ -333,13 +331,11 @@ Each module below has one invariant that is easy to get wrong.
   means a second `RepoStore` and a `RepoSupervisor` that starts repos against it;
   the pure layer does not change.
 - **Lexicons.** `mix pesque.sync_lexicons` is the only thing that writes to
-  `priv/lexicons`, and it is idempotent: files already on disk with the same NSID
-  are replaced, files upstream no longer publishes are left alone. A third-party
-  set comes in the other way: `pesque lexicon add --from URL` clones a repository
-  on the host, has the release verb discover its lexicons (a file is one when its
-  content is `"lexicon" => 1` with a valid NSID `id`; `com.atproto` is skipped so
-  it cannot shadow the vendored set) and writes them to `data/lexicons`, then
-  restarts so the server loads them. Only `priv/lexicons` is enforced on the
-  write path: a document in `data/lexicons` is served for resolution, not
-  imposed on writers, so installing another app's lexicon cannot make its
-  records unwritable here.
+  `priv/lexicons`, and it mirrors only the four namespaces this server enforces:
+  `com`, `app`, `chat` and `tools`. It is idempotent: files already on disk with
+  the same NSID are replaced, files upstream no longer publishes are left alone,
+  and a namespace outside the four is never fetched. What is shipped is what the
+  write path enforces, so there is no second root and no install verb: an app
+  whose lexicon is not here is served unvalidated, exactly as the reference PDS
+  serves it, and its OAuth permission set (if it has one) comes from the
+  aggregator instead.

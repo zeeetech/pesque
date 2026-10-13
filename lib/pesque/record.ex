@@ -9,9 +9,8 @@ defmodule Pesque.Record do
   passed one check and failed the other.
 
   Only a lexicon this server ships (`priv/lexicons`) is enforced. A collection
-  whose lexicon an operator added to `data/lexicons`, and a collection no
-  lexicon names at all, are stored as they came: the reference PDS validates the
-  lexicons it bundles and stores every other collection with
+  no shipped lexicon names is stored as it came: the reference PDS validates
+  the lexicons it bundles and stores every other collection with
   `validationStatus: "unknown"`, because the writer and the lexicon author are
   independent parties and a PDS that happens to hold someone else's schema must
   not refuse the records that schema describes.
@@ -53,17 +52,13 @@ defmodule Pesque.Record do
   @doc """
   Whether a write to `collection` is checked against a lexicon.
 
-  True only for a collection whose lexicon this server ships (`priv/lexicons`)
-  and can resolve. A document the operator added to `data/lexicons` is answered
-  for by the resolver but not enforced here, and a collection with no lexicon at
-  all is not enforced either. A write's `validationStatus` is "valid" exactly
-  when this is true and the record passed.
+  True when this server holds a record schema for the collection, which is the
+  same as saying it is one of the lexicons this server ships. A collection with
+  no schema is stored unvalidated. A write's `validationStatus` is "valid"
+  exactly when this is true and the record passed.
   """
   @spec enforced?(String.t()) :: boolean()
-  def enforced?(collection) when is_binary(collection) do
-    Registry.owned?(collection) and is_map(Registry.record(collection))
-  end
-
+  def enforced?(collection) when is_binary(collection), do: is_map(Registry.record(collection))
   def enforced?(_collection), do: false
 
   # Absent and null are different answers, so they are looked up separately.
@@ -84,11 +79,9 @@ defmodule Pesque.Record do
 
   # A record is checked against the lexicon only when this server ships one. The
   # reference PDS validates the lexicons it bundles and stores every other
-  # collection as it came, marked validationStatus "unknown": a schema the
-  # operator added to data/lexicons is served for resolution but is not a rule
-  # this server imposes on a writer, and a collection no lexicon names at all
-  # gets the same answer, which is what makes this server behave like the one a
-  # migrating account came from.
+  # collection as it came, marked validationStatus "unknown": a collection no
+  # shipped lexicon names gets the same answer, which is what makes this server
+  # behave like the one a migrating account came from.
   defp check_fields(collection, record) do
     if enforced?(collection) do
       # The record is checked as it was submitted, $type and all: the validator
