@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/zeeetech/pesque/compare/pesque-v1.11.1...pesque-v1.12.0) (2026-10-13)
+
+
+### Features
+
+* **cli:** read passwords from a prompt or stdin, drop --password-env ([f0a3fb3](https://github.com/zeeetech/pesque/commit/f0a3fb315c5d6db645a56a134cb6d9d7362a9905))
+
+
+### Bug Fixes
+
+* **accounts:** split handle refusals and free the path_multi apex ([197b733](https://github.com/zeeetech/pesque/commit/197b733f95e13e0450584b82937be0ed59137963))
+
 ## [1.11.1](https://github.com/zeeetech/pesque/compare/pesque-v1.11.0...pesque-v1.11.1) (2026-10-13)
 
 
