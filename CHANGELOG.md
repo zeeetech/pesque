@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.1](https://github.com/zeeetech/pesque/compare/pesque-v1.11.0...pesque-v1.11.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **cli:** skip the lexicon tmp chmod on windows ([af17618](https://github.com/zeeetech/pesque/commit/af176182032ef10a297638bac4d34419d920d1cc))
+* **oauth:** answer a DPoP nonce demand so clients retry ([c9f7a2a](https://github.com/zeeetech/pesque/commit/c9f7a2afa2dc1adc9afc489c90c61e7fa70f2615))
+
 ## [1.11.0](https://github.com/zeeetech/pesque/compare/pesque-v1.10.0...pesque-v1.11.0) (2026-10-13)
 
 
