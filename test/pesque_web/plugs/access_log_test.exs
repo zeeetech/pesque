@@ -36,6 +36,34 @@ defmodule PesqueWeb.Plugs.AccessLogTest do
     end
   end
 
+  describe "a read that names a target" do
+    test "carries the repository and collection it reads" do
+      conn =
+        :get
+        |> conn("/xrpc/com.atproto.repo.listRecords", %{
+          "repo" => "did:plc:alice",
+          "collection" => "app.bsky.feed.post"
+        })
+        |> put_req_header("user-agent", "python-httpx/0.28.1")
+
+      log = capture_at(:info, fn -> respond(conn, 200, ~s({"records":[]})) end)
+
+      assert log =~ "requester=python-httpx/0.28.1"
+      assert log =~ "repo=did:plc:alice"
+      assert log =~ "collection=app.bsky.feed.post"
+    end
+
+    test "reads the repo from the did spelling when that is the param used" do
+      conn =
+        :get
+        |> conn("/xrpc/com.atproto.sync.getRepo", %{"did" => "did:plc:alice"})
+
+      log = capture_at(:info, fn -> respond(conn, 200, ~s({})) end)
+
+      assert log =~ "repo=did:plc:alice"
+    end
+  end
+
   describe "a failed response" do
     test "carries the body and the requester" do
       conn =

@@ -23,6 +23,8 @@ config :logger, :default_formatter,
     :requester,
     :user_agent,
     :remote_ip,
+    :repo,
+    :collection,
     :body
   ]
 

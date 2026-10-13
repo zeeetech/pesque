@@ -17,6 +17,11 @@ defmodule PesqueWeb.Plugs.AccessLog do
   present the client wins, because the question being asked is which
   application is speaking, not which account it acts for.
 
+  `repo` (the `repo` or `did` query param) and `collection` name what a read
+  targets, so a caller that carries no name but its user agent - a crawler - is
+  still identified by the repository and collection it walks. They are the only
+  request params logged, and they name a record set, not a credential.
+
   The body is the response, never the request: a request can carry a password,
   and this logs no credential. It is capped so one HTML error page cannot bury
   the line, and collapsed to a single line so a multi-line body stays greppable.
@@ -58,7 +63,9 @@ defmodule PesqueWeb.Plugs.AccessLog do
     base = [
       requester: requester(conn),
       user_agent: user_agent(conn),
-      remote_ip: address(conn)
+      remote_ip: address(conn),
+      repo: param(conn, "repo") || param(conn, "did"),
+      collection: param(conn, "collection")
     ]
 
     if is_integer(conn.status) and conn.status >= 400 do
