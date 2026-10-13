@@ -149,6 +149,28 @@ defmodule PesqueWeb.MigrateTest do
     refute conn.resp_body =~ "http-equiv"
   end
 
+  test "handing in the code answers with the page that watches the move" do
+    {:ok, job} = Jobs.open("jack.localhost", "https://old.example.com")
+    {:ok, _} = Jobs.advance(job, :awaiting_code)
+
+    hold(job.token)
+
+    conn = post_code(job.token, %{"code" => "123456"})
+
+    assert conn.status == 302
+    [location] = get_resp_header(conn, "location")
+    assert location == "/migrate/" <> job.token
+
+    # The row the redirect lands on is running, so the page polls the move
+    # instead of asking for the code a second time. A move that stays on
+    # :awaiting_code here is the page that never moves again.
+    assert %Job{phase: :running} = Jobs.get(job.token)
+
+    watched = get_page("/migrate/" <> job.token)
+    assert watched.resp_body =~ ~s(<meta http-equiv="refresh" content="3">)
+    refute watched.resp_body =~ "falta um código"
+  end
+
   test "a finished move points at the app" do
     {:ok, job} = Jobs.open("frank.localhost", "https://old.example.com")
     {:ok, _} = Jobs.advance(job, :done)
@@ -209,6 +231,24 @@ defmodule PesqueWeb.MigrateTest do
   end
 
   defp job_count, do: Repo.one(from j in Job, select: count(j.id))
+
+  # A move holds the registry under its token while it runs, which is how
+  # submit_code/2 finds the task to hand the code to. This stands in for that
+  # task: it registers the token and then waits, so the request that submits a
+  # code sees a move to answer and the row can be read before the move ends.
+  defp hold(token) do
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, _} = Registry.register(Pesque.Migrate.Registry, token, nil)
+        send(parent, :held)
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive :held
+    on_exit(fn -> Process.exit(pid, :kill) end)
+  end
 
   defp put_transport(module) do
     Application.put_env(:pesque, :migrate_fetch, module)

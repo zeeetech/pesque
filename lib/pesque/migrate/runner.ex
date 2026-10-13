@@ -53,16 +53,33 @@ defmodule Pesque.Migrate.Runner do
 
   Nothing registered under the token means no move is waiting for one: it
   finished, failed or never started, and the code has nowhere to go.
+
+  The row moves back to `:running` here, in the caller, rather than in the
+  task that takes the code off its mailbox: the form answers with a redirect,
+  and the page it lands on polls only while the row says `:running`, so a row
+  still on `:awaiting_code` when that redirect lands would render the form a
+  second time. The task re-asserts the same phase once it has the code, so a
+  code handed in before the prompt opened still leaves the row running.
   """
   @spec submit_code(term(), term()) :: :ok | {:error, :not_running}
   def submit_code(token, code) do
     case Registry.lookup(@registry, token) do
       [{pid, _value}] ->
         send(pid, {:plc_code, code})
+        resume(token)
         :ok
 
       [] ->
         {:error, :not_running}
+    end
+  end
+
+  # Only a row waiting on the code moves: one already running needs nothing,
+  # and a row that finished is not reopened by a code that arrived too late.
+  defp resume(token) do
+    case Jobs.get(token) do
+      %Job{phase: :awaiting_code} = job -> Jobs.advance(job, :running)
+      _other -> :ok
     end
   end
 
@@ -85,12 +102,18 @@ defmodule Pesque.Migrate.Runner do
 
   # The row moves to :awaiting_code before the wait, so a page watching the
   # move sees the wait it is in. A code that never arrives makes the prompt
-  # answer nil, which Migrate turns into {:error, :plc_code_missing}.
+  # answer nil, which Migrate turns into {:error, :plc_code_missing}. A code
+  # that arrives puts the row back on :running: the move is working again, and
+  # the page that watches a running move is the one that polls. This is the
+  # task's own copy of the move submit_code/2 makes in the request, so a code
+  # that reached the mailbox before the prompt opened is not left on the form.
   defp wait(%Job{} = job) do
     Jobs.advance(job, :awaiting_code)
 
     receive do
-      {:plc_code, code} when is_binary(code) and code != "" -> code
+      {:plc_code, code} when is_binary(code) and code != "" ->
+        Jobs.advance(job, :running)
+        code
     after
       @code_timeout -> nil
     end
