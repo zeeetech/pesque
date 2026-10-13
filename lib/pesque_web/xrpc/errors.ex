@@ -40,9 +40,6 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc({:type_mismatch, found, collection}),
     do: {400, "InvalidRequest", "record $type #{found} is not #{collection}"}
 
-  def to_xrpc(:unknown_collection),
-    do: {400, "InvalidRequest", "this server has no lexicon for that collection"}
-
   def to_xrpc(:invalid_link), do: {400, "InvalidRequest", "a $link is not a parseable CID"}
   def to_xrpc(:invalid_bytes), do: {400, "InvalidRequest", "a $bytes value is not valid base64"}
 

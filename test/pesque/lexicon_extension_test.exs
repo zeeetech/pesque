@@ -36,9 +36,10 @@ defmodule Pesque.Lexicon.ExtensionTest do
     }
   }
 
-  # The whole extension story: a file in data/lexicons, no config, no
-  # registration call, and the collection validates like a built-in one.
-  test "a lexicon dropped in data/lexicons is loaded and validates" do
+  # The extension story: a file in data/lexicons, no config and no registration
+  # call, and the collection's schema is loaded and resolvable. It is not a rule
+  # the write path enforces, which is the point of the test below.
+  test "a lexicon dropped in data/lexicons is loaded and its schema resolves" do
     refute Registry.knows?("com.example.note")
 
     write("com.example.note", %{
@@ -58,6 +59,24 @@ defmodule Pesque.Lexicon.ExtensionTest do
 
     assert {:error, [{["count"], :below_minimum}]} =
              Validate.validate(schema, %{"note" => "x", "count" => 0})
+  end
+
+  # A schema the operator added is served for resolution (a permission set, say)
+  # but is not imposed on a writer: the appview and the PDS are run by different
+  # parties, and the reference PDS stores every collection it does not ship. So
+  # a record a data/lexicons schema would refuse is stored anyway.
+  test "a lexicon dropped in data/lexicons is not enforced on the write path" do
+    write("com.example.note", %{
+      "lexicon" => 1,
+      "id" => "com.example.note",
+      "defs" => %{"main" => @note}
+    })
+
+    assert Registry.knows?("com.example.note")
+    refute Pesque.Record.enforced?("com.example.note")
+
+    assert {:ok, %{"$type" => "com.example.note"}} =
+             Pesque.Record.check("com.example.note", %{"note" => "far too long to fit"})
   end
 
   # A ref from a custom lexicon to a vendored one is the case a homelab hits
@@ -271,6 +290,11 @@ defmodule Pesque.Lexicon.ExtensionTest do
 
     assert patched["required"] == ["note"]
     refute patched == Registry.record("app.bsky.feed.post.notreal")
+
+    # An override of a vendored id is still owned: what matters for enforcement
+    # is that this server ships the collection, not which root the winning copy
+    # sits in.
+    assert Pesque.Record.enforced?("app.bsky.feed.post")
 
     # And it is still in the vendored tree, untouched, so a sync restores it.
     assert File.exists?(Path.join(Registry.vendored_dir(), "app/bsky/feed/post.json"))

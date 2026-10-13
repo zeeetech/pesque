@@ -215,8 +215,10 @@ collection against the NSID rules and the rkey against
 TID from the counter that drives revs.
 
 **5. Validate the record.** `Pesque.Record.check/3` verifies that `$type` is the
-collection being written to and that the fields match the lexicon schema.
-Failures come back as a path per mistake.
+collection being written to, and, when this server ships a lexicon for the
+collection, that the fields match it. Failures come back as a path per mistake.
+A collection this server ships no lexicon for is stored unvalidated and reported
+`validationStatus: "unknown"`, the same answer the reference PDS gives.
 
 **6. Convert and encode.** `Pesque.Commit.encode_write/4` runs
 `Pesque.Lexicon.from_json/1`, turning `{"$link": cid}` into a `%CID{}` and
@@ -337,4 +339,7 @@ Each module below has one invariant that is easy to get wrong.
   on the host, has the release verb discover its lexicons (a file is one when its
   content is `"lexicon" => 1` with a valid NSID `id`; `com.atproto` is skipped so
   it cannot shadow the vendored set) and writes them to `data/lexicons`, then
-  restarts so the server loads them.
+  restarts so the server loads them. Only `priv/lexicons` is enforced on the
+  write path: a document in `data/lexicons` is served for resolution, not
+  imposed on writers, so installing another app's lexicon cannot make its
+  records unwritable here.

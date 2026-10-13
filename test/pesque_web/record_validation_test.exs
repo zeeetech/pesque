@@ -61,15 +61,17 @@ defmodule PesqueWeb.RecordValidationTest do
     assert RepoServer.entries(repo_pid(ctx)) == %{}
   end
 
-  # A lexicon this server does not hold is not a statement about the record.
-  # Saying so outright is what stops a client blaming its own data for a file
-  # the operator has not installed.
-  test "a collection this server holds no lexicon for is a 400", ctx do
+  # A lexicon this server does not hold is not a statement about the record, and
+  # the reference PDS stores such a write with validationStatus "unknown" rather
+  # than refusing it. Refusing would make the operator's missing file the
+  # client's problem, which is the wrong way round.
+  test "a collection this server holds no lexicon for is stored and reported unknown", ctx do
     conn = create(ctx, %{"collection" => "com.example.unknown", "record" => %{}})
 
-    assert conn.status == 400
-    assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
-    assert RepoServer.entries(repo_pid(ctx)) == %{}
+    assert conn.status == 200
+    body = JSON.decode!(conn.resp_body)
+    assert body["validationStatus"] == "unknown"
+    assert body["uri"] =~ "/com.example.unknown/"
   end
 
   # Caught before the fields, because a lexicon that does not declare the type

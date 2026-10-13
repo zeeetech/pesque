@@ -10,6 +10,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
   alias Pesque.CBOR
   alias Pesque.CID
   alias Pesque.Lexicon
+  alias Pesque.Record
   alias Pesque.RepoImport
   alias Pesque.RepoStore
   alias PesqueWeb.Xrpc
@@ -54,7 +55,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
         {:ok, result} ->
           json(conn, %{
             "commit" => result["commit"],
-            "results" => results(result["changes"], validate)
+            "results" => results(result["changes"], writes, validate)
           })
 
         {:error, reason} ->
@@ -70,29 +71,31 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # `results` is a closed union in the lexicon and a client that validates the
   # answer refuses an entry it cannot dispatch on. A delete carries no uri or
   # cid, so its result is the type alone, and validationStatus says what
-  # createRecord says: nobody checked the record when validation was turned off,
-  # so nobody is claiming it is good.
-  defp results(changes, validate) do
-    status = if validate, do: "valid", else: "unknown"
-
-    Enum.map(changes, fn
-      %{"action" => "delete"} ->
+  # createRecord says: "valid" only where a lexicon this server ships was
+  # actually checked, and "unknown" wherever nobody did. The writes are zipped
+  # in so a batch spanning an enforced and a non-enforced collection reports
+  # each write for what it is.
+  defp results(changes, writes, validate) do
+    changes
+    |> Enum.zip(writes)
+    |> Enum.map(fn
+      {%{"action" => "delete"}, _write} ->
         %{"$type" => "com.atproto.repo.applyWrites#deleteResult"}
 
-      %{"action" => "create"} = change ->
+      {%{"action" => "create"} = change, write} ->
         %{
           "$type" => "com.atproto.repo.applyWrites#createResult",
           "uri" => change["uri"],
           "cid" => change["cid"],
-          "validationStatus" => status
+          "validationStatus" => validation_status(validate, write["collection"])
         }
 
-      %{"action" => "update"} = change ->
+      {%{"action" => "update"} = change, write} ->
         %{
           "$type" => "com.atproto.repo.applyWrites#updateResult",
           "uri" => change["uri"],
           "cid" => change["cid"],
-          "validationStatus" => status
+          "validationStatus" => validation_status(validate, write["collection"])
         }
     end)
   end
@@ -133,7 +136,7 @@ defmodule PesqueWeb.Xrpc.RepoController do
             "uri" => change["uri"],
             "cid" => change["cid"],
             "commit" => result["commit"],
-            "validationStatus" => if(validate, do: "valid", else: "unknown")
+            "validationStatus" => validation_status(validate, params["collection"])
           })
 
         {:error, {:invalid_record, errors}} ->
@@ -157,6 +160,15 @@ defmodule PesqueWeb.Xrpc.RepoController do
   # body and as a boolean from JSON, and only "false" turns it off.
   defp validate?(params) do
     params["validate"] not in [false, "false"]
+  end
+
+  # "valid" is a claim that a lexicon this server ships was checked and the
+  # record passed it. Every other case is "unknown": validation was turned off,
+  # or the collection is one this server holds no rule for (a lexicon the
+  # operator added to data/lexicons, or none at all). Answering "valid" for a
+  # record nobody checked would be the one lie this field exists to avoid.
+  defp validation_status(validate, collection) do
+    if validate and Record.enforced?(collection), do: "valid", else: "unknown"
   end
 
   # The validator answers with a path per mistake, and a client that sent one

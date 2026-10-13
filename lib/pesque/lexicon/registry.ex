@@ -12,6 +12,13 @@ defmodule Pesque.Lexicon.Registry do
   NSID an upstream file already uses replaces it. That is what makes
   overriding `app.bsky.feed.post` a local edit rather than a fork.
 
+  Which root a document came from is kept. The vendored set is the one this
+  server ships, and it is the only one the write path enforces; a document added
+  to `data/lexicons` is served for resolution (a client asking for a permission
+  set, say) without becoming a rule a writer has to satisfy. An appview and a
+  PDS are run by different parties, so a server that happens to hold someone
+  else's schema must not refuse the records that schema describes.
+
   The index is built once at boot into `:persistent_term`. Lexicons only change
   when someone edits a file, and a server that re-read 400 JSON files on every
   write would be paying for a schema check with a disk read. `reload/0` is for
@@ -58,35 +65,46 @@ defmodule Pesque.Lexicon.Registry do
   moved between directories keeps its identity.
   """
   def reload do
-    entries =
-      [vendored_dir(), user_dir()]
-      |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.json")))
-      |> Enum.uniq()
-      |> Enum.reduce(%{}, &read(&1, &2))
+    # The roots are read in order and the second wins, but which root a document
+    # came from is kept: the vendored set is the one this server ships and the
+    # only one the write path enforces, while a document the operator added is
+    # served for resolution without becoming a rule a writer has to satisfy.
+    vendored = read_dir(vendored_dir(), %{})
+    owned = MapSet.new(Map.keys(vendored))
+    entries = read_dir(user_dir(), vendored)
 
     # Every collection's schema is resolved here rather than on the write that
     # needs it, so the cost lands once at boot instead of once per record. A
     # collection that cannot be resolved is left out, and record/1 then answers
-    # nil for it, which the caller already treats as unknown_collection.
+    # nil for it, which the caller already treats as unenforced.
     records =
       Map.new(entries, fn {nsid, _document} -> {nsid, resolve_record(nsid, entries)} end)
 
-    :persistent_term.put(@table, %{entries: entries, records: records})
+    :persistent_term.put(@table, %{entries: entries, records: records, owned: owned})
 
     Logger.info("lexicons loaded",
       count: map_size(entries),
+      owned: MapSet.size(owned),
       records: map_size(Map.reject(records, fn {_nsid, schema} -> is_nil(schema) end))
     )
 
     if entries == %{} do
       Logger.warning(
-        "no lexicons loaded: every record write will be refused as an unknown collection",
+        "no lexicons loaded: every record write will be stored unvalidated",
         vendored_dir: vendored_dir(),
         user_dir: user_dir()
       )
     end
 
     :ok
+  end
+
+  defp read_dir(dir, acc) do
+    dir
+    |> Path.join("**/*.json")
+    |> Path.wildcard()
+    |> Enum.uniq()
+    |> Enum.reduce(acc, &read(&1, &2))
   end
 
   defp read(path, acc) do
@@ -134,7 +152,8 @@ defmodule Pesque.Lexicon.Registry do
   @doc "The object schema a collection's records are checked against, or nil."
   def record(collection) when is_binary(collection), do: Map.get(cache().records, collection)
 
-  defp cache, do: :persistent_term.get(@table, %{entries: %{}, records: %{}})
+  defp cache,
+    do: :persistent_term.get(@table, %{entries: %{}, records: %{}, owned: MapSet.new()})
 
   # The schema is the `record` key of the def whose own type is "record".
   # A collection's lexicon is named after the collection, not after the record
@@ -159,6 +178,17 @@ defmodule Pesque.Lexicon.Registry do
   @doc "Whether this server holds a lexicon for a collection."
   def knows?(collection) when is_binary(collection), do: record(collection) != nil
   def knows?(_collection), do: false
+
+  @doc """
+  Whether this server ships the lexicon for a collection, i.e. owns it.
+
+  True only for a document under `priv/lexicons`. A document the operator added
+  to `data/lexicons` is not owned, and the write path does not enforce it: it is
+  answered for by the resolver but is not a rule this server imposes on a
+  writer.
+  """
+  def owned?(collection) when is_binary(collection), do: MapSet.member?(cache().owned, collection)
+  def owned?(_collection), do: false
 
   # Refs are pointers, and following them here rather than inside the validator
   # is what keeps that one pure: it takes a schema and reads no registry.

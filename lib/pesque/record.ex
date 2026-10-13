@@ -3,16 +3,24 @@ defmodule Pesque.Record do
   What a record has to satisfy before it is committed.
 
   Two things, both of which a client controls: the record's `$type` has to be
-  the collection it is being written to, and its fields have to match the
-  lexicon this server holds for that collection. Both answers come back as
+  the collection it is being written to, and, when this server ships a lexicon
+  for that collection, its fields have to match it. Both answers come back as
   `{:error, _}`, so the process doing the writing never sees a record that
   passed one check and failed the other.
 
-  `validate: false` skips both, and the write comes back as
-  `validationStatus: "unknown"` rather than "valid". That is the honest answer
-  to "store this anyway": nobody checked it, so nobody is claiming it is good.
-  It is how a migration or a replay gets deliberately malformed records in,
-  which is why it is a parameter and not a setting on the server.
+  Only a lexicon this server ships (`priv/lexicons`) is enforced. A collection
+  whose lexicon an operator added to `data/lexicons`, and a collection no
+  lexicon names at all, are stored as they came: the reference PDS validates the
+  lexicons it bundles and stores every other collection with
+  `validationStatus: "unknown"`, because the writer and the lexicon author are
+  independent parties and a PDS that happens to hold someone else's schema must
+  not refuse the records that schema describes.
+
+  `validate: false` skips the field check, and any write that was not checked
+  comes back as `validationStatus: "unknown"` rather than "valid". That is the
+  honest answer to "store this anyway": nobody checked it, so nobody is claiming
+  it is good. It is how a migration or a replay gets deliberately malformed
+  records in, which is why it is a parameter and not a setting on the server.
 
   The record goes out with `$type` filled in when the client left it out, since
   the type is the collection and the collection is the type. A client that sent
@@ -42,6 +50,22 @@ defmodule Pesque.Record do
 
   def check(_collection, _record, _opts), do: {:error, :missing_params}
 
+  @doc """
+  Whether a write to `collection` is checked against a lexicon.
+
+  True only for a collection whose lexicon this server ships (`priv/lexicons`)
+  and can resolve. A document the operator added to `data/lexicons` is answered
+  for by the resolver but not enforced here, and a collection with no lexicon at
+  all is not enforced either. A write's `validationStatus` is "valid" exactly
+  when this is true and the record passed.
+  """
+  @spec enforced?(String.t()) :: boolean()
+  def enforced?(collection) when is_binary(collection) do
+    Registry.owned?(collection) and is_map(Registry.record(collection))
+  end
+
+  def enforced?(_collection), do: false
+
   # Absent and null are different answers, so they are looked up separately.
   # Absent means the client left the type to the collection it is writing to;
   # null means the client sent a type that is not one.
@@ -58,17 +82,24 @@ defmodule Pesque.Record do
     end
   end
 
+  # A record is checked against the lexicon only when this server ships one. The
+  # reference PDS validates the lexicons it bundles and stores every other
+  # collection as it came, marked validationStatus "unknown": a schema the
+  # operator added to data/lexicons is served for resolution but is not a rule
+  # this server imposes on a writer, and a collection no lexicon names at all
+  # gets the same answer, which is what makes this server behave like the one a
+  # migrating account came from.
   defp check_fields(collection, record) do
-    if is_map(schema = Registry.record(collection)) do
+    if enforced?(collection) do
       # The record is checked as it was submitted, $type and all: the validator
       # ignores a field the lexicon does not declare, which is what the spec
       # says to do with one, so there is no reason to hide the type from it.
-      case Validate.validate(schema, record) do
+      case Validate.validate(Registry.record(collection), record) do
         :ok -> {:ok, Map.put(record, "$type", collection)}
         {:error, errors} -> {:error, {:invalid_record, errors}}
       end
     else
-      {:error, :unknown_collection}
+      {:ok, Map.put(record, "$type", collection)}
     end
   end
 end
