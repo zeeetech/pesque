@@ -116,6 +116,11 @@ The guides are English only. This README is mirrored in
   has the full dance.
 - **How do I move an account out?** Not implemented yet: this PDS can't sign
   the move (`signPlcOperation`).
+- **How do I accept records for another app's collection?** `pesque lexicon add
+  --from https://github.com/org/lexicons` clones the repository, installs the
+  lexicons it carries into `data/lexicons`, and restarts so the server validates
+  writes against them. `com.atproto` files are skipped so a third party cannot
+  shadow the vendored set.
 - **Where is the code?** Here. The protocol primitives live in `lib/pesque` on
   purpose; [Architecture](docs/reference/architecture.md) is the map.
 

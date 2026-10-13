@@ -13,6 +13,7 @@ pub const systemctl_shim = @embedFile("../test/shims/systemctl");
 pub const systemd_run_shim = @embedFile("../test/shims/systemd-run");
 pub const journalctl_shim = @embedFile("../test/shims/journalctl");
 pub const curl_shim = @embedFile("../test/shims/curl");
+pub const git_shim = @embedFile("../test/shims/git");
 pub const pesque_shim = @embedFile("../test/shims/pesque");
 
 pub const Ctx = struct {
@@ -50,6 +51,7 @@ pub const Ctx = struct {
             .{ .name = "systemd-run", .body = systemd_run_shim },
             .{ .name = "journalctl", .body = journalctl_shim },
             .{ .name = "curl", .body = curl_shim },
+            .{ .name = "git", .body = git_shim },
             .{ .name = "pesque", .body = pesque_shim },
         };
         for (shim_files) |shim| {
@@ -70,6 +72,7 @@ pub const Ctx = struct {
                 .systemd_run = try std.fs.path.join(arena, &.{ bin_dir, "systemd-run" }),
                 .journalctl = try std.fs.path.join(arena, &.{ bin_dir, "journalctl" }),
                 .curl = try std.fs.path.join(arena, &.{ bin_dir, "curl" }),
+                .git = try std.fs.path.join(arena, &.{ bin_dir, "git" }),
             },
             // Keep printed output off the build runner's protocol stream.
             .stdout_to_stderr = true,

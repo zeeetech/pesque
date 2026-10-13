@@ -30,6 +30,7 @@ pub const Progs = struct {
     systemd_run: []const u8 = "systemd-run",
     journalctl: []const u8 = "journalctl",
     curl: []const u8 = "curl",
+    git: []const u8 = "git",
 };
 
 /// Everything the drivers need to spawn children and print.
@@ -250,6 +251,9 @@ fn fixFor(prog: []const u8) ?[]const u8 {
     }
     if (std.mem.eql(u8, prog, "curl")) {
         return "Install curl (https://curl.se), then run this again.";
+    }
+    if (std.mem.eql(u8, prog, "git")) {
+        return "Install git (https://git-scm.com), then run this again.";
     }
     return null;
 }

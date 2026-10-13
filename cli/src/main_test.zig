@@ -232,3 +232,67 @@ test "dispatch: backup mounts the out dir at the same path" {
     }
     try testing.expect(saw_same_path);
 }
+
+test "dispatch: lexicon add clones, forwards the checkout and restarts" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const project = try testutil.makeProjectDir(&ctx, "install");
+    try ctx.env.put("PESQUE_ROOT", project);
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
+        "lexicon", "add", "--from", "https://example.com/lexicons.git", "--ref", "main",
+    }));
+
+    const invs = try ctx.invocations();
+    try testing.expect(invs.len >= 3);
+
+    // 1) the host-side clone: `git clone --depth 1 --branch main -- URL DIR`.
+    const clone = invs[0];
+    try testutil.Ctx.expectArg(clone, "clone");
+    try testutil.Ctx.expectArg(clone, "--branch");
+    try testutil.Ctx.expectArg(clone, "main");
+    try testutil.Ctx.expectArg(clone, "https://example.com/lexicons.git");
+
+    // 2) the forwarded release verb, carrying the checkout path.
+    var forwarded: ?[]const []const u8 = null;
+    for (invs) |inv| {
+        for (inv) |a| {
+            if (std.mem.eql(u8, a, "lexicon")) forwarded = inv;
+        }
+    }
+    try testing.expect(forwarded != null);
+    const fwd = forwarded.?;
+    try testutil.Ctx.expectArg(fwd, "add");
+    try testutil.Ctx.expectArg(fwd, "--from");
+
+    var checkout: []const u8 = "";
+    for (fwd, 0..) |a, i| {
+        if (std.mem.eql(u8, a, "--from") and i + 1 < fwd.len) checkout = fwd[i + 1];
+    }
+    try testing.expect(checkout.len > 0);
+    try testing.expect(std.fs.path.isAbsolute(checkout));
+    try testutil.Ctx.expectArg(fwd, checkout);
+
+    // The checkout is bind-mounted at the same path the verb reads.
+    var saw_mount = false;
+    for (fwd) |a| {
+        if (std.mem.startsWith(u8, a, checkout) and std.mem.indexOfScalar(u8, a, ':') != null) {
+            saw_mount = true;
+        }
+    }
+    try testing.expect(saw_mount);
+
+    // 3) the restart, last, so the running server loads what was written.
+    try testutil.Ctx.expectArg(try ctx.lastInvocation(), "restart");
+
+    // The host-side checkout the fake `git clone` created is removed when the
+    // verb returns, so a temp clone never outlives the command.
+    if (std.Io.Dir.cwd().access(testing.io, checkout, .{})) |_| {
+        std.debug.print("the temp checkout {s} was not removed\n", .{checkout});
+        return error.TestUnexpectedResult;
+    } else |_| {}
+
+    // A missing --from is usage, not a crash.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "lexicon", "add" }));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "lexicon", "remove" }));
+}

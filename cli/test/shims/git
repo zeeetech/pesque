@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fake `git` for the Zig CLI tests. Logs its argv (one argument per line,
+# invocation terminated by an empty line) to $PESQUE_FAKE_LOG, then exits.
+# `git clone` also creates the destination directory (the last argument) so a
+# test can assert the CLI removes the checkout it was handed.
+log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+{
+  for a in "$@"; do printf '%s\n' "$a"; done
+  printf '\n'
+} >>"$log"
+
+if [ "${1:-}" = "clone" ]; then
+  last=""
+  for a in "$@"; do last="$a"; done
+  [ -n "$last" ] && mkdir -p "$last"
+fi
+exit "${PESQUE_FAKE_EXIT:-0}"

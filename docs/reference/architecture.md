@@ -25,6 +25,7 @@ lib/pesque/token.ex             HS256 JWT
 lib/pesque/lexicon.ex           $link and $bytes conversion
 lib/pesque/lexicon/validate.ex  record validation, pure and total
 lib/pesque/lexicon/registry.ex  lexicon index in :persistent_term
+lib/pesque/lexicon/install.ex   third-party lexicons into data/lexicons
 lib/pesque/did.ex               DID and handle derivation, DID documents
 lib/pesque/commit.ex            the commit protocol, and the frames
 lib/pesque/event_frames.ex      the #identity and #account frames
@@ -331,4 +332,9 @@ Each module below has one invariant that is easy to get wrong.
   the pure layer does not change.
 - **Lexicons.** `mix pesque.sync_lexicons` is the only thing that writes to
   `priv/lexicons`, and it is idempotent: files already on disk with the same NSID
-  are replaced, files upstream no longer publishes are left alone.
+  are replaced, files upstream no longer publishes are left alone. A third-party
+  set comes in the other way: `pesque lexicon add --from URL` clones a repository
+  on the host, has the release verb discover its lexicons (a file is one when its
+  content is `"lexicon" => 1` with a valid NSID `id`; `com.atproto` is skipped so
+  it cannot shadow the vendored set) and writes them to `data/lexicons`, then
+  restarts so the server loads them.

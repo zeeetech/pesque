@@ -49,6 +49,8 @@ const usage_text =
     \\  restore <archive.tar.gz>   cold restore (stops the service)
     \\  config validate | config template [--out PATH]
     \\  crawl request              ask the relay to crawl this server
+    \\  lexicon add --from URL [--ref REF] [--dir SUBPATH]
+    \\                             install a git repo's lexicons, then restart
     \\
     \\Passwords never take a --password VALUE flag: use --password-env VAR, the
     \\ACCOUNT_PASSWORD/MIGRATE_PASSWORD environment, or a no-echo prompt. The
@@ -176,6 +178,7 @@ fn dispatch(host: *proc.Host, yes: bool, cmd: []const []const u8) Error!u8 {
     if (std.mem.eql(u8, name, "restore")) return restore(host, rest);
     if (std.mem.eql(u8, name, "config")) return configVerb(host, rest);
     if (std.mem.eql(u8, name, "crawl")) return crawl(host, rest);
+    if (std.mem.eql(u8, name, "lexicon")) return lexicon(host, rest);
     _ = try usage(host, "unknown command '{s}'", .{name});
     return error.Usage;
 }
@@ -650,6 +653,69 @@ fn crawl(host: *proc.Host, args: []const []const u8) Error!u8 {
         return usage(host, "'crawl' only knows 'request'", .{});
     }
     return simpleVerbNamed(host, "crawl", "request", args[1..]);
+}
+
+/// `lexicon add --from URL`: clone a repository on the host, then hand the
+/// checkout to the release verb and restart so the server loads what it wrote.
+fn lexicon(host: *proc.Host, args: []const []const u8) Error!u8 {
+    if (args.len == 0 or !std.mem.eql(u8, args[0], "add")) {
+        return usage(host, "'lexicon' only knows 'add'", .{});
+    }
+    var from: ?[]const u8 = null;
+    var ref: ?[]const u8 = null;
+    var dir: ?[]const u8 = null;
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        if (std.mem.eql(u8, args[i], "--from")) {
+            from = try valueFlag(host, args, &i, "--from");
+        } else if (std.mem.eql(u8, args[i], "--ref")) {
+            ref = try valueFlag(host, args, &i, "--ref");
+        } else if (std.mem.eql(u8, args[i], "--dir")) {
+            dir = try valueFlag(host, args, &i, "--dir");
+        } else {
+            return usage(host, "unknown option '{s}' for 'lexicon add'", .{args[i]});
+        }
+    }
+    const url = from orelse
+        return failInput(host, "lexicon add needs --from URL, the git repository holding the lexicons.", .{});
+
+    const d = try detectBackend(host);
+
+    // The runtime image carries no git, so the clone happens here, on the
+    // host, and the checkout is mounted into the one-off for the release verb
+    // to read: a same-path mount, like backup and restore. The checkout holds
+    // only public repository content, so it is made world-traversable: on the
+    // systemd backend the one-off may run as the `pesque` user while this CLI
+    // runs as root, and a 0700 directory would be unreadable to it.
+    const tmp = try host.makeTempDir();
+    defer host.removeTempDir(tmp);
+    Io.Dir.cwd().setFilePermissions(host.io, tmp, .fromMode(0o755), .{}) catch {};
+    const checkout = std.fs.path.join(host.gpa, &.{ tmp, "repo" }) catch return error.OutOfMemory;
+
+    var clone: std.ArrayList([]const u8) = .empty;
+    defer clone.deinit(host.gpa);
+    try clone.appendSlice(host.gpa, &.{ host.progs.git, "clone", "--depth", "1" });
+    if (ref) |r| try clone.appendSlice(host.gpa, &.{ "--branch", r });
+    try clone.appendSlice(host.gpa, &.{ "--", url, checkout });
+    host.step("cloning {s}", .{url});
+    const cloned = try host.run(clone.items);
+    if (cloned != 0) return cloned;
+
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(host.gpa);
+    try argv.appendSlice(host.gpa, &.{ "add", "--from", checkout });
+    if (dir) |v| try argv.appendSlice(host.gpa, &.{ "--dir", v });
+
+    const code = try d.runOnce(host, .{
+        .verb = "lexicon",
+        .argv = argv.items,
+        .mounts = &.{.{ .source = checkout, .target = checkout }},
+        .interactive = true,
+    });
+    if (code != 0) return code;
+
+    host.step("restarting to load the new lexicons", .{});
+    return d.restart(host);
 }
 
 fn runDomainWith(host: *proc.Host, verb: []const u8, argv: []const []const u8, env: []const proc.Env, mounts: []const proc.Mount) Error!u8 {

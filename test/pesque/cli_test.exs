@@ -22,7 +22,7 @@ defmodule Pesque.CliTest do
     end
 
     test "verbs that take a subcommand answer usage without one" do
-      for verb <- ~w(account invite config crawl) do
+      for verb <- ~w(account invite config crawl lexicon) do
         assert {:usage, _text} = Cli.run([verb])
       end
     end
@@ -255,6 +255,57 @@ defmodule Pesque.CliTest do
                Cli.run(["account", "reset-token", "--did", "did:web:nope:nobody"])
 
       _ = user
+    end
+  end
+
+  describe "lexicon add" do
+    setup do
+      Pesque.DataCase.setup()
+
+      dir =
+        Path.join(System.tmp_dir!(), "pesque-lexicon-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(dir)
+      previous = Application.get_env(:pesque, :data_dir)
+
+      on_exit(fn ->
+        Application.put_env(:pesque, :data_dir, previous)
+        File.rm_rf(dir)
+      end)
+
+      Application.put_env(:pesque, :data_dir, dir)
+
+      %{data_dir: dir}
+    end
+
+    test "installs the checkout's lexicons and skips com.atproto", %{data_dir: dir} do
+      repo = Path.join(dir, "checkout")
+      File.mkdir_p!(Path.join(repo, "lexicons/com/atproto/repo"))
+      File.mkdir_p!(Path.join(repo, "lexicons/sh/tangled"))
+
+      File.write!(
+        Path.join(repo, "lexicons/sh/tangled/repo.json"),
+        JSON.encode!(%{"lexicon" => 1, "id" => "sh.tangled.repo", "defs" => %{}})
+      )
+
+      File.write!(
+        Path.join(repo, "lexicons/com/atproto/repo/strongRef.json"),
+        JSON.encode!(%{"lexicon" => 1, "id" => "com.atproto.repo.strongRef", "defs" => %{}})
+      )
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert :ok = Cli.run(["lexicon", "add", "--from", repo])
+        end)
+
+      assert output =~ "installed 1 lexicons"
+      assert File.exists?(Path.join([dir, "lexicons", "sh.tangled.repo.json"]))
+      refute File.exists?(Path.join([dir, "lexicons", "com.atproto.repo.strongRef.json"]))
+    end
+
+    test "a missing --from is usage" do
+      assert {:usage, text} = Cli.run(["lexicon", "add"])
+      assert text =~ "usage"
     end
   end
 
