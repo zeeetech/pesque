@@ -1,9 +1,9 @@
 defmodule Pesque.Cli.Input do
   @moduledoc """
   One input order for every verb, implemented here so they cannot drift: the
-  flag, then the environment, then a prompt. Secrets never travel by argv:
-  `--password-env` names the variable holding the password, so the value
-  reaches a child process in its environment (invisible to `ps`).
+  flag, then the environment, then a prompt. Passwords are the exception:
+  they never travel by argv or the environment, so a password is only ever
+  read from a no-echo prompt or a line on stdin.
   """
 
   @doc """
@@ -38,15 +38,11 @@ defmodule Pesque.Cli.Input do
   end
 
   @doc """
-  A password: `--password-env NAME`, then the conventional variable, then a
-  no-echo prompt. A named variable that is unset or empty fails naming it:
-  an empty pointed-at variable is a different failure from no password at all.
+  A password: a no-echo prompt on a terminal, or a plain line on stdin (so
+  `echo secret | pesque ...` works). Never a flag, never the environment.
   """
-  def password(opts, env, prompt \\ "password: ", prompt_fun \\ &no_echo_line/1) do
-    with :no_value <- password_env(opts),
-         :no_value <- env_value(env) do
-      prompt_fun.(prompt)
-    end
+  def password(prompt \\ "password: ", prompt_fun \\ &no_echo_line/1) do
+    prompt_fun.(prompt)
   end
 
   defp flag_or_env(opts, flag, env) do
@@ -56,23 +52,9 @@ defmodule Pesque.Cli.Input do
     end
   end
 
-  defp password_env(opts) do
-    case Keyword.get(opts, :password_env) do
-      nil ->
-        :no_value
-
-      name ->
-        case env_value(name) do
-          {:ok, ""} -> {:error, {:password_env_empty, name}}
-          {:ok, value} -> {:ok, value}
-          :no_value -> {:error, {:password_env_empty, name}}
-        end
-    end
-  end
-
   # Trimmed like a prompt line: a value written with `echo` or `$(cat file)`
-  # carries a trailing newline, and a password hashed from "secret\n" is not
-  # the "secret" a browser sends back. The prompt already trims, so this only
+  # carries a trailing newline, and a value hashed from "secret\n" is not the
+  # "secret" a browser sends back. The prompt already trims, so this only
   # makes the two sources agree.
   defp env_value(name) do
     case System.get_env(name) do

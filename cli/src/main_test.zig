@@ -50,7 +50,6 @@ test "dispatch: domain verbs forward to bin/pesque with the verb tail" {
     defer ctx.deinit();
     const project = try testutil.makeProjectDir(&ctx, "install");
     try ctx.env.put("PESQUE_ROOT", project);
-    try ctx.env.put("ACCOUNT_PASSWORD", "from-env");
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"doctor"}));
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "doctor" });
@@ -65,21 +64,25 @@ test "dispatch: domain verbs forward to bin/pesque with the verb tail" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "crawl", "request" });
 }
 
-test "dispatch: account create resolves the password and forwards flags" {
+test "dispatch: account create forwards the flags and injects no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     const project = try testutil.makeProjectDir(&ctx, "install");
     try ctx.env.put("PESQUE_ROOT", project);
 
-    // --password-env pointing at a variable that exists.
-    try ctx.env.put("MY_PW", "v-from-flag-env");
+    // The password is the release's to read (prompt or stdin): the CLI
+    // forwards only the flags and never a password env var.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
-        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--password-env", "MY_PW",
+        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c",
     }));
     const inv = try ctx.lastInvocation();
     try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "create", "--handle", "alice.example.com", "--email", "a@b.c" });
-    try testutil.Ctx.expectArg(inv, "ACCOUNT_PASSWORD");
-    try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD=v-from-flag-env");
+    try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
+
+    // The old flag is gone: naming it is usage, not a silent no-op.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--password-env", "MY_PW",
+    }));
 
     // Missing --handle and no ACCOUNT_HANDLE: usage refusal.
     try testing.expectError(error.Usage, main.run(ctx.host, &.{
@@ -92,7 +95,6 @@ test "dispatch: account selector verbs need exactly one of --did/--handle" {
     defer ctx.deinit();
     const project = try testutil.makeProjectDir(&ctx, "install");
     try ctx.env.put("PESQUE_ROOT", project);
-    try ctx.env.put("ACCOUNT_PASSWORD", "from-env");
 
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "delete", "--did", "d1", "--handle", "h" }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "takedown" }));
@@ -176,13 +178,23 @@ test "dispatch: account app-password subcommands are refused as unknown without 
     }));
 }
 
-test "dispatch: passwords without a source are refused when stdin is not a tty" {
+test "dispatch: delete and reset-password forward without resolving a password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     const project = try testutil.makeProjectDir(&ctx, "install");
     try ctx.env.put("PESQUE_ROOT", project);
-    try ctx.env.put("ACCOUNT_PASSWORD", "");
-    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "create", "--handle", "h", "--email", "e" }));
+
+    // The release reads the password (prompt or stdin); the CLI only
+    // forwards the selector and injects no password env.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "delete", "--handle", "h" }));
+    var inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "delete", "--handle", "h" });
+    try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "reset-password", "--did", "did:plc:abc" }));
+    inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "reset-password", "--did", "did:plc:abc" });
+    try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
 }
 
 test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" {
@@ -190,7 +202,6 @@ test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" 
     defer ctx.deinit();
     const project = try testutil.makeProjectDir(&ctx, "install");
     try ctx.env.put("PESQUE_ROOT", project);
-    try ctx.env.put("MIGRATE_PASSWORD", "from-env");
     try ctx.env.put("MIGRATE_PLC_TOKEN", "tok");
 
     // The flag is refused: a secret never lands on argv.

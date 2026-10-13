@@ -17,14 +17,14 @@ test "capture trims and reports ok" {
 test "missing bare env entry is refused" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const envs = [_]proc.Env{.{ .key = "ACCOUNT_PASSWORD" }};
+    const envs = [_]proc.Env{.{ .key = "MIGRATE_PLC_TOKEN" }};
     try testing.expectError(error.MissingEnv, ctx.host.resolveEnv(&envs));
 }
 
 test "valued env entries are injected into the environment" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const envs = [_]proc.Env{.{ .key = "ACCOUNT_PASSWORD", .value = "s3cr3t" }};
+    const envs = [_]proc.Env{.{ .key = "MIGRATE_PLC_TOKEN", .value = "s3cr3t" }};
     try ctx.host.resolveEnv(&envs);
-    try testing.expectEqualStrings("s3cr3t", ctx.host.get("ACCOUNT_PASSWORD").?);
+    try testing.expectEqualStrings("s3cr3t", ctx.host.get("MIGRATE_PLC_TOKEN").?);
 }

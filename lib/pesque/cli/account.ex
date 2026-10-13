@@ -14,7 +14,7 @@ defmodule Pesque.Cli.Account do
   @usage """
   usage: pesque account <subcommand> [flags]
 
-    create --handle H --email E [--password-env VAR]
+    create --handle H --email E
     list
     delete --did D | --handle H
     takedown --did D | --handle H
@@ -26,20 +26,21 @@ defmodule Pesque.Cli.Account do
     app-passwords --did D | --handle H
     revoke-app-password --did D | --handle H --name N
 
-  Input order is the flag, then the conventional environment
-  (ACCOUNT_HANDLE, ACCOUNT_EMAIL, ACCOUNT_PASSWORD), then a prompt.
+  Plain inputs come from the flag, then the conventional environment
+  (ACCOUNT_HANDLE, ACCOUNT_EMAIL), then a prompt. Passwords come from a
+  no-echo prompt or a line on stdin, never a flag or the environment.
   """
 
   # --did and --handle name the same account.
   @identifier_switches [did: :string, handle: :string]
-  @password_switches [password_env: :string]
 
   def run(["create" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, [handle: :string, email: :string] ++ @password_switches, @usage),
+           Input.options(argv, [handle: :string, email: :string], @usage),
          {:ok, handle} <- Input.text(opts, :handle, "ACCOUNT_HANDLE", "handle: "),
          {:ok, email} <- Input.text(opts, :email, "ACCOUNT_EMAIL", "email: "),
-         {:ok, password} <- Input.password(opts, "ACCOUNT_PASSWORD"),
+         {:ok, password} <-
+           Input.password("Password for the new account (at least 8 characters): "),
          :ok <- Release.boot!() do
       case Accounts.create_account(handle, email, password) do
         {:ok, account} ->
@@ -64,9 +65,9 @@ defmodule Pesque.Cli.Account do
 
   def run(["delete" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches ++ @password_switches, @usage),
+           Input.options(argv, @identifier_switches, @usage),
          {:ok, identifier} <- identifier(opts),
-         {:ok, password} <- Input.password(opts, "ACCOUNT_PASSWORD"),
+         {:ok, password} <- Input.password("Account password: "),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
       # The deletion goes through the protocol flow: token minted for the
@@ -122,9 +123,9 @@ defmodule Pesque.Cli.Account do
 
   def run(["reset-password" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches ++ @password_switches, @usage),
+           Input.options(argv, @identifier_switches, @usage),
          {:ok, identifier} <- identifier(opts),
-         {:ok, password} <- Input.password(opts, "ACCOUNT_PASSWORD", "new password: "),
+         {:ok, password} <- Input.password("new password: "),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier),
          :ok <- Accounts.reset_password(user, password) do

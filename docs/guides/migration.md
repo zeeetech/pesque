@@ -14,7 +14,7 @@ new one.
 identity step, which the old PDS has to sign:
 
 ```bash
-MIGRATE_PASSWORD='...' mix pesque.migrate \
+mix pesque.migrate \
   --old-pds https://bsky.social \
   --handle zoedsoupe.zeetech.io \
   --email zoedsoupe@example.com
@@ -24,11 +24,14 @@ In the container the mix task does not exist, so the `pesque` CLI runs the
 release equivalent (with stdin attached for the code prompt):
 
 ```bash
-MIGRATE_PASSWORD='...' pesque migrate \
+pesque migrate \
   --old-pds https://bsky.social \
   --handle zoedsoupe.zeetech.io \
   --email zoedsoupe@example.com
 ```
+
+Both prompt for the account password with echo off, or read it from stdin
+(`echo secret | pesque migrate ...`), never a flag or the environment.
 
 The CLI drives compose by default and a container you already run with
 `PESQUE_BACKEND=docker`; both attach a terminal so the code prompt can be
@@ -50,7 +53,9 @@ submission can be re-run: the account is reused rather than recreated.
 
 `services.pesque` runs the move as the `pesque-migrate` oneshot, which has no
 terminal to prompt on. So the code step is split across two starts, both driven
-by `/var/lib/pesque/migrate.env` (`dataDir`, where `account.env` lives too):
+by `/var/lib/pesque/migrate.env` (`dataDir`, where `account.env` lives too).
+The password comes from `/var/lib/pesque/migrate.password`, which the unit
+feeds on stdin:
 
 ```sh
 sudo systemctl start pesque-migrate   # asks the old PDS to email the code

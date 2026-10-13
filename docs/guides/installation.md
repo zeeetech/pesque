@@ -122,9 +122,9 @@ pesque update          # pull the new image and restart
 pesque logs -f         # follow the server logs
 ```
 
-`account create` and `migrate` prompt for the password with echo off when it
-is not in the environment (`ACCOUNT_PASSWORD`, `MIGRATE_PASSWORD`, or
-`--password-env VAR`), so it does not land in your shell history. The move
+`account create` and `migrate` prompt for the password with echo off, or read
+it from stdin (`echo secret | pesque ...`), so it never lands in your shell
+history or the environment. The move
 itself is the [Migration guide](migration.md), and what `update` and its
 rollback are is [Operations](operations.md#automatic-updates). The image
 carries a release, not Mix, so the mix task in this guide does not run inside
@@ -214,14 +214,19 @@ unit, so the verbs the oneshots do not cover (restore, account list/delete/
 reset-password/plc-token/email-token/reset-token, invite, config) are `sudo pesque <verb>`. The lifecycle verbs
 no-op here, since NixOS owns the unit.
 
-Create the env file first, so the password never lands in the Nix store:
+Create the env files first, so the inputs never land in the Nix store. The
+env file holds the non-secret inputs; the password file holds the password
+alone, one line, and the unit feeds it on stdin (a oneshot has no terminal to
+prompt on):
 
 ```bash
 install -m600 /dev/null /var/lib/pesque/migrate.env
-$EDITOR /var/lib/pesque/migrate.env   # MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD
+$EDITOR /var/lib/pesque/migrate.env   # MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL
+install -m600 /dev/null /var/lib/pesque/migrate.password
+$EDITOR /var/lib/pesque/migrate.password   # the account password
 ```
 
-`MIGRATE_PASSWORD` is the account password, not an app password: the move needs
+The password is the account password, not an app password: the move needs
 a full-access session, which an app password never carries.
 
 The move stops at the PLC step for a code emailed to the account holder, and a
@@ -367,16 +372,14 @@ Registration is closed by default, so the first account comes from the mix task,
 which skips the invite requirement:
 
 ```bash
-export PESQUE_PASSWORD=secret123
-
 mix pesque.account create \
   --handle alice.example.com \
-  --email alice@example.com \
-  --password-env PESQUE_PASSWORD
+  --email alice@example.com
 ```
 
-`--password secret123` works but lands in your shell history and in `ps`. Give
-neither and the task prompts with echo off. Later accounts need an invite code,
+The password is read from a no-echo prompt, or from stdin so it can be piped
+(`echo secret123 | mix pesque.account create ...`); it never takes a flag or
+an environment variable. Later accounts need an invite code,
 minted through `com.atproto.server.createInviteCodes` and spent once, in the same
 transaction that inserts the account. `PDS_REGISTRATION=open` drops the
 requirement. On a `path_multi` server, minting codes also needs `PDS_ADMIN_DIDS`

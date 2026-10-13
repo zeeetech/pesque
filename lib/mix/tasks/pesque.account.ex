@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Pesque.Account do
   @moduledoc """
   The account verbs, the same code `bin/pesque account` runs.
 
-      mix pesque.account create --handle alice.example.com --email a@example.com --password-env PESQUE_PASSWORD
+      mix pesque.account create --handle alice.example.com --email a@example.com
       mix pesque.account list
       mix pesque.account delete --handle alice.example.com
       mix pesque.account reset-password --did did:plc:...
@@ -12,19 +12,13 @@ defmodule Mix.Tasks.Pesque.Account do
       mix pesque.account email-token --did did:plc:...
       mix pesque.account reset-token --did did:plc:...
 
-  Input order is the flag, then the conventional environment, then a prompt.
-  For `create`, `--password VALUE` is a dev convenience for throwaway local
-  accounts (the value lands in your shell history and in `ps`): the task sets
-  it as the environment variable the verb reads and dispatches an argv with
-  no password in it.
+  Plain inputs come from the flag, then the conventional environment, then a
+  prompt. Passwords come from a no-echo prompt, or from a line on stdin so it
+  can be piped: `echo secret | mix pesque.account create ...`.
   """
 
   use Mix.Task
 
   @impl Mix.Task
-  def run(["create" | argv]) do
-    Mix.Pesque.run_with_password(["account", "create" | argv], "ACCOUNT_PASSWORD")
-  end
-
   def run(argv), do: Mix.Pesque.run(["account" | argv])
 end

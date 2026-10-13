@@ -14,17 +14,16 @@ defmodule Pesque.Cli.Migrate do
   usage: pesque migrate --old-pds URL --handle H --email E [--plc-token T]
 
   The password (the old PDS account password, not an app password) comes
-  from --password-env, MIGRATE_PASSWORD, or a no-echo prompt. Without
-  --plc-token or MIGRATE_PLC_TOKEN, the move asks the old PDS to email the
-  operation code and stops; run it again with the code to finish.
+  from a no-echo prompt or a line on stdin, never a flag or the environment.
+  Without --plc-token or MIGRATE_PLC_TOKEN, the move asks the old PDS to
+  email the operation code and stops; run it again with the code to finish.
   """
 
   @switches [
     old_pds: :string,
     handle: :string,
     email: :string,
-    plc_token: :string,
-    password_env: :string
+    plc_token: :string
   ]
 
   def run(argv) do
@@ -32,7 +31,7 @@ defmodule Pesque.Cli.Migrate do
          {:ok, old_pds} <- Input.text(opts, :old_pds, "MIGRATE_OLD_PDS", "old pds: "),
          {:ok, handle} <- Input.text(opts, :handle, "MIGRATE_HANDLE", "handle: "),
          {:ok, email} <- Input.text(opts, :email, "MIGRATE_EMAIL", "email: "),
-         {:ok, password} <- Input.password(opts, "MIGRATE_PASSWORD"),
+         {:ok, password} <- Input.password("Password for the account: "),
          :ok <- Release.boot!() do
       base = [old_pds: old_pds, handle: handle, email: email, password: password]
 

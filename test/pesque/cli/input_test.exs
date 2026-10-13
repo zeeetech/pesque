@@ -66,69 +66,14 @@ defmodule Pesque.Cli.InputTest do
     end
   end
 
-  describe "password/4" do
-    test "--password-env reads the variable it names, never a value from argv" do
-      System.put_env("PESQUE_TEST_PASSWORD", "from-env")
-      on_exit(fn -> System.delete_env("PESQUE_TEST_PASSWORD") end)
-
-      assert {:ok, "from-env"} =
-               Input.password(
-                 [password_env: "PESQUE_TEST_PASSWORD"],
-                 "ACCOUNT_PASSWORD",
-                 no_prompt()
-               )
-    end
-
-    test "a named variable that is unset or empty fails naming it" do
-      assert {:error, {:password_env_empty, "PESQUE_NO_SUCH_VAR"}} =
-               Input.password(
-                 [password_env: "PESQUE_NO_SUCH_VAR"],
-                 "ACCOUNT_PASSWORD",
-                 no_prompt()
-               )
-
-      # Set but empty is the same failure: an empty string travelling on as
-      # the password would surface as a misleading password_too_short.
-      System.put_env("PESQUE_EMPTY_PASSWORD", "")
-      on_exit(fn -> System.delete_env("PESQUE_EMPTY_PASSWORD") end)
-
-      assert {:error, {:password_env_empty, "PESQUE_EMPTY_PASSWORD"}} =
-               Input.password(
-                 [password_env: "PESQUE_EMPTY_PASSWORD"],
-                 "ACCOUNT_PASSWORD",
-                 no_prompt()
-               )
-    end
-
-    # `export ACCOUNT_PASSWORD=$(cat pw.txt)` and `echo` both leave a trailing
-    # newline, and a hash of "secret\n" is not the "secret" a browser sends
-    # back: the env source has to trim like the prompt already does.
-    test "an environment value is trimmed" do
-      System.put_env("PESQUE_TEST_PASSWORD", "secret\n")
-      on_exit(fn -> System.delete_env("PESQUE_TEST_PASSWORD") end)
-
-      assert {:ok, "secret"} =
-               Input.password(
-                 [password_env: "PESQUE_TEST_PASSWORD"],
-                 "ACCOUNT_PASSWORD",
-                 no_prompt()
-               )
-    end
-
-    test "the conventional environment is next" do
-      System.put_env("ACCOUNT_PASSWORD", "conventional")
-      on_exit(fn -> System.delete_env("ACCOUNT_PASSWORD") end)
-
-      assert {:ok, "conventional"} = Input.password([], "ACCOUNT_PASSWORD", no_prompt())
-    end
-
-    test "the prompt is last" do
-      previous = System.get_env("ACCOUNT_PASSWORD")
-      System.delete_env("ACCOUNT_PASSWORD")
-      on_exit(fn -> if previous, do: System.put_env("ACCOUNT_PASSWORD", previous) end)
-
+  describe "password/2" do
+    test "the prompt is the source, and stdin is the fallback" do
       assert {:ok, "prompted"} =
-               Input.password([], "ACCOUNT_PASSWORD", "password: ", fn _ -> {:ok, "prompted"} end)
+               Input.password("password: ", fn _ -> {:ok, "prompted"} end)
+    end
+
+    test "a closed stdin is :no_input, not an empty password" do
+      assert {:error, :no_input} = Input.password("password: ", fn _ -> {:error, :no_input} end)
     end
   end
 end

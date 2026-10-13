@@ -32,8 +32,8 @@ export PDS_MODE=conformant_single
 
 echo '==> setup'
 # setup creates the first account, which is the domain handle in this mode;
-# its email is prompted (by hand), the password comes from the environment.
-ACCOUNT_PASSWORD="${SMOKE_PASSWORD:-smoke-test-password-1}" "$cli" --yes setup
+# its email and password are prompted (by hand, echo off for the password).
+"$cli" --yes setup
 
 echo '==> doctor'
 "$cli" doctor

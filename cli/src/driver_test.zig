@@ -43,7 +43,7 @@ test "compose run_once: argv arrays, bare -e, -T when not a tty" {
     const code = try d.runOnce(ctx.host, .{
         .verb = "account",
         .argv = &.{ "create", "--handle", "alice.example.com" },
-        .env = &.{.{ .key = "ACCOUNT_PASSWORD", .value = secret }},
+        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = secret }},
         .interactive = true,
     });
     try testing.expectEqual(@as(u8, 0), code);
@@ -56,11 +56,11 @@ test "compose run_once: argv arrays, bare -e, -T when not a tty" {
     try testutil.Ctx.expectArg(inv, "-e");
     try testutil.Ctx.expectArg(inv, "PDS_SERVE=false");
     // Bare: only the key, never KEY=VALUE.
-    try testutil.Ctx.expectArg(inv, "ACCOUNT_PASSWORD");
-    try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD=" ++ secret);
+    try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
+    try testutil.Ctx.expectNoArg(inv, "MIGRATE_PLC_TOKEN=" ++ secret);
     var found_bare = false;
     for (inv, 0..) |a, i| {
-        if (std.mem.eql(u8, a, "ACCOUNT_PASSWORD") and i > 0 and std.mem.eql(u8, inv[i - 1], "-e")) {
+        if (std.mem.eql(u8, a, "MIGRATE_PLC_TOKEN") and i > 0 and std.mem.eql(u8, inv[i - 1], "-e")) {
             found_bare = true;
         }
     }
@@ -103,7 +103,7 @@ test "docker run_once: -i, --volumes-from, env mirror, bare -e" {
     _ = try d.runOnce(ctx.host, .{
         .verb = "account",
         .argv = &.{"list"},
-        .env = &.{.{ .key = "ACCOUNT_PASSWORD", .value = secret }},
+        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = secret }},
         .interactive = true,
     });
 
@@ -117,12 +117,12 @@ test "docker run_once: -i, --volumes-from, env mirror, bare -e" {
     try testutil.Ctx.expectArg(inv, "--env-file");
     try testutil.Ctx.expectArg(inv, "-e");
     try testutil.Ctx.expectArg(inv, "PDS_SERVE=false");
-    try testutil.Ctx.expectArg(inv, "ACCOUNT_PASSWORD");
+    try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
     // The env mirror crossed the boundary: PDS_* from the running container.
     var saw_mirror = false;
     for (inv) |a| {
         if (std.mem.eql(u8, a, "ENVFILE:PDS_HOSTNAME=pds.example.com")) saw_mirror = true;
-        try testing.expect(!std.mem.startsWith(u8, a, "ACCOUNT_PASSWORD="));
+        try testing.expect(!std.mem.startsWith(u8, a, "MIGRATE_PLC_TOKEN="));
     }
     try testing.expect(saw_mirror);
     try testutil.Ctx.expectTail(inv, &.{ "ghcr.io/zeeetech/pesque:latest", "/app/bin/pesque", "account", "list" });
@@ -148,7 +148,7 @@ test "systemd run_once as root: -p User=pesque, secrets via the root-only env fi
     _ = try d.runOnce(ctx.host, .{
         .verb = "account",
         .argv = &.{"list"},
-        .env = &.{.{ .key = "ACCOUNT_PASSWORD", .value = secret }},
+        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = secret }},
         .interactive = true,
     });
 
@@ -166,9 +166,9 @@ test "systemd run_once as root: -p User=pesque, secrets via the root-only env fi
     var saw_mirror = false;
     for (inv) |a| {
         if (std.mem.eql(u8, a, "ENVFILE:PDS_DATA_DIR=/var/lib/pesque")) saw_mirror = true;
-        if (std.mem.eql(u8, a, "ENVFILE:ACCOUNT_PASSWORD='" ++ secret ++ "'")) saw_secret_in_file = true;
+        if (std.mem.eql(u8, a, "ENVFILE:MIGRATE_PLC_TOKEN='" ++ secret ++ "'")) saw_secret_in_file = true;
         try testing.expect(!std.mem.eql(u8, a, "-E"));
-        try testing.expect(!std.mem.startsWith(u8, a, "ACCOUNT_PASSWORD="));
+        try testing.expect(!std.mem.startsWith(u8, a, "MIGRATE_PLC_TOKEN="));
     }
     try testing.expect(saw_mirror);
     try testing.expect(saw_secret_in_file);
@@ -184,7 +184,7 @@ test "systemd run_once as root: a secret with a quote survives the env file" {
     _ = try d.runOnce(ctx.host, .{
         .verb = "account",
         .argv = &.{"list"},
-        .env = &.{.{ .key = "ACCOUNT_PASSWORD", .value = "it's a s3cr3t" }},
+        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = "it's a s3cr3t" }},
         .interactive = true,
     });
 
@@ -193,7 +193,7 @@ test "systemd run_once as root: a secret with a quote survives the env file" {
     // the value back verbatim.
     var saw_quoted_secret = false;
     for (inv) |a| {
-        if (std.mem.eql(u8, a, "ENVFILE:ACCOUNT_PASSWORD='it'\"'\"'s a s3cr3t'")) saw_quoted_secret = true;
+        if (std.mem.eql(u8, a, "ENVFILE:MIGRATE_PLC_TOKEN='it'\"'\"'s a s3cr3t'")) saw_quoted_secret = true;
     }
     try testing.expect(saw_quoted_secret);
 }

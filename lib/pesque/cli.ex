@@ -61,7 +61,7 @@ defmodule Pesque.Cli do
     """
     usage: pesque <verb> [flags]
 
-      account create --handle H --email E [--password-env VAR]
+      account create --handle H --email E
       account list
       account delete --did D | --handle H
       account takedown --did D | --handle H
@@ -83,8 +83,8 @@ defmodule Pesque.Cli do
       lexicon add --from DIR [--dir SUBPATH]
       health
 
-    Passwords come from --password-env, the conventional environment
-    (ACCOUNT_PASSWORD / MIGRATE_PASSWORD) or a no-echo prompt, never argv.
+    Passwords come from a no-echo prompt, or from a line on stdin so they
+    can be piped, never argv or the environment.
     """
   end
 end

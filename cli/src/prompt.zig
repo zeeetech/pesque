@@ -1,9 +1,8 @@
-//! Terminal prompts: plain line reads and no-echo password reads (termios on
-//! POSIX). When stdin is not a tty and no password source exists, the caller
-//! refuses: the prompts here are the last resort of the flag -> env -> prompt
-//! order.
+//! Terminal prompts: plain line reads. When stdin is not a tty the read
+//! refuses (error.NotATty): the prompts here are the last resort of the
+//! flag -> env -> prompt order for non-secret values. Passwords are not read
+//! here at all; the release owns them (no-echo prompt, or a line on stdin).
 const std = @import("std");
-const builtin = @import("builtin");
 const Io = std.Io;
 const proc = @import("proc.zig");
 
@@ -15,38 +14,6 @@ pub fn line(host: *proc.Host, prompt: []const u8) Error![]const u8 {
     file.writeStreamingAll(host.io, prompt) catch {};
     const raw = readLine(host) orelse return error.NotATty;
     return std.mem.trim(u8, raw, " \t\r\n");
-}
-
-/// Read a secret without echo. Refuses (error.NotATty) when stdin is not a
-/// terminal; the caller turns that into a usage refusal with the right fix.
-pub fn secret(host: *proc.Host, prompt: []const u8) Error![]const u8 {
-    if (!host.stdinIsTty()) return error.NotATty;
-    const file: Io.File = .stdout();
-    file.writeStreamingAll(host.io, prompt) catch {};
-
-    switch (builtin.os.tag) {
-        .windows => {
-            // No console-mode API in std: read with echo, and say so.
-            host.printTo(.stderr, "(input will be visible)\n", .{});
-            const raw = readLine(host) orelse return error.NotATty;
-            return std.mem.trim(u8, raw, " \t\r\n");
-        },
-        else => {
-            const saved = std.posix.tcgetattr(0) catch {
-                // Not actually a terminal after all; fall back to a plain read.
-                const raw = readLine(host) orelse return error.NotATty;
-                return std.mem.trim(u8, raw, " \t\r\n");
-            };
-            var no_echo = saved;
-            no_echo.lflag.ECHO = false;
-            std.posix.tcsetattr(0, .NOW, no_echo) catch {};
-            defer std.posix.tcsetattr(0, .NOW, saved) catch {};
-
-            const raw = readLine(host) orelse return error.NotATty;
-            file.writeStreamingAll(host.io, "\n") catch {};
-            return std.mem.trim(u8, raw, " \t\r\n");
-        },
-    }
 }
 
 /// Read one line from stdin as raw bytes. Null on EOF without data.

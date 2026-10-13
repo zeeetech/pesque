@@ -31,7 +31,7 @@ const usage_text =
     \\  version                    print the CLI and release versions
     \\
     \\Accounts and domain tasks (run inside the release):
-    \\  account create --handle H --email E [--password-env VAR]
+    \\  account create --handle H --email E
     \\  account list
     \\  account delete --did D | --handle H
     \\  account takedown --did D | --handle H      (deactivate)
@@ -52,10 +52,10 @@ const usage_text =
     \\  lexicon add --from URL [--ref REF] [--dir SUBPATH]
     \\                             install a git repo's lexicons, then restart
     \\
-    \\Passwords never take a --password VALUE flag: use --password-env VAR, the
-    \\ACCOUNT_PASSWORD/MIGRATE_PASSWORD environment, or a no-echo prompt. The
-    \\PLC token is no different: no --plc-token flag, set MIGRATE_PLC_TOKEN in
-    \\the environment.
+    \\Passwords never take a --password VALUE flag and never come from the
+    \\environment: the verb prompts with echo off, or reads a line from stdin
+    \\(`echo secret | pesque ...`). The PLC token is no different: no
+    \\--plc-token flag, set MIGRATE_PLC_TOKEN in the environment.
     \\
     \\Environment: PESQUE_BACKEND PESQUE_ROOT PESQUE_CONTAINER PESQUE_IMAGE
     \\  PESQUE_TAG PESQUE_BUILD PESQUE_RESTART_CMD PESQUE_SERVICE PESQUE_RELEASE
@@ -270,31 +270,6 @@ fn version(host: *proc.Host, args: []const []const u8) Error!u8 {
 
 // --- domain verbs ---------------------------------------------------------------
 
-/// Resolve the password for a verb: `--password-env VAR` -> the conventional
-/// env var -> no-echo prompt -> refuse. Returns the RunOnce env entry.
-fn passwordInput(host: *proc.Host, pw_env_flag: ?[]const u8, conventional: []const u8, prompt_text: []const u8) Error!proc.Env {
-    if (pw_env_flag) |var_name| {
-        const value = host.get(var_name) orelse
-            return failInput(host, "the password variable {s} (from --password-env) is not set.", .{var_name});
-        return .{ .key = conventional, .value = value };
-    }
-    // An empty conventional var counts as unset.
-    if (host.get(conventional)) |existing| {
-        if (existing.len > 0) {
-            // Already in the environment: bare passthrough, value never on argv.
-            return .{ .key = conventional };
-        }
-    }
-    const value = prompt.secret(host, prompt_text) catch |e| switch (e) {
-        error.NotATty => return failInput(host, "no password source: pass --password-env VAR, set {s} in the environment, or run from a terminal to be prompted.", .{conventional}),
-        else => return e,
-    };
-    if (value.len == 0) {
-        return failInput(host, "the password cannot be empty.", .{});
-    }
-    return .{ .key = conventional, .value = value };
-}
-
 fn failInput(host: *proc.Host, comptime fmt: []const u8, args: anytype) Error {
     host.err(fmt, args);
     return error.Usage;
@@ -318,16 +293,13 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
         std.mem.eql(u8, sub, "reset-token"))
     {
         const sel = try parseSelector(host, rest);
-        var env: std.ArrayList(proc.Env) = .empty;
-        defer env.deinit(host.gpa);
         var argv: std.ArrayList([]const u8) = .empty;
         defer argv.deinit(host.gpa);
         try argv.appendSlice(host.gpa, &.{ sub, sel.flag, sel.value });
-        // Only delete and reset-password authorize with the account's password.
-        if (std.mem.eql(u8, sub, "delete") or std.mem.eql(u8, sub, "reset-password")) {
-            try env.append(host.gpa, try passwordInput(host, sel.password_env, "ACCOUNT_PASSWORD", "Account password (not shown): "));
-        }
-        return runDomain(host, "account", argv.items, env.items);
+        // The verbs that authorize with the account's password (delete and
+        // reset-password) read it themselves: the release prompts, or takes
+        // it from stdin.
+        return runDomain(host, "account", argv.items, &.{});
     }
     if (std.mem.eql(u8, sub, "app-passwords")) {
         const sel = try parseSelector(host, rest);
@@ -343,21 +315,17 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
 const AccountCreate = struct {
     handle: ?[]const u8 = null,
     email: ?[]const u8 = null,
-    password: proc.Env = undefined,
     public_ip: ?[]const u8 = null,
 };
 
 fn parseAccountCreate(host: *proc.Host, args: []const []const u8) Error!AccountCreate {
     var f = AccountCreate{};
-    var pw_env: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--handle")) {
             f.handle = try valueFlag(host, args, &i, "--handle");
         } else if (std.mem.eql(u8, args[i], "--email")) {
             f.email = try valueFlag(host, args, &i, "--email");
-        } else if (std.mem.eql(u8, args[i], "--password-env")) {
-            pw_env = try valueFlag(host, args, &i, "--password-env");
         } else {
             return failUsage(host, "unknown option '{s}' for 'account create'", .{args[i]});
         }
@@ -368,7 +336,6 @@ fn parseAccountCreate(host: *proc.Host, args: []const []const u8) Error!AccountC
     if (f.email == null and host.get("ACCOUNT_EMAIL") == null) {
         return failInput(host, "account create needs --email E (or ACCOUNT_EMAIL in the environment).", .{});
     }
-    f.password = try passwordInput(host, pw_env, "ACCOUNT_PASSWORD", "Password for the new account (at least 8 characters, not shown): ");
     if (host.get("PDS_PUBLIC_IP") != null) f.public_ip = "PDS_PUBLIC_IP";
     return f;
 }
@@ -377,7 +344,6 @@ fn runAccountCreate(host: *proc.Host, f: AccountCreate) Error!u8 {
     const d = try detectBackend(host);
     var env: std.ArrayList(proc.Env) = .empty;
     defer env.deinit(host.gpa);
-    try env.append(host.gpa, f.password);
     if (f.public_ip != null) {
         try env.append(host.gpa, .{ .key = "PDS_PUBLIC_IP" });
     }
@@ -386,28 +352,25 @@ fn runAccountCreate(host: *proc.Host, f: AccountCreate) Error!u8 {
     try argv.appendSlice(host.gpa, &.{"create"});
     if (f.handle) |h| try argv.appendSlice(host.gpa, &.{ "--handle", h });
     if (f.email) |e| try argv.appendSlice(host.gpa, &.{ "--email", e });
+    // The password is the release's to read: it prompts, or takes stdin.
     return d.runOnce(host, .{ .verb = "account", .argv = argv.items, .env = env.items, .interactive = true });
 }
 
 const Selector = struct {
     flag: []const u8,
     value: []const u8,
-    password_env: ?[]const u8 = null,
 };
 
-/// `--did D` XOR `--handle H`, with an optional `--password-env VAR`.
+/// `--did D` XOR `--handle H`.
 fn parseSelector(host: *proc.Host, args: []const []const u8) Error!Selector {
     var did: ?[]const u8 = null;
     var handle: ?[]const u8 = null;
-    var password_env: ?[]const u8 = null;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--did")) {
             did = try valueFlag(host, args, &i, "--did");
         } else if (std.mem.eql(u8, args[i], "--handle")) {
             handle = try valueFlag(host, args, &i, "--handle");
-        } else if (std.mem.eql(u8, args[i], "--password-env")) {
-            password_env = try valueFlag(host, args, &i, "--password-env");
         } else {
             return failUsage(host, "unknown option '{s}' (use --did D or --handle H)", .{args[i]});
         }
@@ -415,8 +378,8 @@ fn parseSelector(host: *proc.Host, args: []const []const u8) Error!Selector {
     if ((did == null) == (handle == null)) {
         return failInput(host, "pick exactly one: --did D or --handle H.", .{});
     }
-    if (did) |d| return .{ .flag = "--did", .value = d, .password_env = password_env };
-    return .{ .flag = "--handle", .value = handle.?, .password_env = password_env };
+    if (did) |d| return .{ .flag = "--did", .value = d };
+    return .{ .flag = "--handle", .value = handle.? };
 }
 
 fn valueFlag(host: *proc.Host, args: []const []const u8, i: *usize, name: []const u8) Error![]const u8 {
@@ -524,7 +487,7 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
         } else if (std.mem.eql(u8, args[i], "--plc-token")) {
             // No secret on argv: the token takes the same bare-env path as
             // the passwords.
-            return failInput(host, "--plc-token would put the token on the command line. Set MIGRATE_PLC_TOKEN in the environment instead; it is forwarded to the verb like the passwords.", .{});
+            return failInput(host, "--plc-token would put the token on the command line. Set MIGRATE_PLC_TOKEN in the environment instead; it is forwarded to the verb.", .{});
         } else {
             return usage(host, "unknown option '{s}' for 'migrate'", .{args[i]});
         }
@@ -533,11 +496,10 @@ fn migrate(host: *proc.Host, args: []const []const u8) Error!u8 {
     if (handle == null) return failInput(host, "migrate needs --handle H.", .{});
     if (email == null) return failInput(host, "migrate needs --email E.", .{});
 
-    const password = try passwordInput(host, null, "MIGRATE_PASSWORD", "Password for the account (not shown): ");
     var env: std.ArrayList(proc.Env) = .empty;
     defer env.deinit(host.gpa);
-    try env.append(host.gpa, password);
-    // The PLC token is a secret: bare passthrough only, like the passwords.
+    // The PLC token is a secret: bare passthrough only. The password is the
+    // release's to read: it prompts, or takes stdin.
     if (host.get("MIGRATE_PLC_TOKEN") != null) {
         try env.append(host.gpa, .{ .key = "MIGRATE_PLC_TOKEN" });
     }
@@ -934,12 +896,10 @@ fn setupCompose(host: *proc.Host, yes: bool, c: driver.Compose) Error!u8 {
     }
     const email = try prompt.line(host, "Email for your account: ");
     if (email.len == 0) return failInput(host, "an email is required.", .{});
-    const password = try passwordInput(host, null, "ACCOUNT_PASSWORD", "Password (at least 8 characters, not shown): ");
 
     const ip = publicIp(host);
     var env: std.ArrayList(proc.Env) = .empty;
     defer env.deinit(host.gpa);
-    try env.append(host.gpa, password);
     if (ip) |v| try env.append(host.gpa, .{ .key = "PDS_PUBLIC_IP", .value = v });
     const code = try d.runOnce(host, .{
         .verb = "account",

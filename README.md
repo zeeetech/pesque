@@ -47,8 +47,9 @@ pesque update          # pull a new image and restart
 pesque logs -f         # follow the server logs
 ```
 
-`account create` and `migrate` prompt for the password with echo off, so it
-does not land in your shell history. Flags cover the rest: `--backend
+`account create` and `migrate` prompt for the password with echo off, or read
+it from stdin (`echo secret | pesque ...`), so it never lands in your shell
+history or the environment. Flags cover the rest: `--backend
 systemd` installs a plain systemd service instead of the compose stack,
 `--backend docker` prints the mount-a-conf path for a container you run
 yourself, and `--hostname`, `--mode`, `--tag`, `--dir` and `--yes` make the

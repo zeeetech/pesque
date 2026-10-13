@@ -87,11 +87,8 @@ defmodule Pesque.Release do
         "that account is not a did:plc identity, and only those move through the PLC"
 
       :no_input ->
-        "nothing was read from the prompt; run this where the question can be answered, " <>
-          "or pass the value by flag or environment"
-
-      {:password_env_empty, name} ->
-        "#{name} is not set in the environment, or it is empty"
+        "nothing was read from the prompt; run this from a terminal, " <>
+          "or pipe the value on stdin"
 
       :doctor_failed ->
         "doctor found problems; fix the failures above and run it again"

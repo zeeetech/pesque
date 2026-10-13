@@ -112,7 +112,7 @@ pub const Host = struct {
                 continue;
             }
             if (self.environ.get(e.key) == null) {
-                self.err("{s} is not set. Set it in the environment (or pass --password-env VAR), then run this again.", .{e.key});
+                self.err("{s} is not set. Set it in the environment, then run this again.", .{e.key});
                 return error.MissingEnv;
             }
         }

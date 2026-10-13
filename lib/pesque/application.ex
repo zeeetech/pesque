@@ -125,7 +125,7 @@ defmodule Pesque.Application do
     if Pesque.registration() == :closed and Pesque.Accounts.empty?() do
       [
         "registration is closed and no account exists yet. Create the first one with:\n" <>
-          "  mix pesque.create_account --handle <handle> --email <email> --password-env PASSWORD"
+          "  mix pesque.create_account --handle <handle> --email <email>"
       ]
     else
       []

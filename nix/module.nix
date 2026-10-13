@@ -12,10 +12,15 @@
 #   systemctl start pesque-backup     # writes pesque-backup-<stamp>.tar.gz
 #                                     # into the data directory
 #
-# The account and migrate env files keep the password out of the Nix store;
-# create them with `install -m600 /dev/null /var/lib/pesque/account.env` and
-# fill in ACCOUNT_HANDLE, ACCOUNT_EMAIL and ACCOUNT_PASSWORD (or the
-# MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL, MIGRATE_PASSWORD set).
+# A oneshot has no terminal, so the password arrives on stdin from a file the
+# unit feeds it. The env files hold the non-secret inputs (ACCOUNT_HANDLE,
+# ACCOUNT_EMAIL; MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL) and stay out
+# of the Nix store; the password files hold the password alone, one line:
+#
+#   install -m600 /dev/null /var/lib/pesque/account.env
+#   install -m600 /dev/null /var/lib/pesque/account.password
+#   install -m600 /dev/null /var/lib/pesque/migrate.env
+#   install -m600 /dev/null /var/lib/pesque/migrate.password
 #
 # The move stops at the PLC step for a code the account holder gets by email.
 # A oneshot has no terminal to prompt on, so pesque-migrate is run twice: the
@@ -76,11 +81,12 @@ let
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
 
   # A one-off task: the same release, the same config and data directory, the
-  # endpoint off so it does not fight the running server for the port. The
-  # verbs read their input from the environment, so an env file is all the
-  # wiring a headless run needs.
+  # endpoint off so it does not fight the running server for the port. Non-secret
+  # inputs come from the environment (an env file is all the wiring a headless
+  # run needs); the password arrives on stdin from a file the unit feeds it,
+  # since the verb prompts or reads stdin and a oneshot has no terminal.
   taskService =
-    { exec, environmentFiles ? [ ] }:
+    { exec, environmentFiles ? [ ], stdinFile ? null }:
     {
       description = "pesque one-off task";
       # The data directory is often its own mount (a ZFS dataset, a separate
@@ -100,7 +106,8 @@ let
         ReadWritePaths = [ cfg.dataDir ];
         PrivateTmp = true;
         NoNewPrivileges = true;
-      };
+      }
+      // lib.optionalAttrs (stdinFile != null) { StandardInputFile = stdinFile; };
     };
 in
 {
@@ -347,11 +354,13 @@ in
     systemd.services.pesque-account = taskService {
       exec = "account create";
       environmentFiles = [ "-${cfg.dataDir}/account.env" ];
+      stdinFile = "${cfg.dataDir}/account.password";
     };
 
     systemd.services.pesque-migrate = taskService {
       exec = "migrate";
       environmentFiles = [ "-${cfg.dataDir}/migrate.env" ];
+      stdinFile = "${cfg.dataDir}/migrate.password";
     };
 
     systemd.services.pesque-backup = taskService { exec = "backup"; };
