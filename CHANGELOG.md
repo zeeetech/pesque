@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/zeeetech/pesque/compare/pesque-v1.10.0...pesque-v1.11.0) (2026-10-13)
+
+
+### Features
+
+* **cli:** install lexicons from a git repository ([d81ed4e](https://github.com/zeeetech/pesque/commit/d81ed4e3ce504efeeba59f03495b31b9c1e7d4d4))
+
 ## [1.10.0](https://github.com/zeeetech/pesque/compare/pesque-v1.9.0...pesque-v1.10.0) (2026-10-12)
 
 
