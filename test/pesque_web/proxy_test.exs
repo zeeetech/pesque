@@ -140,6 +140,17 @@ defmodule PesqueWeb.ProxyTest do
     assert headers =~ "authorization"
   end
 
+  # A browser cannot read a response header the server does not name here, and
+  # the DPoP nonce retry depends on reading `DPoP-Nonce` (to resend the proof)
+  # and `WWW-Authenticate` (to tell a nonce demand from a dead token).
+  test "the response exposes the headers the DPoP nonce retry reads" do
+    conn = request(:get, "/xrpc/app.bsky.feed.getTimeline", nil, nil, [])
+
+    [headers] = get_resp_header(conn, "access-control-expose-headers")
+    assert headers =~ "DPoP-Nonce"
+    assert headers =~ "WWW-Authenticate"
+  end
+
   defp request(method, path, body, token, headers) do
     build_conn()
     |> put_req_header("x-request-id", @request_id)

@@ -139,6 +139,9 @@ defmodule PesqueWeb.OAuthResourceTest do
       conn = authorized(ctx, :get, @session_path, %{}, nonce: nil)
 
       assert conn.status == 401
+      # The body name is the OAuth code, not this surface's
+      # AuthenticationRequired: a client keys its retry on it.
+      assert Client.json(conn)["error"] == "use_dpop_nonce"
       assert challenge(conn) =~ ~s(error="use_dpop_nonce")
       assert Client.nonce_from(conn)
     end
@@ -156,6 +159,7 @@ defmodule PesqueWeb.OAuthResourceTest do
         authorized(ctx, :get, @session_path, %{}, nonce: "a-nonce-this-server-never-issued")
 
       assert conn.status == 401
+      assert Client.json(conn)["error"] == "use_dpop_nonce"
       assert challenge(conn) =~ ~s(error="use_dpop_nonce")
     end
   end

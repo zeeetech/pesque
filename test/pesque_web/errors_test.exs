@@ -13,4 +13,9 @@ defmodule PesqueWeb.ErrorsTest do
     assert Errors.to_xrpc(:unavailable) ==
              {503, "InternalServerError", "the repo is starting, retry the request"}
   end
+
+  test "a nonce demand answers the OAuth code a client retries on, not the generic auth name" do
+    assert Errors.to_xrpc(:use_dpop_nonce) ==
+             {401, "use_dpop_nonce", "the DPoP proof needs the server nonce"}
+  end
 end

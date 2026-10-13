@@ -8,11 +8,23 @@ defmodule PesqueWeb.Plugs.Cors do
   this server does not know about (`x-atproto-bsky-topics` is one the official
   app sends), and a fixed list turns each new one into a CORS failure. A
   request without that header is not a preflight and gets the static fallback.
+
+  The response headers a browser may read are named explicitly, because the two
+  that carry the DPoP nonce handshake are not CORS-safelisted: a browser client
+  has to read `DPoP-Nonce` to retry a `use_dpop_nonce` refusal, and
+  `WWW-Authenticate` to tell that refusal from a dead token.
   """
 
   import Plug.Conn
 
   @fallback_headers "authorization, content-type, atproto-proxy, atproto-accept-labelers"
+
+  # A browser can only read a response header the server names here, and the
+  # DPoP nonce round trip lives on two of them: `DPoP-Nonce` is the value the
+  # client retries with, and `WWW-Authenticate` is how it tells a nonce demand
+  # from a dead token (RFC 9449 sections 7.1 and 9). Without this a browser
+  # client sees the 401, cannot read either header, and never retries.
+  @exposed_headers "DPoP-Nonce, WWW-Authenticate"
 
   def init(opts), do: opts
 
@@ -30,6 +42,7 @@ defmodule PesqueWeb.Plugs.Cors do
     |> put_resp_header("access-control-allow-origin", "*")
     |> put_resp_header("access-control-allow-methods", "GET, POST, OPTIONS")
     |> put_resp_header("access-control-allow-headers", allow_headers(conn))
+    |> put_resp_header("access-control-expose-headers", @exposed_headers)
     |> put_resp_header("access-control-max-age", "86400")
     # vary: origin even though the origin is always "*": caches must not serve
     # a response that priced in one origin to a request bearing another. The

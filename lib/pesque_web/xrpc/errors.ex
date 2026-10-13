@@ -277,8 +277,13 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc({:insufficient_scope, permission}),
     do: {403, "InsufficientScope", "this token does not grant #{permission}"}
 
+  # The error name is the OAuth code `use_dpop_nonce`, not this surface's
+  # `AuthenticationRequired`, because it is the string a client switches on to
+  # know it should retry with the nonce instead of giving up: the reference PDS
+  # answers the same XRPC body, and clients written against it (proto_rune among
+  # them) match on it. A 401 under the generic auth name reads as a dead token.
   def to_xrpc(:use_dpop_nonce),
-    do: {401, "AuthenticationRequired", "the DPoP proof needs the server nonce"}
+    do: {401, "use_dpop_nonce", "the DPoP proof needs the server nonce"}
 
   def to_xrpc(reason) when reason in @dpop_proof_failures,
     do: {401, "AuthenticationRequired", "a valid DPoP proof is required for this request"}
