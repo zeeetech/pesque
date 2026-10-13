@@ -1,9 +1,10 @@
 //! Dispatch, usage and input-resolution tests (the exit-code surface).
 const std = @import("std");
 const testing = std.testing;
-const proc = @import("proc.zig");
 const main = @import("main.zig");
 const testutil = @import("testutil.zig");
+
+const image = "ghcr.io/zeeetech/pesque:latest";
 
 test "dispatch: unknown command and bad global flags are usage (2)" {
     var ctx = try testutil.Ctx.init();
@@ -26,8 +27,6 @@ test "dispatch: --help exits 0" {
 test "dispatch: driver verbs run through the fake docker" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"restart"}));
     const restart_inv = try ctx.lastInvocation();
@@ -40,35 +39,39 @@ test "dispatch: driver verbs run through the fake docker" {
     try testutil.Ctx.expectArg(logs_inv, "100");
     try testutil.Ctx.expectArg(logs_inv, "pesque");
 
-    // update v1.5.0 pins the tag in the compose environment.
-    try ctx.env.put("PESQUE_TAG_SENTINEL", "x");
+    // update v1.5.0 pins the image tag: pull then recreate.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "update", "v1.5.0" }));
+    const invs = try ctx.invocations();
+    var saw_run = false;
+    for (invs) |inv| {
+        if (inv.len >= 1 and std.mem.eql(u8, inv[0], "run")) {
+            saw_run = true;
+            try testutil.Ctx.expectArg(inv, "ghcr.io/zeeetech/pesque:v1.5.0");
+        }
+    }
+    try testing.expect(saw_run);
 }
 
 test "dispatch: domain verbs forward to bin/pesque with the verb tail" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"doctor"}));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "doctor" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "doctor" });
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "list" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "list" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "list" });
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "config", "validate" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "config", "validate" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "config", "validate" });
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "crawl", "request" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "crawl", "request" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "crawl", "request" });
 }
 
 test "dispatch: account create forwards the flags and injects no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     // The password is the release's to read (prompt or stdin): the CLI
     // forwards only the flags and never a password env var.
@@ -76,7 +79,7 @@ test "dispatch: account create forwards the flags and injects no password" {
         "account", "create", "--handle", "alice.example.com", "--email", "a@b.c",
     }));
     const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "create", "--handle", "alice.example.com", "--email", "a@b.c" });
+    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "account", "create", "--handle", "alice.example.com", "--email", "a@b.c" });
     try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
 
     // The old flag is gone: naming it is usage, not a silent no-op.
@@ -93,46 +96,38 @@ test "dispatch: account create forwards the flags and injects no password" {
 test "dispatch: account selector verbs need exactly one of --did/--handle" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "delete", "--did", "d1", "--handle", "h" }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "takedown" }));
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "takedown", "--handle", "alice.example.com" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "takedown", "--handle", "alice.example.com" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "takedown", "--handle", "alice.example.com" });
 }
 
 test "dispatch: account plc-token forwards the selector and needs no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
     // No ACCOUNT_PASSWORD anywhere: plc-token must not ask for one.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "plc-token", "--handle", "alice.example.com" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "plc-token", "--handle", "alice.example.com" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "plc-token", "--handle", "alice.example.com" });
 }
 
 test "dispatch: account email-token and reset-token forward the selector and need no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
     // No ACCOUNT_PASSWORD anywhere: minting a code must not ask for one.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "email-token", "--handle", "alice.example.com" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "email-token", "--handle", "alice.example.com" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "email-token", "--handle", "alice.example.com" });
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "reset-token", "--did", "did:plc:abc" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "reset-token", "--did", "did:plc:abc" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "reset-token", "--did", "did:plc:abc" });
 }
 
 test "dispatch: account app-passwords forwards the selector and needs no password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "app-passwords", "--did", "did:web:alice.example.com" }));
-    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ "pesque", "/app/bin/pesque", "account", "app-passwords", "--did", "did:web:alice.example.com" });
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "app-passwords", "--did", "did:web:alice.example.com" });
 
     // Unknown flags are refused, and a bare selector verb takes no arguments.
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "app-passwords", "--handle", "h", "--name", "n" }));
@@ -142,14 +137,12 @@ test "dispatch: account app-passwords forwards the selector and needs no passwor
 test "dispatch: account revoke-app-password forwards the selector and requires --name" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
         "account", "revoke-app-password", "--handle", "alice.example.com", "--name", "my-app",
     }));
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{
-        "pesque", "/app/bin/pesque", "account", "revoke-app-password", "--handle", "alice.example.com", "--name", "my-app",
+        image, "/app/bin/pesque", "account", "revoke-app-password", "--handle", "alice.example.com", "--name", "my-app",
     });
 
     // A missing name is usage, not a crash: the verb would have nothing to
@@ -167,8 +160,6 @@ test "dispatch: account revoke-app-password forwards the selector and requires -
 test "dispatch: account app-password subcommands are refused as unknown without them" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     // A typo'd subcommand stays usage, and --name on a verb that does not
     // take one is refused by the selector parser.
@@ -181,27 +172,23 @@ test "dispatch: account app-password subcommands are refused as unknown without 
 test "dispatch: delete and reset-password forward without resolving a password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     // The release reads the password (prompt or stdin); the CLI only
     // forwards the selector and injects no password env.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "delete", "--handle", "h" }));
     var inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "delete", "--handle", "h" });
+    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "account", "delete", "--handle", "h" });
     try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "reset-password", "--did", "did:plc:abc" }));
     inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "reset-password", "--did", "did:plc:abc" });
+    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "account", "reset-password", "--did", "did:plc:abc" });
     try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
 }
 
 test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
     try ctx.env.put("MIGRATE_PLC_TOKEN", "tok");
 
     // The flag is refused: a secret never lands on argv.
@@ -214,7 +201,7 @@ test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" 
         "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c",
     }));
     const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c" });
+    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "migrate", "--old-pds", "https://old.example.com", "--handle", "alice.example.com", "--email", "a@b.c" });
     try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
     try testutil.Ctx.expectNoArg(inv, "MIGRATE_PLC_TOKEN=tok");
 }
@@ -222,8 +209,6 @@ test "dispatch: migrate takes no --plc-token flag; MIGRATE_PLC_TOKEN goes bare" 
 test "dispatch: backup mounts the out dir at the same path" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"backup"}));
     const inv = try ctx.lastInvocation();
@@ -247,8 +232,6 @@ test "dispatch: backup mounts the out dir at the same path" {
 test "dispatch: lexicon add clones, forwards the checkout and restarts" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    try ctx.env.put("PESQUE_ROOT", project);
 
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
         "lexicon", "add", "--from", "https://example.com/lexicons.git", "--ref", "main",

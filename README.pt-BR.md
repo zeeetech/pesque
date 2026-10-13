@@ -25,36 +25,46 @@ O nome parece PDS e significa "vai pescar" em português.
 
 ## Faz o deploy
 
-Uma linha e um comando:
+Instala a CLI, escreve um conf, sobe o servidor:
 
 ```bash
 curl -fsSL https://github.com/zeeetech/pesque/releases/latest/download/install.sh | sh
-cd pesque && pesque setup
+pesque config template --out pesque.conf
 ```
 
-Roda o instalador num diretório vazio: ele verifica e instala a CLI `pesque` e
-o bundle do compose (Docker + Caddy na mesma droplet) e passa o bastão. O setup
-pergunta o domínio que os clientes vão usar e se o servidor hospeda uma conta
-só ou várias, puxa a imagem pré-compilada, espera ficar saudável, cria a
-primeira conta e imprime os registros de DNS pra adicionar. Depois que o DNS
-propagar:
+Edita o `pesque.conf` com o domínio que os clientes vão usar, e então:
+
+```bash
+pesque up
+pesque account create --handle alice.example.com --email alice@example.com
+```
+
+O instalador verifica e instala a CLI `pesque`, só isso. Não tem wizard de
+setup nem TLS na caixa: o reverse proxy e os certificados são responsabilidade
+de quem opera. Aponta o teu proxy pra porta publicada (`127.0.0.1:4000` por
+padrão) e adiciona os registros de DNS por conta própria.
+
+A CLI fala com um de dois backends, escolhido com `--backend docker|systemd`
+ou `PESQUE_BACKEND`. O `docker` (padrão) cria e comanda um container: `up` roda
+ele se não existir e inicia senão, `down` para mantendo os dados, `update [tag]`
+puxa uma imagem nova e recria o container com as mesmas configurações. O
+`systemd` roda a release como um serviço systemd nativo e a unit comanda o
+ciclo de vida, então `up`, `down`, `restart` e `update` são no-op lá; NixOS é
+detectado como systemd. Atualização é manual, não tem auto-update.
+
+Depois da primeira conta:
 
 ```bash
 pesque doctor          # preflight de federação
-pesque account create --handle alice.example.com --email alice@example.com
 pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
-pesque update          # puxar uma imagem nova e reiniciar
+pesque update          # puxar uma imagem nova e recriar o container
 pesque logs -f         # acompanhar os logs do servidor
 ```
 
-`account create` e `migrate` perguntam a senha com echo desligado, então ela
-não cai no histórico do shell. As flags cobrem o resto: `--backend systemd`
-instala um serviço systemd puro em vez do stack do compose, `--backend docker`
-imprime o caminho do mount-a-conf pra um container que você já roda, e
-`--hostname`, `--mode`, `--tag`, `--dir` e `--yes` deixam tudo scriptável.
-Docker cru, release, TLS sem Caddy e todas as opções de configuração estão no
-[guia de instalação](docs/guides/installation.md), e o flake entrega
-`services.pesque` pro NixOS.
+`account create` e `migrate` perguntam a senha com echo desligado, ou leem do
+stdin (`echo secret | pesque ...`), então ela nunca cai no histórico do shell
+nem no ambiente. Docker cru, release, TLS e todas as opções de configuração
+estão no [guia de instalação](docs/guides/installation.md).
 
 ## Rodando da fonte
 
@@ -95,20 +105,31 @@ Os guias são só em inglês. Este README tem espelho em
 
 ## Perguntas comuns
 
-- **Como consigo um servidor?** O instalador: [Faz o deploy](#faz-o-deploy).
-  Compose com Caddy por padrão, systemd ou Docker cru como flags.
+- **Como consigo um servidor?** O instalador e três comandos:
+  [Faz o deploy](#faz-o-deploy). Um container Docker ou um serviço systemd; o
+  proxy de TLS é teu.
 - **Como adiciono outra conta?**
   `pesque account create --handle alice.example.com --email alice@example.com`;
   pede a senha com echo desligado.
 - **Como faço backup e restauro?** `pesque backup [--out DIR]` roda com o
   servidor no ar; `pesque restore ARQUIVO.tar.gz` pede o servidor parado.
   [Operação](docs/guides/operations.md) tem o cronograma e os riscos.
-- **Como atualizo?** `pesque update` puxa uma imagem nova e reinicia.
+- **Como atualizo?** `pesque update` puxa uma imagem nova e recria o container
+  (backend docker, só manual); no systemd tu atualiza a release por conta
+  própria.
 - **Como movo uma conta pra cá?** `pesque migrate --old-pds https://bsky.social
   --handle alice.example.com --email alice@example.com`; a mudança é uma via.
   [Migração](docs/guides/migration.md) tem a dança completa.
 - **Como movo uma conta pra fora?** Ainda não dá: este PDS não assina a
   mudança (`signPlcOperation`).
+- **Como aceito registros de coleção de outro app?** Já aceita. Uma coleção pra
+  qual este servidor não embarca lexicon é guardada como veio e reportada
+  `validationStatus: "unknown"`, a mesma resposta do PDS de referência; a
+  escrita só é recusada quando quebra um lexicon que o servidor embarca
+  (`priv/lexicons`). `pesque lexicon add --from https://github.com/org/lexicons`
+  instala mais documentos em `data/lexicons` pra resolução (permission sets do
+  OAuth), não pra enforcement; arquivos `com.atproto` são pulados pra um
+  terceiro não sobrepor o set vendido.
 - **Onde fica o código?** Aqui. As primitivas de protocolo moram em
   `lib/pesque` de propósito; [Arquitetura](docs/reference/architecture.md) é o
   mapa.

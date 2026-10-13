@@ -111,7 +111,7 @@ defmodule Pesque.Config do
   Fails boot when the environment carries a `PDS_*` variable nothing reads.
 
   The file layer refuses an unknown key, so the environment is held to the
-  same rule: a misspelled variable in a unit file or compose environment
+  same rule: a misspelled variable in a unit file or container environment
   would configure nothing and boot anyway. The allowlist is the config keys
   plus the internal variables the release tooling sets.
   """

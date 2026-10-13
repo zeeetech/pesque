@@ -1,17 +1,15 @@
 //! Driver argv-construction tests against the fake binaries on the test
 //! path. Pins the load-bearing decisions:
-//!   - bare `-e KEY` (secrets never in argv, compose AND docker),
-//!   - `--volumes-from` + the PDS_* env mirror on docker,
-//!   - `-p User=pesque` on systemd-run,
-//!   - `-T` only when stdin is not a tty,
+//!   - bare `-e KEY` (secrets never in argv, docker),
+//!   - the docker one-off's data mount (no `--volumes-from`),
+//!   - the docker `run -d` create flags (data/config/publish),
+//!   - the systemd one-off as a direct exec of the release binary,
 //!   - exit codes: child code propagates, signal -> 1, spawn failure -> 3.
 const std = @import("std");
-const Io = std.Io;
 const testing = std.testing;
 const proc = @import("proc.zig");
 const driver = @import("driver.zig");
 const detect = @import("detect.zig");
-const fetch = @import("fetch.zig");
 const systemd = @import("drivers/systemd.zig");
 const testutil = @import("testutil.zig");
 
@@ -29,75 +27,9 @@ test "execStartExe reads the release path from both ExecStart forms" {
     try testing.expect(systemd.execStartExe("nothing useful") == null);
 }
 
-fn composeDriver(ctx: *testutil.Ctx, project_dir: []const u8) driver.Driver {
-    _ = ctx;
-    return .{ .compose = .{ .project_dir = project_dir } };
-}
-
-test "compose run_once: argv arrays, bare -e, -T when not a tty" {
+test "docker run_once: -i, data mount, bare -e, no --volumes-from" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const d = composeDriver(&ctx, project);
-
-    const code = try d.runOnce(ctx.host, .{
-        .verb = "account",
-        .argv = &.{ "create", "--handle", "alice.example.com" },
-        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = secret }},
-        .interactive = true,
-    });
-    try testing.expectEqual(@as(u8, 0), code);
-
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "run");
-    try testutil.Ctx.expectArg(inv, "--rm");
-    try testutil.Ctx.expectArg(inv, "--no-deps");
-    try testutil.Ctx.expectArg(inv, "-T"); // stdin is not a tty under the test runner
-    try testutil.Ctx.expectArg(inv, "-e");
-    try testutil.Ctx.expectArg(inv, "PDS_SERVE=false");
-    // Bare: only the key, never KEY=VALUE.
-    try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
-    try testutil.Ctx.expectNoArg(inv, "MIGRATE_PLC_TOKEN=" ++ secret);
-    var found_bare = false;
-    for (inv, 0..) |a, i| {
-        if (std.mem.eql(u8, a, "MIGRATE_PLC_TOKEN") and i > 0 and std.mem.eql(u8, inv[i - 1], "-e")) {
-            found_bare = true;
-        }
-    }
-    try testing.expect(found_bare);
-    try testutil.Ctx.expectTail(inv, &.{ "pesque", "/app/bin/pesque", "account", "create", "--handle", "alice.example.com" });
-}
-
-test "compose run_once: no -T on a tty" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    proc.Host.stdin_tty_override = true;
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const d = composeDriver(&ctx, project);
-    _ = try d.runOnce(ctx.host, .{ .verb = "doctor", .interactive = true });
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectNoArg(inv, "-T");
-}
-
-test "compose run_once: mounts go through -v" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const d = composeDriver(&ctx, project);
-    _ = try d.runOnce(ctx.host, .{
-        .verb = "backup",
-        .argv = &.{ "--out", "/somewhere" },
-        .mounts = &.{.{ .source = "/somewhere", .target = "/somewhere" }},
-    });
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "-v");
-    try testutil.Ctx.expectArg(inv, "/somewhere:/somewhere");
-}
-
-test "docker run_once: -i, --volumes-from, env mirror, bare -e" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    try ctx.env.put("PESQUE_BACKEND", "docker");
     const d = try detect.detect(ctx.host, .docker);
 
     _ = try d.runOnce(ctx.host, .{
@@ -112,26 +44,20 @@ test "docker run_once: -i, --volumes-from, env mirror, bare -e" {
     try testutil.Ctx.expectArg(inv, "--rm");
     try testutil.Ctx.expectArg(inv, "-i");
     try testutil.Ctx.expectNoArg(inv, "-t"); // not a tty
-    try testutil.Ctx.expectArg(inv, "--volumes-from");
-    try testutil.Ctx.expectArg(inv, "pesque");
-    try testutil.Ctx.expectArg(inv, "--env-file");
+    // The one-off carries the same data the server uses, not --volumes-from,
+    // so it also works before the container exists.
+    try testutil.Ctx.expectArg(inv, "pesque-data:/data");
+    try testutil.Ctx.expectNoArg(inv, "--volumes-from");
     try testutil.Ctx.expectArg(inv, "-e");
     try testutil.Ctx.expectArg(inv, "PDS_SERVE=false");
     try testutil.Ctx.expectArg(inv, "MIGRATE_PLC_TOKEN");
-    // The env mirror crossed the boundary: PDS_* from the running container.
-    var saw_mirror = false;
-    for (inv) |a| {
-        if (std.mem.eql(u8, a, "ENVFILE:PDS_HOSTNAME=pds.example.com")) saw_mirror = true;
-        try testing.expect(!std.mem.startsWith(u8, a, "MIGRATE_PLC_TOKEN="));
-    }
-    try testing.expect(saw_mirror);
+    for (inv) |a| try testing.expect(!std.mem.startsWith(u8, a, "MIGRATE_PLC_TOKEN="));
     try testutil.Ctx.expectTail(inv, &.{ "ghcr.io/zeeetech/pesque:latest", "/app/bin/pesque", "account", "list" });
 }
 
 test "docker run_once: -t on a tty" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    try ctx.env.put("PESQUE_BACKEND", "docker");
     proc.Host.stdin_tty_override = true;
     const d = try detect.detect(ctx.host, .docker);
     _ = try d.runOnce(ctx.host, .{ .verb = "migrate", .interactive = true });
@@ -139,77 +65,130 @@ test "docker run_once: -t on a tty" {
     try testutil.Ctx.expectArg(inv, "-t");
 }
 
-test "systemd run_once as root: -p User=pesque, secrets via the root-only env file" {
+test "docker run_once: mounts go through -v" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    proc.Host.root_override = true;
-    const d = driver.Driver{ .systemd = .{ .unit = "pesque" } };
-
+    const d = try detect.detect(ctx.host, .docker);
     _ = try d.runOnce(ctx.host, .{
-        .verb = "account",
-        .argv = &.{"list"},
-        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = secret }},
-        .interactive = true,
+        .verb = "backup",
+        .argv = &.{ "--out", "/somewhere" },
+        .mounts = &.{.{ .source = "/somewhere", .target = "/somewhere" }},
     });
-
     const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "--pipe");
-    try testutil.Ctx.expectArg(inv, "--wait");
-    try testutil.Ctx.expectArg(inv, "--collect");
-    try testutil.Ctx.expectArg(inv, "-p");
-    try testutil.Ctx.expectArg(inv, "User=pesque");
-    try testutil.Ctx.expectArg(inv, "-p");
-    try testutil.Ctx.expectArg(inv, "Group=pesque");
-    // No -E at all: the bare name-only form is missing on old systemd
-    // (Debian 11, RHEL 8), and KEY=VALUE would put the secret on argv.
-    var saw_secret_in_file = false;
-    var saw_mirror = false;
-    for (inv) |a| {
-        if (std.mem.eql(u8, a, "ENVFILE:PDS_DATA_DIR=/var/lib/pesque")) saw_mirror = true;
-        if (std.mem.eql(u8, a, "ENVFILE:MIGRATE_PLC_TOKEN='" ++ secret ++ "'")) saw_secret_in_file = true;
-        try testing.expect(!std.mem.eql(u8, a, "-E"));
-        try testing.expect(!std.mem.startsWith(u8, a, "MIGRATE_PLC_TOKEN="));
-    }
-    try testing.expect(saw_mirror);
-    try testing.expect(saw_secret_in_file);
-    try testutil.Ctx.expectTail(inv, &.{ "/opt/pesque/bin/pesque", "account", "list" });
+    try testutil.Ctx.expectArg(inv, "-v");
+    try testutil.Ctx.expectArg(inv, "/somewhere:/somewhere");
 }
 
-test "systemd run_once as root: a secret with a quote survives the env file" {
+test "docker up creates the container when it is absent" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    proc.Host.root_override = true;
-    const d = driver.Driver{ .systemd = .{ .unit = "pesque" } };
-
-    _ = try d.runOnce(ctx.host, .{
-        .verb = "account",
-        .argv = &.{"list"},
-        .env = &.{.{ .key = "MIGRATE_PLC_TOKEN", .value = "it's a s3cr3t" }},
-        .interactive = true,
-    });
+    try ctx.env.put("PESQUE_FAKE_NO_CONTAINER", "1");
+    const d = try detect.detect(ctx.host, .docker);
+    try testing.expectEqual(@as(u8, 0), try d.up(ctx.host));
 
     const inv = try ctx.lastInvocation();
-    // The embedded ' is written as '"'"' so systemd's env-file parser hands
-    // the value back verbatim.
-    var saw_quoted_secret = false;
-    for (inv) |a| {
-        if (std.mem.eql(u8, a, "ENVFILE:MIGRATE_PLC_TOKEN='it'\"'\"'s a s3cr3t'")) saw_quoted_secret = true;
-    }
-    try testing.expect(saw_quoted_secret);
+    try testutil.Ctx.expectArg(inv, "run");
+    try testutil.Ctx.expectArg(inv, "-d");
+    try testutil.Ctx.expectArg(inv, "--name");
+    try testutil.Ctx.expectArg(inv, "pesque");
+    try testutil.Ctx.expectArg(inv, "--restart");
+    try testutil.Ctx.expectArg(inv, "unless-stopped");
+    try testutil.Ctx.expectArg(inv, "pesque-data:/data");
+    try testutil.Ctx.expectArg(inv, "-p");
+    try testutil.Ctx.expectArg(inv, "127.0.0.1:4000:4000");
+    try testutil.Ctx.expectTail(inv, &.{"ghcr.io/zeeetech/pesque:latest"});
 }
 
-test "systemd run_once as non-root: direct exec of the release" {
+test "docker up: PESQUE_DATA / PESQUE_CONFIG / PESQUE_PUBLISH shape the run" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    proc.Host.root_override = false;
+    try ctx.env.put("PESQUE_FAKE_NO_CONTAINER", "1");
+    try ctx.env.put("PESQUE_DATA", "/srv/pesque");
+    const conf = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "pesque.conf" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = conf, .data = "hostname = pds.example.com\n" });
+    try ctx.env.put("PESQUE_CONFIG", conf);
+    try ctx.env.put("PESQUE_PUBLISH", "100.64.0.1:4000:4000");
+    const d = try detect.detect(ctx.host, .docker);
+    _ = try d.up(ctx.host);
+
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(inv, "/srv/pesque:/data");
+    try testutil.Ctx.expectArg(inv, try std.fmt.allocPrint(ctx.arena_state.allocator(), "{s}:/data/pesque.conf:ro", .{conf}));
+    try testutil.Ctx.expectArg(inv, "100.64.0.1:4000:4000");
+}
+
+test "docker up starts an existing container" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const d = try detect.detect(ctx.host, .docker);
+    try testing.expectEqual(@as(u8, 0), try d.up(ctx.host));
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(inv, "start");
+    try testutil.Ctx.expectArg(inv, "pesque");
+    try testutil.Ctx.expectNoArg(inv, "run");
+}
+
+test "docker down stops without removing (data is kept)" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const d = try detect.detect(ctx.host, .docker);
+    _ = try d.down(ctx.host);
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(inv, "stop");
+    try testutil.Ctx.expectArg(inv, "pesque");
+    try testutil.Ctx.expectNoArg(inv, "rm");
+    try testutil.Ctx.expectNoArg(inv, "-v");
+}
+
+test "docker restart restarts the container" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const d = try detect.detect(ctx.host, .docker);
+    _ = try d.restart(ctx.host);
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(inv, "restart");
+    try testutil.Ctx.expectArg(inv, "pesque");
+}
+
+test "docker update: pull the tag, then rm -f + recreate" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const d = try detect.detect(ctx.host, .docker);
+    try testing.expectEqual(@as(u8, 0), try d.update(ctx.host, "v1.5.0"));
+
+    const invs = try ctx.invocations();
+    var saw_pull = false;
+    var saw_rm = false;
+    var saw_run = false;
+    for (invs) |inv| {
+        if (inv.len >= 1 and std.mem.eql(u8, inv[0], "pull")) saw_pull = true;
+        if (inv.len >= 2 and std.mem.eql(u8, inv[0], "rm") and std.mem.eql(u8, inv[1], "-f")) saw_rm = true;
+        if (inv.len >= 1 and std.mem.eql(u8, inv[0], "run")) {
+            saw_run = true;
+            try testutil.Ctx.expectArg(inv, "ghcr.io/zeeetech/pesque:v1.5.0");
+        }
+    }
+    try testing.expect(saw_pull);
+    try testing.expect(saw_rm);
+    try testing.expect(saw_run);
+}
+
+test "systemd run_once: direct exec of the release with the unit's PDS_* world" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
     const release = try ctx.makeRelease();
     const d = driver.Driver{ .systemd = .{ .unit = "pesque", .release = release } };
 
-    _ = try d.runOnce(ctx.host, .{ .verb = "doctor", .interactive = true });
+    _ = try d.runOnce(ctx.host, .{
+        .verb = "account",
+        .argv = &.{"list"},
+        .interactive = true,
+    });
 
     const inv = try ctx.lastInvocation();
     // Direct exec: argv[0] is the release binary, no systemd-run wrapper.
-    try testutil.Ctx.expectArg(inv, "doctor");
+    try testutil.Ctx.expectArg(inv, "account");
+    try testutil.Ctx.expectArg(inv, "list");
     var saw_bin = false;
     for (inv) |a| {
         if (std.mem.endsWith(u8, a, "/bin/pesque")) saw_bin = true;
@@ -220,25 +199,31 @@ test "systemd run_once as non-root: direct exec of the release" {
     try testutil.Ctx.expectArg(inv, "PDS_HOSTNAME=pds.example.com");
 }
 
-test "nixos run_once reuses the systemd machinery with PESQUE_RELEASE" {
+test "systemd lifecycle is a no-op; the unit owns the service" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    proc.Host.root_override = true;
-    const release = try ctx.makeRelease();
-    const d = driver.Driver{ .nixos = .{ .unit = "pesque", .release = release } };
+    const d = driver.Driver{ .systemd = .{ .unit = "pesque", .release = "/opt/pesque" } };
+    try testing.expectEqual(@as(u8, 0), try d.up(ctx.host));
+    try testing.expectEqual(@as(u8, 0), try d.down(ctx.host));
+    try testing.expectEqual(@as(u8, 0), try d.restart(ctx.host));
+    try testing.expectEqual(@as(u8, 0), try d.update(ctx.host, null));
+    try testing.expect(!d.ownsLifecycle());
+    try testing.expect(d.interactive());
+}
 
-    _ = try d.runOnce(ctx.host, .{ .verb = "doctor", .interactive = true });
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "-p");
-    try testutil.Ctx.expectArg(inv, "User=pesque");
-    try testutil.Ctx.expectTail(inv, &.{ try std.fs.path.join(ctx.arena_state.allocator(), &.{ release, "bin/pesque" }), "doctor" });
+test "docker owns the lifecycle; systemd does not" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const dd = driver.Driver{ .docker = .{ .container = "pesque" } };
+    try testing.expect(dd.ownsLifecycle());
+    const sd = driver.Driver{ .systemd = .{ .unit = "pesque" } };
+    try testing.expect(!sd.ownsLifecycle());
 }
 
 test "exit codes: child code propagates, signal maps to 1, spawn failure maps to 3" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const d = composeDriver(&ctx, project);
+    const d = try detect.detect(ctx.host, .docker);
 
     try ctx.env.put("PESQUE_FAKE_EXIT", "1");
     try testing.expectEqual(@as(u8, 1), try d.runOnce(ctx.host, .{ .verb = "doctor" }));
@@ -257,83 +242,31 @@ test "exit codes: child code propagates, signal maps to 1, spawn failure maps to
     try testing.expectError(error.DriverFailed, d.runOnce(&broken, .{ .verb = "doctor" }));
 }
 
-test "docker backend refuses up and down with instructions" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    const d = driver.Driver{ .docker = .{ .container = "pesque" } };
-    try testing.expectError(error.DriverFailed, d.up(ctx.host));
-    try testing.expectError(error.DriverFailed, d.down(ctx.host));
-    try testing.expect(!d.ownsLifecycle());
-    try testing.expect(d.interactive());
-}
-
-test "nixos up/down/update are no-ops with a message" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    const d = driver.Driver{ .nixos = .{ .unit = "pesque", .release = "/opt/pesque" } };
-    try testing.expectEqual(@as(u8, 0), try d.up(ctx.host));
-    try testing.expectEqual(@as(u8, 0), try d.down(ctx.host));
-    try testing.expectEqual(@as(u8, 0), try d.pull(ctx.host, null));
-    try testing.expect(!d.ownsLifecycle());
-}
-
-test "down never passes -v (data is kept)" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const d = composeDriver(&ctx, project);
-    _ = try d.down(ctx.host);
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "down");
-    try testutil.Ctx.expectNoArg(inv, "-v");
-    // The compose file list is pinned too.
-    var saw_main = false;
-    for (inv) |a| {
-        if (std.mem.endsWith(u8, a, "/docker-compose.yml")) saw_main = true;
-        try testing.expect(!std.mem.endsWith(u8, a, "-v"));
-    }
-    try testing.expect(saw_main);
-}
-
-test "detection: compose file wins, then docker, then systemd" {
+test "detection: docker when a container exists, systemd otherwise" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
 
-    // compose: a docker-compose.yml above/beside the cwd.
-    const project = try testutil.makeProjectDir(&ctx, "install");
-    const sub = try std.fs.path.join(ctx.arena_state.allocator(), &.{ project, "sub" });
-    try Io.Dir.cwd().createDirPath(testing.io, sub);
-    var orig: [Io.Dir.max_path_bytes]u8 = undefined;
-    const orig_len = try Io.Dir.cwd().realPath(ctx.host.io, &orig);
-    defer std.process.setCurrentPath(ctx.host.io, orig[0..orig_len]) catch {};
-    try std.process.setCurrentPath(ctx.host.io, sub);
-    try ctx.env.put("PESQUE_BACKEND", ""); // clear the override: exercise the search
+    // Explicit flags resolve to the right driver.
+    try testing.expectEqual(driver.Kind.docker, (try detect.detect(ctx.host, .docker)).kind());
+    try testing.expectEqual(driver.Kind.systemd, (try detect.detect(ctx.host, .systemd)).kind());
+
+    // Auto: PESQUE_BACKEND cleared, a container is found by inspect.
+    try ctx.env.put("PESQUE_BACKEND", "");
     const found = try detect.detect(ctx.host, null);
-    try testing.expectEqual(driver.Kind.compose, found.kind());
-    try std.process.setCurrentPath(ctx.host.io, orig[0..orig_len]);
-
-    // docker: explicit backend resolves to the docker driver.
-    try ctx.env.put("PESQUE_BACKEND", "docker");
-    const as_docker = try detect.detect(ctx.host, null);
-    try testing.expectEqual(driver.Kind.docker, as_docker.kind());
-
-    // systemd: PESQUE_SERVICE points the unit check at the shim.
-    try ctx.env.put("PESQUE_BACKEND", "systemd");
-    const as_systemd = try detect.detect(ctx.host, null);
-    try testing.expectEqual(driver.Kind.systemd, as_systemd.kind());
+    try testing.expectEqual(driver.Kind.docker, found.kind());
 }
 
 test "detection failure: error 3 with a trace" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     // Nothing on this host answers: point every probe at a missing binary.
+    try ctx.env.put("PESQUE_BACKEND", "");
     ctx.host.progs.docker = "/nonexistent/docker";
     ctx.host.progs.systemctl = "/nonexistent/systemctl";
-    try ctx.env.put("PESQUE_ROOT", try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "nope" }));
     try testing.expectError(error.DriverFailed, detect.detect(ctx.host, null));
 }
 
-test "docker dataDir reads the container's volume; systemd reads the unit env" {
+test "dataDir: docker reads the container's volume; systemd reads the unit env" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
     const dd = driver.Driver{ .docker = .{ .container = "pesque" } };
@@ -344,98 +277,4 @@ test "docker dataDir reads the container's volume; systemd reads the unit env" {
     const data = try sd.dataDir(ctx.host);
     try testing.expectEqualStrings("/srv/pesque", data.path);
     try testing.expectEqual(driver.Kind.systemd, sd.kind());
-}
-
-// --- fetch -------------------------------------------------------------------
-
-test "fetch: sha256 verify passes on a matching download and fails on a mismatch" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-
-    // The tarball's body is one curl call; the sums file's body is another.
-    const tarball_body = "hello pesque\n";
-    var hash = std.crypto.hash.sha2.Sha256.init(.{});
-    hash.update(tarball_body);
-    var digest: [32]u8 = undefined;
-    hash.final(&digest);
-    var hex_buf: [64]u8 = undefined;
-    const hex = try std.fmt.bufPrint(&hex_buf, "{x}", .{digest});
-
-    const tmp_file = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "tarball" });
-    try ctx.env.put("PESQUE_FAKE_CURL_BODY", tarball_body);
-    try fetch.downloadTo(ctx.host, "https://example.invalid/pesque-server-x86_64-linux.tar.gz", tmp_file);
-
-    const sums_body = try std.fmt.allocPrint(ctx.arena_state.allocator(), "{s}  pesque-server-x86_64-linux.tar.gz\nbeef  other-asset\n", .{hex});
-    const sums_file = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "sums" });
-    try ctx.env.put("PESQUE_FAKE_CURL_BODY", sums_body);
-    try fetch.downloadTo(ctx.host, "https://example.invalid/SHA256SUMS", sums_file);
-
-    try fetch.verifySums(ctx.host, sums_file, "pesque-server-x86_64-linux.tar.gz", tmp_file);
-
-    try ctx.env.put("PESQUE_FAKE_CURL_BODY", "0deadbeef  pesque-server-x86_64-linux.tar.gz");
-    try fetch.downloadTo(ctx.host, "https://example.invalid/SHA256SUMS", sums_file);
-    try testing.expectError(error.DriverFailed, fetch.verifySums(ctx.host, sums_file, "pesque-server-x86_64-linux.tar.gz", tmp_file));
-}
-
-test "fetch: latest tag parses from the GitHub API body" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    try ctx.env.put("PESQUE_FAKE_CURL_BODY", "{\"tag_name\":\"v1.4.0\",\"other\":1}");
-    try testing.expectEqualStrings("v1.4.0", try fetch.latestTag(ctx.host));
-}
-
-test "fetch: downloads get the 600s cap, API GETs keep 30s" {
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-    const dest = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "x" });
-    try fetch.downloadTo(ctx.host, "https://example.invalid/x", dest);
-    const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(inv, "-fsSL");
-    try testutil.Ctx.expectArg(inv, "--max-time");
-    try testutil.Ctx.expectArg(inv, "600");
-    try testutil.Ctx.expectArg(inv, "-o");
-    try testutil.Ctx.expectArg(inv, dest);
-
-    // The latest-tag GET is an API call: the short cap stays.
-    try ctx.env.put("PESQUE_FAKE_CURL_BODY", "{\"tag_name\":\"v1.0.0\"}");
-    _ = try fetch.latestTag(ctx.host);
-    const get_inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectArg(get_inv, "--max-time");
-    try testutil.Ctx.expectArg(get_inv, "30");
-}
-
-test "fetch: unpackTarGz extracts a gzipped tar with exec bits" {
-    if (@import("builtin").os.tag == .windows) return error.SkipZigTest;
-    var ctx = try testutil.Ctx.init();
-    defer ctx.deinit();
-
-    // A tiny tar.gz fixture built by the real tar(1). The extract target is a
-    // fresh dir: the extractor refuses to overwrite existing files.
-    const fixture_dir = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "pull-fixture/pesque/bin" });
-    try Io.Dir.cwd().createDirPath(testing.io, fixture_dir);
-    const payload = try std.fs.path.join(ctx.arena_state.allocator(), &.{ fixture_dir, "pesque" });
-    try Io.Dir.cwd().writeFile(ctx.host.io, .{ .sub_path = payload, .data = "#!/bin/sh\necho hi\n" });
-    // Give the fixture an exec bit so the tarball carries one.
-    try Io.Dir.cwd().setFilePermissions(ctx.host.io, payload, .fromMode(0o755), .{});
-    const tarball = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "fixture.tar.gz" });
-    {
-        const res = try std.process.run(testing.allocator, testing.io, .{
-            .argv = &.{
-                "/bin/sh", "-c",    "tar -czf \"$1\" -C \"$2\" pull-fixture",
-                "tar",     tarball, ctx.tmp_path,
-            },
-        });
-        defer testing.allocator.free(res.stdout);
-        defer testing.allocator.free(res.stderr);
-        try testing.expect(res.term == .exited and res.term.exited == 0);
-    }
-    const extract_target = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "extracted" });
-    try Io.Dir.cwd().createDirPath(testing.io, extract_target);
-    // The real release tarball has one top-level directory; strip it, like the
-    // systemd driver does, so `bin/` lands directly in the target.
-    _ = try fetch.unpackTarGz(ctx.host, tarball, try Io.Dir.cwd().openDir(ctx.host.io, extract_target, .{}), 1);
-    const extracted = try std.fs.path.join(ctx.arena_state.allocator(), &.{ extract_target, "pesque/bin/pesque" });
-    const st = try Io.Dir.cwd().statFile(ctx.host.io, extracted, .{});
-    try testing.expect(st.size > 0);
-    try testing.expect(st.permissions.toMode() & 0o111 != 0);
 }

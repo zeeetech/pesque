@@ -140,12 +140,19 @@ domain at the server.
 
 ## Upgrades
 
-The manual flow, spelled out once:
+Updates are manual; nothing updates on its own. On docker, `pesque update
+[tag]` pulls the image and recreates the container with the same settings
+(the data volume survives the recreate): with no tag it re-pulls the running
+image's tag, with a tag it moves to that release. On systemd, NixOS included,
+`pesque update` is a no-op: the release is managed outside the CLI, so replace
+it and restart the unit, or run `nixos-rebuild switch`.
+
+The underlying flow, spelled out once:
 
 1. `pesque backup` (live-safe; no stop needed)
-2. `bin/pesque stop` (clean `SIGTERM`)
-3. Replace the release directory
-4. `bin/pesque start`, migrations run at boot
+2. stop the server (docker: `pesque down`; systemd: `systemctl stop pesque`)
+3. replace the release (docker: `pesque update`; systemd: swap the release)
+4. start it again, migrations run at boot
 5. `curl /xrpc/_health`, which reads a table, so it is the migration check
 
 `pesque config validate` boots nothing: it reads the environment and
@@ -155,115 +162,6 @@ setting with the layer that decided it, the environment variable,
 unknown `PDS_*` variable or config key fails boot, and this names it without
 a failed boot.
 
-### Automatic updates
-
-Both mechanisms below do the same two things: fetch the newest published
-release and restart the server. Neither rolls anything back on its own. The
-rollback is the pre-upgrade `pesque backup` (see
-[Recovering from a bad update](#recovering-from-a-bad-update)); on the
-systemd path the updater writes that backup for you.
-
-#### Compose: a watchtower profile
-
-The stack ships an opt-in `watchtower` service under the `auto-update`
-profile. It polls GHCR on a schedule and recreates the server container when
-the floating image's digest has moved:
-
-```bash
-echo 'COMPOSE_PROFILES=auto-update' >> .env
-docker compose up -d
-```
-
-`COMPOSE_PROFILES` in `.env` carries the choice: every later
-`docker compose` command on the project starts the watcher too, while a
-stack without that line never launches one, however many times you run
-`up -d`. That is also why this is a profile and not a default-on service.
-Watchtower needs the Docker socket mounted, and the socket is root on the
-host by another name: anything it can pull, it can run as root. Starting a
-container that holds it without being asked would be a security decision
-made on your behalf, so the default stack stays inert and opting in costs
-one command.
-
-What the service does with the choice:
-
-- Checks daily at 03:17 UTC. The minute is deliberate: GHCR's shared bucket
-  is empty for the first minutes of an hour, and midnight is when every
-  cron in the world arrives.
-- Checks once at startup too, so enabling the profile brings a stale server
-  current immediately instead of waiting for the next window.
-- Watches only containers carrying the
-  `com.centurylinklabs.watchtower.enable=true` label: the `pesque` service
-  has it, Caddy does not.
-- Deletes the old image after an update (`WATCHTOWER_CLEANUP=true`).
-- The watcher image is pinned (`nickfedor/watchtower:1.23.0`), the
-  maintained fork, because `containrrr/watchtower` was archived in late
-  2025. The fork's own README discourages production use; that is part of
-  what opting in means, and worth reading before enabling this on a
-  load-bearing host.
-
-Watchtower updates the image, not your data: it takes no backup. Give
-`pesque backup` a cron of its own (the archive is live-safe) so the
-rollback story below holds. If you want an update to be an event rather
-than a surprise, watchtower sends notifications through its
-`WATCHTOWER_NOTIFICATIONS_*` variables.
-
-Disable by removing `COMPOSE_PROFILES` from `.env` and pruning the orphan:
-
-```bash
-docker compose up -d --remove-orphans
-```
-
-**The tag is the fence.** The compose file uses
-`ghcr.io/zeeetech/pesque:${PESQUE_TAG:-latest}`, and every release is
-published to GHCR as `X.Y.Z`, a floating `X.Y`, and `latest`:
-
-| `PESQUE_TAG` | What watchtower does | The risk you accept |
-| --- | --- | --- |
-| `latest` (default) | Follows every release, majors included | A pull can cross a major, and configuration is strict (an unknown key fails boot), so a major jump can leave the server down until you intervene |
-| `1.4` | Follows every `1.4.x` patch; a new minor line needs a manual bump | Majors cannot sneak in, though a config change can still arrive within a line |
-| `1.4.2` | Never moves; the digest does not change | No automation at all; the watcher is running for nothing |
-
-Keep `latest` on a personal server whose backup cron you trust; use the
-floating minor when the server hosts other people. If you build from source
-(`PESQUE_BUILD=1` or the build override), do not enable the profile:
-watchtower would replace your locally built image with the published one on
-its next pass.
-
-#### Release under systemd: a timer that runs `pesque update`
-
-`contrib/systemd/` holds two units for the release install. The service is
-a oneshot with two steps: `pesque backup --out /var/backups/pesque`, then
-`pesque update`, which downloads the newest release tarball, verifies it
-against its `SHA256SUMS`, swaps the `/opt/pesque` symlink and restarts the
-`pesque` unit. If the backup fails, systemd never reaches the update, so a
-full disk cannot turn into an unbacked upgrade.
-
-```bash
-sudo install -m 644 contrib/systemd/pesque-update.service \
-  contrib/systemd/pesque-update.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now pesque-update.timer
-```
-
-The timer fires Sundays at 03:17 with up to 15 minutes of jitter, and
-`Persistent=true` catches up a machine that was off at the window. The
-cadence is weekly, not nightly, because `pesque update` restarts the unit
-even when the release is already current: a nightly timer would buy a
-nightly restart for nothing. The archives in `/var/backups/pesque`
-accumulate at one per update run; delete the old ones once a version has
-been healthy for a while.
-
-The units assume the host CLI at `/usr/local/bin/pesque` (adjust if yours
-lives elsewhere), the service unit named `pesque` (set `PESQUE_SERVICE` in
-the service unit if not), and the CLI's own convention of running one-off
-verbs as the `pesque` user. Disable with
-`systemctl disable --now pesque-update.timer`. To watch the whole thing
-work without waiting for Sunday, `systemctl start pesque-update.service`,
-then `pesque health`.
-
-On NixOS, `pesque update` is a no-op on purpose: the version comes from the
-flake, and releases arrive through `nixos-rebuild`.
-
 ### Recovering from a bad update
 
 There is no down migration. Once a release has booted, its migrations are
@@ -271,17 +169,18 @@ in the database and an older binary cannot boot a newer data directory, so
 downgrading the image or the `/opt/pesque` symlink alone is not a rollback.
 The rollback is the pre-upgrade backup:
 
-1. `pesque restore /var/backups/pesque/pesque-backup-<stamp>.tar.gz` (the
-   systemd path; on compose, wherever your backup cron writes)
-2. Pin the version that was running before: `PESQUE_TAG=1.4.2` in `.env`
-   and `docker compose up -d`, or `pesque update <version>`, or point
-   `/opt/pesque` at the previous release directory and restart
+1. `pesque restore <archive>`: on docker the CLI stops the container, restores
+   and starts it again; on systemd stop the unit first, then run restore as the
+   service user (`sudo -u pesque pesque restore <archive>`)
+2. Move the server back to the release that was running before: on docker
+   `pesque update <version>`, on systemd point the release (or the
+   `/opt/pesque` symlink) at the previous directory and restart the unit, or on
+   NixOS check out the previous revision and run `nixos-rebuild switch`
 3. `curl /xrpc/_health`
 
-With auto-update enabled, the pre-upgrade archive is the one the updater
-wrote (systemd) or the most recent one your cron wrote (compose). A release
-that fails its own boot check (the strict config check names the offending
-key) is recovered the same way: restore, then remove the unknown key.
+A release that fails its own boot check (the strict config check names the
+offending key) is recovered the same way: restore, then remove the unknown
+key.
 
 ## Health and logs
 

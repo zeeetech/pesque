@@ -129,7 +129,7 @@ defmodule Pesque.ConfigTest do
     end
 
     test "variables of other namespaces are none of this layer's business" do
-      System.put_env("PESQUE_BACKEND", "compose")
+      System.put_env("PESQUE_BACKEND", "docker")
       on_exit(fn -> System.delete_env("PESQUE_BACKEND") end)
 
       assert Config.validate_env() == :ok

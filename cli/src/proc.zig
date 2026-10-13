@@ -27,7 +27,6 @@ pub const Mount = struct {
 pub const Progs = struct {
     docker: []const u8 = "docker",
     systemctl: []const u8 = "systemctl",
-    systemd_run: []const u8 = "systemd-run",
     journalctl: []const u8 = "journalctl",
     curl: []const u8 = "curl",
     git: []const u8 = "git",
@@ -49,15 +48,6 @@ pub const Host = struct {
 
     /// Overridden in tests to pin both tty branches.
     pub var stdin_tty_override: ?bool = null;
-
-    /// Overridden in tests to exercise both systemd run_once paths (root
-    /// via systemd-run, non-root direct exec).
-    pub var root_override: ?bool = null;
-
-    /// Base directory for the systemd run_once env mirror. Null means
-    /// /run on Linux (the one tree the systemd manager sees even under
-    /// PrivateTmp); tests point this at their sandbox.
-    pub var run_once_base: ?[]const u8 = null;
 
     pub fn stdinIsTty(self: *Host) bool {
         if (stdin_tty_override) |t| return t;
@@ -246,8 +236,8 @@ fn fixFor(prog: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, prog, "docker")) {
         return "Install Docker Engine (Linux) or Docker Desktop (macOS/Windows), then run this again.";
     }
-    if (std.mem.eql(u8, prog, "systemctl") or std.mem.eql(u8, prog, "systemd-run") or std.mem.eql(u8, prog, "journalctl")) {
-        return "This command drives a systemd service and needs a Linux host with systemd. Use the compose or docker backend here.";
+    if (std.mem.eql(u8, prog, "systemctl") or std.mem.eql(u8, prog, "journalctl")) {
+        return "This command drives a systemd service and needs a Linux host with systemd. Use the docker backend here.";
     }
     if (std.mem.eql(u8, prog, "curl")) {
         return "Install curl (https://curl.se), then run this again.";

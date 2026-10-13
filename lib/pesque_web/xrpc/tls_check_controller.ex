@@ -2,9 +2,9 @@ defmodule PesqueWeb.Xrpc.TlsCheckController do
   @moduledoc """
   Caddy's on-demand-TLS ask endpoint: may a certificate be issued for `domain`?
 
-  The shipped Caddyfile serves the hostname and every subdomain of it with
-  `tls { on_demand }`, so Caddy calls here before it mints any certificate
-  and treats every non-2xx answer as a refusal: 200 for a name this server
+  A Caddy in front of the server can serve the hostname and every subdomain of
+  it with `tls { on_demand }`, in which case Caddy calls here before it mints
+  any certificate and treats every non-2xx answer as a refusal: 200 for a name this server
   owns, 403 for everything else. There is no auth, because handle existence
   is already public (resolveHandle answers the same question).
   """

@@ -68,10 +68,9 @@ jobs:
           cache-to: type=gha,mode=max
 
   # The host-side CLI: one static binary per target (Windows keeps the
-  # docker/compose backends only; systemd/nixos need a Linux host). Binaries
-  # land on the release as `pesque-<target>`; SHA256SUMS is assembled over
-  # everything by the release-assets job, and install.sh and the systemd
-  # `update` flow verify against it.
+  # docker backend only; systemd needs a Linux host). Binaries land on the
+  # release as `pesque-<target>`; SHA256SUMS is assembled over everything by
+  # the release-assets job, and install.sh verifies against it.
   cli:
     name: CLI binaries
     needs: release-please
@@ -157,10 +156,8 @@ jobs:
           path: pesque-server-x86_64-linux.tar.gz
 
   # Assemble everything onto the GitHub release, with one SHA256SUMS covering
-  # the CLI binaries, the server tarball, and the bootstrap files. install.sh
-  # and the compose bundle ride on the release itself so that
-  # releases/latest/download/install.sh resolves and install.sh can fetch the
-  # bundle (and verify it) against the same tag it was installed from.
+  # the CLI binaries, the server tarball, and install.sh. install.sh rides on
+  # the release itself so that releases/latest/download/install.sh resolves.
   release-assets:
     name: Upload release assets
     needs: [release-please, cli, tarball]
@@ -177,12 +174,12 @@ jobs:
           merge-multiple: true
 
       - name: Collect the bootstrap files
-        run: cp install.sh docker-compose.yml docker-compose.build.yml Caddyfile dist/
+        run: cp install.sh dist/
 
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum pesque-* install.sh docker-compose.yml docker-compose.build.yml Caddyfile > SHA256SUMS
+          sha256sum pesque-* install.sh > SHA256SUMS
           cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
@@ -192,6 +189,3 @@ jobs:
             dist/SHA256SUMS
             dist/pesque-*
             dist/install.sh
-            dist/docker-compose.yml
-            dist/docker-compose.build.yml
-            dist/Caddyfile

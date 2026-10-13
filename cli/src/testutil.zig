@@ -1,5 +1,5 @@
 //! Shared test scaffolding: writes the fake `docker`/`systemctl`/
-//! `systemd-run`/`journalctl`/`curl` shims into a temp dir, points a
+//! `journalctl`/`curl`/`git`/`pesque` shims into a temp dir, points a
 //! `proc.Host` at them, and parses the invocation log back out for
 //! assertions. The shims are wired by explicit path (not PATH) because argv[0]
 //! resolution always consults the parent environment in 0.17.
@@ -10,7 +10,6 @@ const proc = @import("proc.zig");
 
 pub const docker_shim = @embedFile("../test/shims/docker");
 pub const systemctl_shim = @embedFile("../test/shims/systemctl");
-pub const systemd_run_shim = @embedFile("../test/shims/systemd-run");
 pub const journalctl_shim = @embedFile("../test/shims/journalctl");
 pub const curl_shim = @embedFile("../test/shims/curl");
 pub const git_shim = @embedFile("../test/shims/git");
@@ -40,7 +39,7 @@ pub const Ctx = struct {
         const env = try arena.create(std.process.Environ.Map);
         env.* = std.process.Environ.Map.init(arena);
         // Tests never want real backend detection to succeed by accident.
-        try env.put("PESQUE_BACKEND", "compose");
+        try env.put("PESQUE_BACKEND", "docker");
 
         const bin_dir = try std.fs.path.join(arena, &.{ tmp_path, "bin" });
         try Io.Dir.cwd().createDirPath(testing.io, bin_dir);
@@ -48,7 +47,6 @@ pub const Ctx = struct {
         const shim_files = [_]Shim{
             .{ .name = "docker", .body = docker_shim },
             .{ .name = "systemctl", .body = systemctl_shim },
-            .{ .name = "systemd-run", .body = systemd_run_shim },
             .{ .name = "journalctl", .body = journalctl_shim },
             .{ .name = "curl", .body = curl_shim },
             .{ .name = "git", .body = git_shim },
@@ -69,7 +67,6 @@ pub const Ctx = struct {
             .progs = .{
                 .docker = try std.fs.path.join(arena, &.{ bin_dir, "docker" }),
                 .systemctl = try std.fs.path.join(arena, &.{ bin_dir, "systemctl" }),
-                .systemd_run = try std.fs.path.join(arena, &.{ bin_dir, "systemd-run" }),
                 .journalctl = try std.fs.path.join(arena, &.{ bin_dir, "journalctl" }),
                 .curl = try std.fs.path.join(arena, &.{ bin_dir, "curl" }),
                 .git = try std.fs.path.join(arena, &.{ bin_dir, "git" }),
@@ -77,11 +74,8 @@ pub const Ctx = struct {
             // Keep printed output off the build runner's protocol stream.
             .stdout_to_stderr = true,
         };
-        // Deterministic regardless of the harness. The systemd run_once
-        // mirror must not depend on the real /run (tests are not root).
+        // Deterministic regardless of the harness.
         proc.Host.stdin_tty_override = false;
-        proc.Host.root_override = null;
-        proc.Host.run_once_base = tmp_path;
         return .{
             .arena_state = arena_state,
             .tmp = tmp,
@@ -94,8 +88,6 @@ pub const Ctx = struct {
 
     pub fn deinit(self: *Ctx) void {
         proc.Host.stdin_tty_override = null;
-        proc.Host.root_override = null;
-        proc.Host.run_once_base = null;
         self.tmp.cleanup();
         const gpa = self.arena_state.child_allocator;
         self.arena_state.deinit();
@@ -183,22 +175,13 @@ pub const Ctx = struct {
     }
 };
 
-/// A compose-style project directory (docker-compose.yml present).
-pub fn makeProjectDir(self: *Ctx, sub: []const u8) ![]const u8 {
-    const dir = try std.fs.path.join(self.arena_state.allocator(), &.{ self.tmp_path, sub });
-    try Io.Dir.cwd().createDirPath(testing.io, dir);
-    const marker = try std.fs.path.join(self.arena_state.allocator(), &.{ dir, "docker-compose.yml" });
-    try Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = marker, .data = "services: {}\n" });
-    return dir;
-}
-
 test "ctx builds and logs" {
     var ctx = try Ctx.init();
     defer ctx.deinit();
     try ctx.env.put("PESQUE_FAKE_EXIT", "0");
-    const code = try ctx.host.run(&.{ ctx.host.progs.docker, "compose", "version" });
+    const code = try ctx.host.run(&.{ ctx.host.progs.docker, "ps" });
     try testing.expectEqual(@as(u8, 0), code);
     const invs = try ctx.invocations();
     try testing.expectEqual(@as(usize, 1), invs.len);
-    try Ctx.expectArg(invs[0], "compose");
+    try Ctx.expectArg(invs[0], "ps");
 }

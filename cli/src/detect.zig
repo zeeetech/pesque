@@ -1,9 +1,9 @@
 //! Backend discovery and the `backend` command.
 //!
-//! Order: `--backend`/`PESQUE_BACKEND` -> upward search for
-//! `docker-compose.yml` -> `docker inspect <PESQUE_CONTAINER|pesque>` ->
-//! `systemctl` + unit `<PESQUE_SERVICE|pesque>` (nixos when
-//! /run/current-system exists) -> error 3 with the trace of what was tried.
+//! Two shapes: docker (a container the CLI owns) and systemd (a unit that owns
+//! the service). Order: `--backend`/`PESQUE_BACKEND` -> `docker inspect
+//! <PESQUE_CONTAINER|pesque>` -> `systemctl` unit `<PESQUE_SERVICE|pesque>` ->
+//! error 3 with the trace of what was tried. NixOS is a systemd host.
 const std = @import("std");
 const builtin = @import("builtin");
 const Io = std.Io;
@@ -14,10 +14,8 @@ const systemd = @import("drivers/systemd.zig");
 const Error = proc.Error;
 
 pub fn parseKind(value: []const u8) ?driver.Kind {
-    if (std.mem.eql(u8, value, "compose")) return .compose;
     if (std.mem.eql(u8, value, "docker")) return .docker;
     if (std.mem.eql(u8, value, "systemd")) return .systemd;
-    if (std.mem.eql(u8, value, "nixos")) return .nixos;
     return null;
 }
 
@@ -32,29 +30,27 @@ pub fn detect(host: *proc.Host, flag: ?driver.Kind) Error!driver.Driver {
     if (host.get("PESQUE_BACKEND")) |b| {
         if (b.len > 0) {
             const kind = parseKind(b) orelse {
-                host.err("PESQUE_BACKEND must be compose, docker, systemd or nixos, got: {s}.", .{b});
+                host.err("PESQUE_BACKEND must be docker or systemd, got: {s}.", .{b});
                 return error.Usage;
             };
             return explicit(host, kind);
         }
     }
 
-    // 1. Upward search for a docker-compose.yml (compose install).
-    if (try findCompose(host, &trace)) |d| return .{ .compose = d };
-
-    // 2. A running container (docker backend), then a systemd unit. Windows
-    //    keeps docker/compose only.
+    // 1. A running container (docker backend), then a systemd unit. Windows
+    //    keeps docker only.
     if (builtin.os.tag != .windows) {
         if (try tryDocker(host, &trace)) |d| return .{ .docker = d };
         if (try trySystemd(host, &trace)) |d| return d;
     } else {
+        if (try tryDocker(host, &trace)) |d| return .{ .docker = d };
         try traceNote(host, &trace, "systemd is not supported on windows", .{});
     }
 
-    // 3. Nothing found: error 3 with the trace.
+    // 2. Nothing found: error 3 with the trace.
     host.err("could not detect a backend.", .{});
     for (trace.items) |t| host.printTo(.stderr, "  tried: {s}\n", .{t});
-    host.printTo(.stderr, "  run from the compose install directory, or force one with --backend compose|docker|systemd|nixos.\n", .{});
+    host.printTo(.stderr, "  create a container ('pesque up' with PESQUE_BACKEND=docker), or force one with --backend docker|systemd.\n", .{});
     return error.DriverFailed;
 }
 
@@ -65,35 +61,35 @@ fn traceNote(host: *proc.Host, trace: *std.ArrayList([]const u8), comptime fmt: 
 
 fn explicit(host: *proc.Host, kind: driver.Kind) Error!driver.Driver {
     switch (kind) {
-        .compose => {
-            const dir = try composeRoot(host);
-            return .{ .compose = .{ .project_dir = dir, .build = buildFlag(host) } };
-        },
-        .docker => {
-            return .{ .docker = .{
-                .container = host.get("PESQUE_CONTAINER") orelse "pesque",
-                .image = host.get("PESQUE_IMAGE") orelse "",
-            } };
-        },
+        .docker => return .{ .docker = dockerFromEnv(host) },
         .systemd => {
             if (builtin.os.tag == .windows) {
-                host.err("the systemd backend is not supported on windows (docker and compose are).", .{});
+                host.err("the systemd backend is not supported on windows (docker is).", .{});
                 return error.DriverFailed;
             }
             const unit = host.get("PESQUE_SERVICE") orelse "pesque";
             try verifyUnit(host, unit);
             return .{ .systemd = .{ .unit = unit, .release = resolveRelease(host, unit) } };
         },
-        .nixos => {
-            if (builtin.os.tag == .windows) {
-                host.err("the nixos backend is not supported on windows (docker and compose are).", .{});
-                return error.DriverFailed;
-            }
-            const unit = host.get("PESQUE_SERVICE") orelse "pesque";
-            try verifyUnit(host, unit);
-            return .{ .nixos = .{ .unit = unit, .release = resolveRelease(host, unit) } };
-        },
     }
+}
+
+/// The docker container settings, from the environment (PESQUE_*), with the
+/// defaults baked into `driver.Docker`.
+fn dockerFromEnv(host: *proc.Host) driver.Docker {
+    var d: driver.Docker = .{};
+    if (host.get("PESQUE_CONTAINER")) |v| d.container = v;
+    if (host.get("PESQUE_IMAGE")) |v| d.image = v;
+    if (host.get("PESQUE_DATA")) |v| d.data = v;
+    if (host.get("PESQUE_CONFIG")) |v| {
+        d.config = v;
+    } else if (Io.Dir.cwd().realPathFileAlloc(host.io, "pesque.conf", host.gpa) catch null) |p| {
+        // Same convention as the server: with PDS_CONFIG unset it reads
+        // `pesque.conf` in the working directory. PESQUE_CONFIG still wins.
+        d.config = p;
+    }
+    if (host.get("PESQUE_PUBLISH")) |v| d.publish = v;
+    return d;
 }
 
 /// The release directory: PESQUE_RELEASE wins, else the unit's ExecStart, else
@@ -104,53 +100,10 @@ fn resolveRelease(host: *proc.Host, unit: []const u8) []const u8 {
     return "/opt/pesque";
 }
 
-fn buildFlag(host: *proc.Host) bool {
-    const v = host.get("PESQUE_BUILD") orelse return false;
-    return std.mem.eql(u8, v, "1");
-}
-
-/// Where the compose search starts and (if set) stops.
-fn searchRoot(host: *proc.Host) Error![]const u8 {
-    const root = host.get("PESQUE_ROOT") orelse ".";
-    return Io.Dir.cwd().realPathFileAlloc(host.io, root, host.gpa) catch {
-        host.err("cannot resolve {s} (does it exist?).", .{root});
-        return error.DriverFailed;
-    };
-}
-
-/// PESQUE_ROOT (explicit compose root) must hold a docker-compose.yml.
-fn composeRoot(host: *proc.Host) Error![]const u8 {
-    const dir = try searchRoot(host);
-    const marker = std.fs.path.join(host.gpa, &.{ dir, "docker-compose.yml" }) catch return error.OutOfMemory;
-    Io.Dir.cwd().access(host.io, marker, .{}) catch {
-        host.err("no docker-compose.yml in {s}. Run from the compose install directory or set PESQUE_ROOT to it.", .{dir});
-        return error.DriverFailed;
-    };
-    return dir;
-}
-
-/// Walk up from the search root looking for docker-compose.yml.
-fn findCompose(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.Compose {
-    var dir = try searchRoot(host);
-    // PESQUE_ROOT set: the search starts (and stops) there.
-    const limited = host.get("PESQUE_ROOT") != null;
-    while (true) {
-        const marker = std.fs.path.join(host.gpa, &.{ dir, "docker-compose.yml" }) catch return error.OutOfMemory;
-        if (Io.Dir.cwd().access(host.io, marker, .{})) {
-            return driver.Compose{ .project_dir = dir, .build = buildFlag(host) };
-        } else |_| {}
-        try traceNote(host, trace, "no docker-compose.yml in {s}", .{dir});
-        if (limited) return null;
-        const parent = std.fs.path.dirname(dir) orelse return null;
-        if (std.mem.eql(u8, parent, dir)) return null; // filesystem root reached
-        dir = parent;
-    }
-}
-
 fn tryDocker(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.Docker {
-    const container = host.get("PESQUE_CONTAINER") orelse "pesque";
+    var d = dockerFromEnv(host);
     const argv = [_][]const u8{
-        host.progs.docker, "inspect", container, "--format", "{{.Config.Image}}",
+        host.progs.docker, "inspect", d.container, "--format", "{{.Config.Image}}",
     };
     const cap = host.capture(&argv) catch |e| switch (e) {
         error.DriverFailed => {
@@ -161,13 +114,11 @@ fn tryDocker(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.
     };
     defer host.freeCapture(cap);
     if (!cap.ok()) {
-        try traceNote(host, trace, "no container named '{s}' (docker inspect)", .{container});
+        try traceNote(host, trace, "no container named '{s}' (docker inspect)", .{d.container});
         return null;
     }
-    return driver.Docker{
-        .container = container,
-        .image = host.get("PESQUE_IMAGE") orelse (host.gpa.dupe(u8, cap.line()) catch return error.OutOfMemory),
-    };
+    if (d.image.len == 0) d.image = host.gpa.dupe(u8, cap.line()) catch return error.OutOfMemory;
+    return d;
 }
 
 fn unitCheck(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.Driver {
@@ -185,15 +136,7 @@ fn unitCheck(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.
         try traceNote(host, trace, "no systemd unit named '{s}' (systemctl cat)", .{unit});
         return null;
     }
-    // NixOS systems carry /run/current-system.
-    const nixos_system = Io.Dir.cwd().access(host.io, "/run/current-system", .{});
-    if (nixos_system) {
-        return driver.Driver{ .nixos = .{
-            .unit = unit,
-            .release = resolveRelease(host, unit),
-        } };
-    } else |_| {}
-    return driver.Driver{ .systemd = .{ .unit = unit } };
+    return driver.Driver{ .systemd = .{ .unit = unit, .release = resolveRelease(host, unit) } };
 }
 
 fn trySystemd(host: *proc.Host, trace: *std.ArrayList([]const u8)) Error!?driver.Driver {
@@ -215,40 +158,32 @@ fn verifyUnit(host: *proc.Host, unit: []const u8) Error!void {
 pub fn printReport(host: *proc.Host, d: driver.Driver) Error!u8 {
     host.out("backend: {s}", .{@tagName(d.kind())});
     switch (d) {
-        .compose => |c| {
-            host.out("project dir:  {s}", .{c.project_dir});
-            host.out("service:      {s}", .{c.service});
-            host.out("compose file: {s}", .{try std.fs.path.join(host.gpa, &.{ c.project_dir, "docker-compose.yml" })});
-        },
         .docker => |dc| {
             host.out("container: {s}", .{dc.container});
             host.out("image:     {s}", .{if (dc.image.len > 0) dc.image else "(resolved from the running container)"});
+            host.out("data:      {s} -> /data", .{dc.data});
+            if (dc.config.len > 0) host.out("config:    {s} -> /data/pesque.conf", .{dc.config});
+            host.out("publish:   {s}", .{dc.publish});
         },
         .systemd => |s| {
             host.out("unit:    {s}", .{s.unit});
             host.out("release: {s}", .{s.release});
         },
-        .nixos => |n| {
-            host.out("unit:    {s}", .{n.unit});
-            host.out("release: {s}", .{n.release});
-        },
     }
     const data = try d.dataDir(host);
     switch (data) {
-        .volume => |v| host.out("data:     volume {s}", .{v}),
-        .path => |p| host.out("data:     {s}", .{p}),
+        .volume => |v| host.out("data dir:  volume {s}", .{v}),
+        .path => |p| host.out("data dir:  {s}", .{p}),
     }
-    host.out("one-off tasks: {s} /app/bin/pesque <verb> <argv>", .{oneOffShape(d)});
-    host.out("lifecycle:     {s}", .{if (d.ownsLifecycle()) "owned (up/down/restart/update)" else "foreign (this backend refuses up/down; the service manager owns it)"});
+    host.out("one-off tasks: {s}", .{oneOffShape(d)});
+    host.out("lifecycle:     {s}", .{if (d.ownsLifecycle()) "owned (up/down/restart/update)" else "foreign (the unit owns the service; up/down/restart/update are no-ops)"});
     host.out("interactive:   {s}", .{if (d.interactive()) "yes" else "no"});
     return 0;
 }
 
 fn oneOffShape(d: driver.Driver) []const u8 {
     return switch (d) {
-        .compose => "docker compose run --rm --no-deps pesque",
-        .docker => "docker run --rm -i --volumes-from <container> --env-file <PDS_* mirror>",
-        .systemd => "systemd-run --pipe --wait --collect -p User=pesque -p Group=pesque",
-        .nixos => "systemd-run --pipe --wait --collect (or direct exec) via ${PESQUE_RELEASE}",
+        .docker => "docker run --rm -i -v <PESQUE_DATA>:/data -v <conf>:/data/pesque.conf",
+        .systemd => "direct exec of <release>/bin/pesque as the service user",
     };
 }

@@ -1,14 +1,17 @@
 //! The driver interface: a tagged union over the closed backend set
-//! (compose, docker, systemd, nixos) with exhaustive switches.
-//! Implementations live in `drivers/`.
+//! (docker, systemd) with exhaustive switches. Implementations live in
+//! `drivers/`.
+//!
+//! Two shapes, two owners. The docker backend is imperative: the CLI creates
+//! the container and owns its lifecycle. The systemd backend is declarative:
+//! the unit owns the service (up/down/restart/update are no-ops with a
+//! message), and one-offs run the release directly as the service user.
 const std = @import("std");
 const proc = @import("proc.zig");
-const compose = @import("drivers/compose.zig");
 const docker = @import("drivers/docker.zig");
 const systemd = @import("drivers/systemd.zig");
-const nixos = @import("drivers/nixos.zig");
 
-pub const Kind = enum { compose, docker, systemd, nixos };
+pub const Kind = enum { docker, systemd };
 
 /// One one-off task: `/app/bin/pesque <verb> <argv>` inside the driver's
 /// runtime. Mirrors `Pesque.Ops.RunOnce` on the Elixir side.
@@ -35,24 +38,25 @@ pub const Poll = enum { healthy, starting, down };
 
 /// Where the server's data lives, as far as the driver can tell.
 pub const DataDir = union(enum) {
-    /// A docker volume (compose/docker backends).
+    /// A docker volume (the docker backend).
     volume: []const u8,
-    /// A host path (systemd/nixos backends).
+    /// A host path (docker bind mount / systemd).
     path: []const u8,
-};
-
-pub const Compose = struct {
-    /// Absolute directory holding docker-compose.yml.
-    project_dir: []const u8,
-    /// PESQUE_BUILD=1: build the image from source instead of pulling.
-    build: bool = false,
-    service: []const u8 = "pesque",
 };
 
 pub const Docker = struct {
     container: []const u8 = "pesque",
-    /// Empty until resolved from the running container.
+    /// Empty until resolved from PESQUE_IMAGE or the running container.
     image: []const u8 = "",
+    /// Host path or named volume mounted at /data (PESQUE_DATA).
+    data: []const u8 = "pesque-data",
+    /// Host path to a pesque.conf mounted read-only at /data/pesque.conf
+    /// (PESQUE_CONFIG). Empty means the container configures itself from its
+    /// environment.
+    config: []const u8 = "",
+    /// Published-port spec for `docker run -p` (PESQUE_PUBLISH). The default
+    /// keeps the server on loopback, where a proxy on the same host reaches it.
+    publish: []const u8 = "127.0.0.1:4000:4000",
 };
 
 pub const Systemd = struct {
@@ -60,23 +64,14 @@ pub const Systemd = struct {
     release: []const u8 = "/opt/pesque",
 };
 
-pub const Nixos = struct {
-    unit: []const u8 = "pesque",
-    release: []const u8 = "/opt/pesque",
-};
-
 pub const Driver = union(Kind) {
-    compose: Compose,
     docker: Docker,
     systemd: Systemd,
-    nixos: Nixos,
 
     pub fn kind(self: Driver) Kind {
         return switch (self) {
-            .compose => .compose,
             .docker => .docker,
             .systemd => .systemd,
-            .nixos => .nixos,
         };
     }
 
@@ -84,114 +79,85 @@ pub const Driver = union(Kind) {
     /// failure); driver/environment failures come back as errors (3).
     pub fn runOnce(self: Driver, host: *proc.Host, ro: RunOnce) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.runOnce(d, host, ro),
             .docker => |d| docker.runOnce(d, host, ro),
             .systemd => |d| systemd.runOnce(d, host, ro),
-            .nixos => |d| nixos.runOnce(d, host, ro),
         };
     }
 
-    /// Bring the service up. Foreign-lifecycle backends refuse (3) or no-op.
+    /// Bring the service up. Docker creates the container if it is absent.
+    /// Systemd: the unit owns the lifecycle, so it is a no-op.
     pub fn up(self: Driver, host: *proc.Host) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.up(d, host),
-            .docker => |d| docker.refuseLifecycle(host, "start", "docker start {s}", .{d.container}),
-            .systemd => |d| systemd.start(d, host),
-            .nixos => |d| nixos.noopLifecycle(d, host, "up"),
+            .docker => |d| docker.up(d, host),
+            .systemd => |d| systemd.noopLifecycle(d, host, "up"),
         };
     }
 
-    /// Take the service down. NEVER deletes data (`down` never passes `-v`).
+    /// Take the service down. NEVER deletes data.
     pub fn down(self: Driver, host: *proc.Host) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.down(d, host),
-            .docker => |d| docker.refuseLifecycle(host, "stop", "docker stop {s}", .{d.container}),
-            .systemd => |d| systemd.stop(d, host),
-            .nixos => |d| nixos.noopLifecycle(d, host, "down"),
+            .docker => |d| docker.down(d, host),
+            .systemd => |d| systemd.noopLifecycle(d, host, "down"),
         };
     }
 
     pub fn restart(self: Driver, host: *proc.Host) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.restart(d, host),
             .docker => |d| docker.restart(d, host),
-            .systemd => |d| systemd.restart(d, host),
-            .nixos => |d| nixos.restart(d, host),
-        };
-    }
-
-    /// Pull (or build) the release. On systemd this downloads the release
-    /// tarball and swaps the /opt/pesque symlink.
-    pub fn pull(self: Driver, host: *proc.Host, tag: ?[]const u8) proc.Error!u8 {
-        return switch (self) {
-            .compose => |d| compose.pull(d, host, tag),
-            .docker => |d| docker.pull(d, host, tag),
-            .systemd => |d| systemd.pull(d, host, tag),
-            .nixos => |d| nixos.noopUpdate(d, host),
+            .systemd => |d| systemd.noopLifecycle(d, host, "restart"),
         };
     }
 
     pub fn logs(self: Driver, host: *proc.Host, opts: LogOpts) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.logs(d, host, opts),
             .docker => |d| docker.logs(d, host, opts),
             .systemd => |d| systemd.logs(d, host, opts),
-            .nixos => |d| nixos.logs(d, host, opts),
         };
     }
 
     pub fn health(self: Driver, host: *proc.Host) proc.Error!Health {
         return switch (self) {
-            .compose => |d| compose.health(d, host),
             .docker => |d| docker.health(d, host),
             .systemd => |d| systemd.health(d, host),
-            .nixos => |d| nixos.health(d, host),
         };
     }
 
-    /// Quiet status probe used by setup's health wait (prints nothing).
+    /// Quiet status probe used by the health wait (prints nothing).
     pub fn pollStatus(self: Driver, host: *proc.Host) proc.Error!Poll {
         return switch (self) {
-            .compose => |d| compose.pollStatus(d, host),
             .docker => |d| docker.pollStatus(host, d.container),
             .systemd => |d| systemd.pollStatus(d, host),
-            .nixos => |d| systemd.pollStatus(.{ .unit = d.unit, .release = d.release }, host),
         };
     }
 
     pub fn dataDir(self: Driver, host: *proc.Host) proc.Error!DataDir {
         return switch (self) {
-            .compose => |d| compose.dataDir(d, host),
             .docker => |d| docker.dataDir(d, host),
             .systemd => |d| systemd.dataDir(d, host),
-            .nixos => |d| nixos.dataDir(d, host),
         };
     }
 
     /// Can one-off tasks be attached to an interactive terminal?
     pub fn interactive(self: Driver) bool {
         return switch (self) {
-            .compose, .docker, .systemd, .nixos => true,
+            .docker, .systemd => true,
         };
     }
 
-    /// Does the driver own the service lifecycle (up/down/update)?
+    /// Does the driver own the service lifecycle (up/down/restart/update)?
     pub fn ownsLifecycle(self: Driver) bool {
         return switch (self) {
-            .compose, .systemd => true,
-            .docker, .nixos => false,
+            .docker => true,
+            .systemd => false,
         };
     }
 
-    /// `update [tag]`: pull (or build) + restart, per backend semantics.
-    /// Compose uses `up -d` (restart alone keeps the old container), docker
-    /// defers to PESQUE_RESTART_CMD, systemd swaps the /opt symlink, nixos no-ops.
+    /// `update [tag]`: docker pulls and recreates the container with the same
+    /// settings; systemd no-ops (the release is managed outside the CLI).
     pub fn update(self: Driver, host: *proc.Host, tag: ?[]const u8) proc.Error!u8 {
         return switch (self) {
-            .compose => |d| compose.update(d, host, tag),
             .docker => |d| docker.update(d, host, tag),
-            .systemd => |d| systemd.update(d, host, tag),
-            .nixos => |d| nixos.noopUpdate(d, host),
+            .systemd => |d| systemd.noopUpdate(d, host),
         };
     }
 };

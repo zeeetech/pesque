@@ -128,10 +128,10 @@ the operator publishes a TXT record per handle (or a wildcard) rather than
 pointing every handle subdomain at the server.
 
 A hosted handle is also a name clients fetch over HTTPS, so each one needs a
-certificate. The shipped `Caddyfile` provides those without a wildcard
-certificate and without DNS-01: it serves the hostname and every subdomain of
-it with on-demand TLS, and before issuing anything Caddy asks the server
-whether the name is one it owns
+certificate. The proxy you run in front of the server provides those. Caddy
+with on-demand TLS does it without a wildcard certificate and without DNS-01:
+it serves the hostname and every subdomain of it, and before issuing anything
+asks the server whether the name is one it owns
 (`GET /xrpc/_tls-check?domain=<name>` answers 200 for the hostname and for
 handles the accounts table carries, 403 for everything else). This covers the
 `path_multi` default, where the handle domain is the hostname and handles look

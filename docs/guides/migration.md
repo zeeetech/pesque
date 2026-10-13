@@ -33,9 +33,10 @@ pesque migrate \
 Both prompt for the account password with echo off, or read it from stdin
 (`echo secret | pesque migrate ...`), never a flag or the environment.
 
-The CLI drives compose by default and a container you already run with
-`PESQUE_BACKEND=docker`; both attach a terminal so the code prompt can be
-answered. Both are in the [installation guide](installation.md).
+The CLI drives the deployment it detects: the container `pesque up` created
+(backend `docker`) or the native systemd service (backend `systemd`);
+`PESQUE_BACKEND` or `--backend` pins one. Both attach a terminal so the code
+prompt can be answered. Both are in the [installation guide](installation.md).
 
 It opens a session on the old PDS, creates the account here (deactivated),
 imports the repo and every blob, fetches the recommended credentials, then asks
@@ -181,8 +182,8 @@ curl -s -X POST https://old.example.com/xrpc/com.atproto.server.deactivateAccoun
   `alsoKnownAs` does not claim the account's handle.
 - `getRecommendedDidCredentials` mints the rotation key on the first ask.
 - A handle this server itself hosts needs a DNS record for the name (a wildcard
-  `*.<handle-domain>` or one per handle). The shipped Caddyfile issues the
-  certificate on demand, so there is no wildcard certificate to buy and no
+  `*.<handle-domain>` or one per handle). A proxy you run with on-demand TLS
+  issues the certificate, so there is no wildcard certificate to buy and no
   DNS-01 provider to wire up; the proxy setup is in
   [Installation](installation.md#behind-a-tls-proxy). A handle on a domain you
   do not control is verified by a TXT record instead.

@@ -25,37 +25,46 @@ The name sounds like PDS and means "go fish" in Portuguese.
 
 ## Deploy it
 
-One line, then one command:
+Install the CLI, write a conf, bring the server up:
 
 ```bash
 curl -fsSL https://github.com/zeeetech/pesque/releases/latest/download/install.sh | sh
-cd pesque && pesque setup
+pesque config template --out pesque.conf
 ```
 
-Run the installer from an empty directory: it verifies and installs the
-`pesque` CLI and the compose bundle (Docker + Caddy on the same droplet),
-then hands off. Setup asks for the domain clients will use and whether the
-server hosts one account or several, pulls the prebuilt image, waits until it
-is healthy, creates the first account, and prints the DNS records to add.
-After DNS propagates:
+Edit `pesque.conf` with the domain clients will use, then:
+
+```bash
+pesque up
+pesque account create --handle alice.example.com --email alice@example.com
+```
+
+The installer verifies and installs the `pesque` CLI, that's all. There is no
+setup wizard and no TLS in the box: the reverse proxy and its certificates are
+the operator's job. Point your proxy at the published port (`127.0.0.1:4000` by
+default) and add the DNS records yourself.
+
+The CLI speaks to one of two backends, picked with `--backend docker|systemd`
+or `PESQUE_BACKEND`. `docker` (default) creates and owns one container: `up`
+runs it if absent and starts it otherwise, `down` stops it with the data kept,
+`update [tag]` pulls a new image and recreates the container with the same
+settings. `systemd` runs the release as a native systemd service and the unit
+owns the lifecycle, so `up`, `down`, `restart` and `update` are no-ops there;
+NixOS is detected as systemd. Updates are manual only, there is no auto-update.
+
+After the first account:
 
 ```bash
 pesque doctor          # federation preflight
-pesque account create --handle alice.example.com --email alice@example.com
 pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
-pesque update          # pull a new image and restart
+pesque update          # pull a new image and recreate the container
 pesque logs -f         # follow the server logs
 ```
 
 `account create` and `migrate` prompt for the password with echo off, or read
 it from stdin (`echo secret | pesque ...`), so it never lands in your shell
-history or the environment. Flags cover the rest: `--backend
-systemd` installs a plain systemd service instead of the compose stack,
-`--backend docker` prints the mount-a-conf path for a container you run
-yourself, and `--hostname`, `--mode`, `--tag`, `--dir` and `--yes` make the
-whole thing scriptable. Raw Docker, releases, TLS without Caddy and every
-configuration knob are in the [installation guide](docs/guides/installation.md),
-and the flake ships `services.pesque` for NixOS.
+history or the environment. Raw Docker, releases, TLS and every configuration
+knob are in the [installation guide](docs/guides/installation.md).
 
 ## Run it from source
 
@@ -102,15 +111,18 @@ The guides are English only. This README is mirrored in
 
 ## Common questions
 
-- **How do I get a server?** The installer: [Deploy it](#deploy-it). Compose
-  with Caddy by default, systemd or raw Docker as flags.
+- **How do I get a server?** The installer and three commands:
+  [Deploy it](#deploy-it). One Docker container or a systemd service; the TLS
+  proxy is yours.
 - **How do I add another account?**
   `pesque account create --handle alice.example.com --email alice@example.com`;
   it prompts for the password with echo off.
 - **How do I back up and restore?** `pesque backup [--out DIR]` runs with the
   server up; `pesque restore ARCHIVE.tar.gz` is cold, stop the server first.
   [Operations](docs/guides/operations.md) has the schedule and the hazards.
-- **How do I update?** `pesque update` pulls a new image and restarts.
+- **How do I update?** `pesque update` pulls a new image and recreates the
+  container (docker backend, manual only); on systemd you upgrade the release
+  yourself.
 - **How do I move an account in?**
   `pesque migrate --old-pds https://bsky.social --handle alice.example.com
   --email alice@example.com`; the move is one-way. [Migration](docs/guides/migration.md)

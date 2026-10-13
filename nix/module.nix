@@ -34,9 +34,12 @@
 # both store paths).
 #
 # The host-side CLI is installed on PATH by default (the flake builds it with a
-# pinned Zig and turns the option on). It finds the release and the config from
-# the running unit, so `sudo pesque doctor`, `sudo pesque account list` and the
-# rest reach this server. The lifecycle verbs no-op here: NixOS owns the unit.
+# pinned Zig and turns the option on), and also into the pesque user's own
+# packages so `sudo -u pesque pesque <verb>` works. It finds the release and
+# the config from the running unit, so `sudo pesque doctor`,
+# `sudo pesque account list` and the rest reach this server. The lifecycle
+# verbs no-op here: the unit owns the lifecycle. The oneshot units below stay
+# as optional conveniences next to the CLI.
 {
   config,
   lib,
@@ -276,7 +279,9 @@ in
         type = types.bool;
         default = false;
         description = ''
-          Install the host-side CLI on the system PATH. The flake turns this on
+          Install the host-side CLI on the system PATH and in the pesque
+          user's own packages, so `sudo pesque <verb>` and
+          `sudo -u pesque pesque <verb>` both work. The flake turns this on
           with a pinned build; importing this module directly leaves it off.
         '';
       };
@@ -295,6 +300,10 @@ in
       group = "pesque";
       home = cfg.dataDir;
       description = "pesque ATProto PDS";
+      # The CLI has to run as the service user too (`sudo -u pesque pesque ...`):
+      # the per-user profile at /etc/profiles/per-user/pesque puts the binary on
+      # that user's PATH, next to the system PATH entry below.
+      packages = mkIf (cfg.cli.enable && cfg.cli.package != null) [ cfg.cli.package ];
     };
     users.groups.pesque = { };
 

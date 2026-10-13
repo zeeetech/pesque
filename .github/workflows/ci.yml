@@ -77,8 +77,7 @@ jobs:
       - name: Run tests
         run: zig build test
 
-      # Windows keeps the docker/compose backends only; systemd/nixos need a
-      # Linux host.
+      # Windows keeps the docker backend only; systemd needs a Linux host.
       - name: Cross-build the release targets
         run: |
           set -eu

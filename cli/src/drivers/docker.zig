@@ -1,7 +1,8 @@
-//! The docker backend: drives a container you already run. One-offs go
-//! through `docker run --volumes-from`, so no compose file and no clone are
-//! needed on the server. The lifecycle is foreign: up/down refuse with
-//! instructions.
+//! The docker backend: one container the CLI creates and owns. `up` creates
+//! the container if it is absent (`docker run -d`), or starts it if it exists.
+//! `update` pulls and recreates it with the same settings. One-offs run a
+//! throwaway container from the same image, given the same data and config,
+//! so no compose file and no clone are needed on the server.
 const std = @import("std");
 const Io = std.Io;
 const proc = @import("../proc.zig");
@@ -9,121 +10,102 @@ const driver = @import("../driver.zig");
 
 const Error = proc.Error;
 
+/// The image used when neither PESQUE_IMAGE nor a running container names one.
+pub const default_image = "ghcr.io/zeeetech/pesque:latest";
+
 fn mountArg(host: *proc.Host, m: proc.Mount) Error![]const u8 {
     return std.fmt.allocPrint(host.gpa, "{s}:{s}", .{ m.source, m.target }) catch error.OutOfMemory;
 }
 
-/// The image the running container was started from, so a one-off matches the
-/// code the live server runs.
+/// The image the CLI should run. PESQUE_IMAGE wins; otherwise the running
+/// container's image (so a one-off matches the code the live server runs);
+/// otherwise the published image, for a container that does not exist yet.
 pub fn image(self: driver.Docker, host: *proc.Host) Error![]const u8 {
     if (self.image.len > 0) return self.image;
     const argv = [_][]const u8{
         host.progs.docker,   "inspect", self.container, "--format",
         "{{.Config.Image}}",
     };
-    const cap = host.capture(&argv) catch |e| return e;
+    const cap = host.capture(&argv) catch |e| switch (e) {
+        error.DriverFailed => return default_image,
+        else => return e,
+    };
     defer host.freeCapture(cap);
     const found = cap.line();
-    if (!cap.ok() or found.len == 0) {
-        host.err("could not read the image of container '{s}'. Set PESQUE_IMAGE to the image the container runs.", .{self.container});
-        return error.DriverFailed;
-    }
+    if (!cap.ok() or found.len == 0) return default_image;
     return host.gpa.dupe(u8, found) catch error.OutOfMemory;
 }
 
-/// Mirror the running container's PDS_* environment into an owner-only temp
-/// file for `docker run --env-file`, so the one-off sees the same PDS_* world
-/// as the live server. Caller removes the temp dir.
-fn writeEnvMirror(self: driver.Docker, host: *proc.Host, tmp_dir: []const u8) Error![]const u8 {
-    const g = host.gpa;
+/// Does a container named `self.container` exist?
+pub fn exists(self: driver.Docker, host: *proc.Host) Error!bool {
     const argv = [_][]const u8{
-        host.progs.docker,                           "inspect", self.container, "--format",
-        "{{range .Config.Env}}{{println .}}{{end}}",
+        host.progs.docker, "inspect", self.container, "--format", "{{.Id}}",
     };
-    const cap = host.capture(&argv) catch |e| return e;
+    const cap = host.capture(&argv) catch |e| switch (e) {
+        error.DriverFailed => return false,
+        else => return e,
+    };
     defer host.freeCapture(cap);
-    if (!cap.ok()) {
-        host.err("no container named '{s}' is running. Set PESQUE_CONTAINER to the Pesque container's name, or PESQUE_BACKEND=compose if you meant the compose stack.", .{self.container});
-        return error.DriverFailed;
-    }
-
-    const file_path = std.fs.path.join(g, &.{ tmp_dir, "pds.env" }) catch return error.OutOfMemory;
-    var content: std.ArrayList(u8) = .empty;
-    defer content.deinit(g);
-    var lines = std.mem.splitScalar(u8, cap.stdout, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, "PDS_")) {
-            content.appendSlice(g, line) catch return error.OutOfMemory;
-            content.append(g, '\n') catch return error.OutOfMemory;
-        }
-    }
-    Io.Dir.cwd().writeFile(host.io, .{ .sub_path = file_path, .data = content.items }) catch return error.DriverFailed;
-    if (@import("builtin").os.tag != .windows) {
-        // Best effort: keep the mirrored PDS_* values out of other users' reach.
-        Io.Dir.cwd().setFilePermissions(host.io, file_path, .fromMode(0o600), .{}) catch {};
-    }
-    return file_path;
+    return cap.ok() and cap.line().len > 0;
 }
 
-pub fn runOnce(self: driver.Docker, host: *proc.Host, ro: driver.RunOnce) Error!u8 {
-    try host.resolveEnv(ro.env);
-    const tmp_dir = host.makeTempDir() catch |e| return e;
-    defer host.removeTempDir(tmp_dir);
-    const env_file = try writeEnvMirror(self, host, tmp_dir);
+fn appendVolume(g: std.mem.Allocator, argv: *std.ArrayList([]const u8), source: []const u8, target: []const u8, ro: bool) Error!void {
+    const spec = std.fmt.allocPrint(g, "{s}:{s}{s}", .{ source, target, if (ro) ":ro" else "" }) catch return error.OutOfMemory;
+    try argv.appendSlice(g, &.{ "-v", spec });
+}
 
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(host.gpa);
+/// Create and start the container: `docker run -d` with the CLI's known
+/// settings (data mount, optional config mount, published port, restart
+/// policy). `img_override` lets `update` run a specific tag.
+/// Resolve the config path to mount (absolute; docker bind mounts need it and
+/// a missing path would become an empty directory at the mount point).
+fn configPath(self: driver.Docker, host: *proc.Host) Error!?[]const u8 {
+    if (self.config.len == 0) return null;
+    return Io.Dir.cwd().realPathFileAlloc(host.io, self.config, host.gpa) catch {
+        host.err("PESQUE_CONFIG '{s}' does not exist.", .{self.config});
+        return error.DriverFailed;
+    };
+}
+
+pub fn create(self: driver.Docker, host: *proc.Host, img_override: ?[]const u8) Error!u8 {
+    const img = img_override orelse try image(self, host);
     const g = host.gpa;
-    try argv.appendSlice(g, &.{ host.progs.docker, "run", "--rm", "-i" });
-    // `-t` only when the caller is on a terminal.
-    if (ro.interactive and host.stdinIsTty()) try argv.append(g, "-t");
-    try argv.appendSlice(g, &.{ "--volumes-from", self.container });
-    try argv.appendSlice(g, &.{ "--env-file", env_file });
-    try argv.appendSlice(g, &.{ "-e", "PDS_SERVE=false" });
-    // Secrets travel bare: `-e KEY` with the value in the environment.
-    for (ro.env) |e| try argv.appendSlice(g, &.{ "-e", e.key });
-    for (ro.mounts) |m| try argv.appendSlice(g, &.{ "-v", try mountArg(host, m) });
-    try argv.appendSlice(g, &.{ try image(self, host), "/app/bin/pesque", ro.verb });
-    try argv.appendSlice(g, ro.argv);
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(g);
+    try argv.appendSlice(g, &.{
+        host.progs.docker, "run",          "-d",
+        "--name",          self.container, "--restart",
+        "unless-stopped",
+    });
+    try appendVolume(g, &argv, self.data, "/data", false);
+    if (try configPath(self, host)) |abs| try appendVolume(g, &argv, abs, "/data/pesque.conf", true);
+    if (self.publish.len > 0) try argv.appendSlice(g, &.{ "-p", self.publish });
+    try argv.append(g, img);
     return host.run(argv.items);
 }
 
-/// Foreign lifecycle: the container is declared in your service manager, not
-/// by the CLI. Refuse with the exact instruction.
-pub fn refuseLifecycle(host: *proc.Host, action: []const u8, comptime fix_fmt: []const u8, fix_args: anytype) Error!u8 {
-    host.err("the docker backend does not own the container lifecycle, so it cannot '{s}' the server.", .{action});
-    host.printTo(.stderr, "  " ++ fix_fmt ++ "\n", fix_args);
-    host.printTo(.stderr, "  The container is declared in your service manager (or run by hand);\n" ++
-        "  start and stop it there, or switch to the compose backend.\n", .{});
-    return error.DriverFailed;
+/// `up`: create the container if it does not exist, else start it.
+pub fn up(self: driver.Docker, host: *proc.Host) Error!u8 {
+    if (try exists(self, host)) {
+        host.step("starting the container", .{});
+        const argv = [_][]const u8{ host.progs.docker, "start", self.container };
+        return host.run(&argv);
+    }
+    host.step("creating and starting the container", .{});
+    return create(self, host, null);
+}
+
+/// `down`: stop the container. Never removes it and never touches its data.
+pub fn down(self: driver.Docker, host: *proc.Host) Error!u8 {
+    host.step("stopping the container (data is kept)", .{});
+    const argv = [_][]const u8{ host.progs.docker, "stop", self.container };
+    return host.run(&argv);
 }
 
 pub fn restart(self: driver.Docker, host: *proc.Host) Error!u8 {
     host.step("restarting the container", .{});
     const argv = [_][]const u8{ host.progs.docker, "restart", self.container };
     return host.run(&argv);
-}
-
-/// `update` for the docker backend: the pull already happened; restarting an
-/// existing container keeps the old image, so the operator's recreate command
-/// is required.
-pub fn restartWithCmd(self: driver.Docker, host: *proc.Host) Error!u8 {
-    _ = self;
-    const cmd = host.get("PESQUE_RESTART_CMD") orelse "";
-    if (cmd.len == 0) {
-        host.err("pulled the image, but did not replace the running container.", .{});
-        host.printTo(.stderr, "  Restarting an existing container keeps the old image; it has to be recreated.\n" ++
-            "  Set PESQUE_RESTART_CMD to the command that does that (split on spaces, no shell), for example:\n\n" ++
-            "    PESQUE_RESTART_CMD='systemctl restart pesque' pesque update\n\n" ++
-            "  Under NixOS with services.pesque, that is 'systemctl restart pesque'.\n", .{});
-        return error.DriverFailed;
-    }
-    host.step("recreating the container", .{});
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(host.gpa);
-    var it = std.mem.tokenizeAny(u8, cmd, " \t");
-    while (it.next()) |word| try argv.append(host.gpa, host.gpa.dupe(u8, word) catch return error.OutOfMemory);
-    return host.run(argv.items);
 }
 
 pub fn pull(self: driver.Docker, host: *proc.Host, tag: ?[]const u8) Error!u8 {
@@ -134,17 +116,48 @@ pub fn pull(self: driver.Docker, host: *proc.Host, tag: ?[]const u8) Error!u8 {
     return host.run(&argv);
 }
 
-/// `update [tag]`: pull, then hand over to PESQUE_RESTART_CMD (recreating an
-/// existing container keeps the old image otherwise).
+/// `update [tag]`: pull, then recreate the container. A running container keeps
+/// its old image, so it has to be replaced; the named volume / bind mount
+/// survives the removal (only `rm` runs, never `rm -v`).
 pub fn update(self: driver.Docker, host: *proc.Host, tag: ?[]const u8) Error!u8 {
     _ = try pull(self, host, tag);
-    return restartWithCmd(self, host);
+    // Resolve the image before removing the container (inspect needs it live).
+    const img = if (tag) |t| try tagImage(host, try image(self, host), t) else try image(self, host);
+    host.step("recreating the container", .{});
+    const rm = [_][]const u8{ host.progs.docker, "rm", "-f", self.container };
+    // Absent container: rm fails, which is fine, create runs next.
+    _ = host.run(&rm) catch {};
+    return create(self, host, img);
 }
 
 /// Swap the tag portion of an image reference (`repo:old` -> `repo:tag`).
 fn tagImage(host: *proc.Host, img: []const u8, tag: []const u8) Error![]const u8 {
     const base = if (std.mem.lastIndexOfScalar(u8, img, ':')) |i| img[0..i] else img;
     return std.fmt.allocPrint(host.gpa, "{s}:{s}", .{ base, tag }) catch error.OutOfMemory;
+}
+
+/// Run a one-off domain verb in a throwaway container from the same image the
+/// server runs. It is given the same data and config the server was created
+/// with (not `--volumes-from`), so it works whether or not the container is up
+/// yet: `pesque config template` can produce a conf before the first `up`.
+pub fn runOnce(self: driver.Docker, host: *proc.Host, ro: driver.RunOnce) Error!u8 {
+    try host.resolveEnv(ro.env);
+    const img = try image(self, host);
+    const g = host.gpa;
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(g);
+    try argv.appendSlice(g, &.{ host.progs.docker, "run", "--rm", "-i" });
+    // `-t` only when the caller is on a terminal.
+    if (ro.interactive and host.stdinIsTty()) try argv.append(g, "-t");
+    try appendVolume(g, &argv, self.data, "/data", false);
+    if (try configPath(self, host)) |abs| try appendVolume(g, &argv, abs, "/data/pesque.conf", true);
+    try argv.appendSlice(g, &.{ "-e", "PDS_SERVE=false" });
+    // Secrets travel bare: `-e KEY` with the value in the environment.
+    for (ro.env) |e| try argv.appendSlice(g, &.{ "-e", e.key });
+    for (ro.mounts) |m| try argv.appendSlice(g, &.{ "-v", try mountArg(host, m) });
+    try argv.appendSlice(g, &.{ img, "/app/bin/pesque", ro.verb });
+    try argv.appendSlice(g, ro.argv);
+    return host.run(argv.items);
 }
 
 pub fn logs(self: driver.Docker, host: *proc.Host, opts: driver.LogOpts) Error!u8 {
@@ -160,9 +173,9 @@ pub fn logs(self: driver.Docker, host: *proc.Host, opts: driver.LogOpts) Error!u
     return host.run(argv.items);
 }
 
-/// `docker inspect` health status for a container (or id). Shared with the
-/// compose backend. The image's HEALTHCHECK already probes /xrpc/_health, so
-/// container health IS the `_health` check.
+/// `docker inspect` health status for a container (or id). The image's
+/// HEALTHCHECK already probes /xrpc/_health, so container health IS the
+/// `_health` check.
 pub fn pollStatus(host: *proc.Host, container: []const u8) Error!driver.Poll {
     const argv = [_][]const u8{
         host.progs.docker,                                                              "inspect", container, "--format",
@@ -186,7 +199,7 @@ pub fn healthFromPoll(host: *proc.Host, poll: driver.Poll) Error!driver.Health {
         .healthy => .healthy,
         .starting => .degraded,
         .down => {
-            host.err("the pesque container is not running. Start it with your service manager (the docker backend does not own the lifecycle), or check 'pesque logs'.", .{});
+            host.err("the pesque container is not running. Start it with 'pesque up', or check 'pesque logs'.", .{});
             return error.DriverFailed;
         },
     };

@@ -114,9 +114,9 @@ defmodule Pesque.Doctor do
   end
 
   # Where the settings actually came from. The container reads `PDS_CONFIG`,
-  # which points into the volume rather than the directory the compose file
-  # lives in, so an operator who dropped a `pesque.conf` beside
-  # `docker-compose.yml` sees here that it was not the file that was read.
+  # which points at the mounted conf rather than wherever an operator happens
+  # to be working, so a `pesque.conf` dropped in the current directory is
+  # visibly not the file that was read.
   defp config_file_check do
     path = Pesque.Config.path()
 
