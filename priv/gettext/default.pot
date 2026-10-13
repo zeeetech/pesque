@@ -298,7 +298,7 @@ msgstr ""
 msgid "The password needs at least 8 characters."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:246
+#: lib/pesque_web/migrate_html.ex:253
 #: lib/pesque_web/signup_html.ex:165
 #, elixir-autogen, elixir-format
 msgid "This server already has its account."
@@ -409,12 +409,12 @@ msgstr ""
 msgid "If your name is under this server's domain, there is nothing to do: this server takes care of it."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:277
+#: lib/pesque_web/migrate_html.ex:284
 #, elixir-autogen, elixir-format
 msgid "One of your files is larger than this server accepts. Tell whoever runs the server."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:235
+#: lib/pesque_web/migrate_html.ex:242
 #, elixir-autogen, elixir-format
 msgid "That email already belongs to an account here. If you already moved this account, it is already here."
 msgstr ""
@@ -429,7 +429,7 @@ msgstr ""
 msgid "That name is already in use here. If you already moved this account, it is already here."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:228
+#: lib/pesque_web/migrate_html.ex:235
 #, elixir-autogen, elixir-format
 msgid "That name is not accepted here. Use a name that resolves to your account, or a name on this server."
 msgstr ""
@@ -459,7 +459,7 @@ msgstr ""
 msgid "The code is good for 15 minutes. If it expires, start again."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:265
+#: lib/pesque_web/migrate_html.ex:272
 #, elixir-autogen, elixir-format
 msgid "The code took too long to arrive. Start again and keep the email open."
 msgstr ""
@@ -469,12 +469,12 @@ msgstr ""
 msgid "The full name you use today, like alice.bsky.social."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:242
+#: lib/pesque_web/migrate_html.ex:249
 #, elixir-autogen, elixir-format
 msgid "The old account's password has fewer than 8 characters, and here a password has to be longer. Change it there and try again."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:256
+#: lib/pesque_web/migrate_html.ex:263
 #, elixir-autogen, elixir-format
 msgid "The old server refused the request. Check the address and the name."
 msgstr ""
@@ -494,7 +494,7 @@ msgstr ""
 msgid "The record is a TXT at _atproto of your domain, with the value did= followed by your account's DID. It takes a few minutes to propagate."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:270
+#: lib/pesque_web/migrate_html.ex:277
 #, elixir-autogen, elixir-format
 msgid "The server restarted in the middle of the move. Start again: what already came over is reused."
 msgstr ""
@@ -509,12 +509,12 @@ msgstr ""
 msgid "We are copying your data from the old server. This can take a few minutes."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:261
+#: lib/pesque_web/migrate_html.ex:268
 #, elixir-autogen, elixir-format
 msgid "We could not reach the old server. Check the address, or try again in a moment."
 msgstr ""
 
-#: lib/pesque_web/migrate_html.ex:251
+#: lib/pesque_web/migrate_html.ex:258
 #, elixir-autogen, elixir-format
 msgid "We could not sign in to your old account. Check the password: it is the account password, not an app password."
 msgstr ""
@@ -596,4 +596,9 @@ msgstr ""
 #: lib/pesque_web/migrate_html.ex:66
 #, elixir-autogen, elixir-format
 msgid "your name and its DNS"
+msgstr ""
+
+#: lib/pesque_web/migrate_html.ex:228
+#, elixir-autogen, elixir-format
+msgid "That name is not under the domain this server hands out names on. Use the full name, like alice.example.com, or a name that already points at your account."
 msgstr ""

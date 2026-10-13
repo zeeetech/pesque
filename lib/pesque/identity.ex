@@ -118,8 +118,21 @@ defmodule Pesque.Identity do
   """
   def plc?, do: match?({:conformant_single, :plc}, {Pesque.mode(), Pesque.identity()})
 
-  @doc "The handle the server publishes for itself."
-  def handle, do: Did.handle_for_username(Pesque.mode(), Pesque.handle_domain(), nil)
+  @doc """
+  The handle the server publishes for itself.
+
+  Under conformant_single the single account is the bare handle domain, so that
+  is the server's handle. Under path_multi the handle domain is the namespace
+  accounts are minted into (`alice.<handle_domain>`), not a name the server
+  holds: the server's own handle is its hostname, which leaves the apex of the
+  handle domain free for an account.
+  """
+  def handle do
+    case Pesque.mode() do
+      :conformant_single -> Pesque.handle_domain()
+      :path_multi -> String.downcase(Pesque.hostname())
+    end
+  end
 
   @doc "The DID document this server serves for its own DID."
   def did_document, do: Did.did_document(Pesque.mode(), identity())
@@ -136,6 +149,7 @@ defmodule Pesque.Identity do
       hostname: Pesque.hostname(),
       port: Pesque.port(),
       handle_domain: Pesque.handle_domain(),
+      handle: handle(),
       pub_multibase: public_key_multibase()
     }
   end

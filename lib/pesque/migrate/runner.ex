@@ -118,6 +118,7 @@ defmodule Pesque.Migrate.Runner do
   defp failure(:invalid_invite_code), do: "invalid_invite_code"
   defp failure(:invite_code_required), do: "invite_code_required"
   defp failure(:handle_not_available), do: "handle_not_available"
+  defp failure(:handle_not_under_domain), do: "handle_not_under_domain"
   defp failure(:email_taken), do: "email_taken"
   defp failure(:password_too_short), do: "password_too_short"
   defp failure(:missing_fields), do: "missing_fields"

@@ -81,7 +81,14 @@ defmodule PesqueWeb.Xrpc.Errors do
     do: {400, "InvalidRequest", "the CAR could not be read as a repo"}
 
   def to_xrpc(:handle_not_available),
-    do: {400, "HandleNotAvailable", "handle is not available on this server"}
+    do: {400, "HandleNotAvailable", "handle is already taken on this server"}
+
+  # A handle that is not `label.<handle_domain>` is not one this server hosts,
+  # which the client answers to by picking a name on the server's domain rather
+  # than a different name. Kept apart from :handle_not_available so the two
+  # cases do not share one opaque refusal.
+  def to_xrpc(:handle_not_under_domain),
+    do: {400, "InvalidHandle", "handle is not under this server's handle domain"}
 
   # Importing a DID or moving a did:plc handle to a foreign domain requires the
   # handle to resolve to the DID, in both directions. A handle that resolves to

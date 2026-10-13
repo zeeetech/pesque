@@ -222,6 +222,13 @@ defmodule PesqueWeb.MigrateHTML do
          "That name is already in use here. If you already moved this account, it is already here."
        )}
 
+  defp describe("handle_not_under_domain"),
+    do:
+      {:named,
+       gettext(
+         "That name is not under the domain this server hands out names on. Use the full name, like alice.example.com, or a name that already points at your account."
+       )}
+
   defp describe("disallowed_handle"),
     do:
       {:named,

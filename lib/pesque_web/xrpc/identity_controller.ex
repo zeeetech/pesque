@@ -138,11 +138,20 @@ defmodule PesqueWeb.Xrpc.IdentityController do
     end
   end
 
-  # The DID a client is told depends on the name it reached us under, so the
-  # answer is only for the names this server actually serves.
+  # The names the server answers for itself. Its hostname always, and the
+  # handle domain only under conformant_single, where the bare domain is the
+  # one account's handle and the server publishes it. Under path_multi the
+  # handle domain is the prefix accounts are minted under and the apex there
+  # belongs to an account, so a request for it is resolved against the rows
+  # rather than answered with the server's own DID.
   defp served_names do
-    [Pesque.hostname(), Pesque.handle_domain()]
-    |> Enum.map(&strip_port/1)
+    names =
+      case Pesque.mode() do
+        :conformant_single -> [Pesque.hostname(), Pesque.handle_domain()]
+        :path_multi -> [Pesque.hostname()]
+      end
+
+    Enum.map(names, &strip_port/1)
   end
 
   defp strip_port(host) do

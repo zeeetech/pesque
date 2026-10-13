@@ -105,7 +105,10 @@ defmodule Pesque.Did do
   The DID document for an account.
 
   `identity` carries the username (nil for the server itself), the hostname,
-  the port, the handle domain, and the multibase public key.
+  the port, the handle domain, and the multibase public key. An optional
+  `:handle` names the handle outright, which the server's own document uses:
+  under path_multi it is the hostname rather than anything derived from the
+  handle domain, so the apex there stays free for an account.
   """
   def did_document(
         mode,
@@ -118,7 +121,10 @@ defmodule Pesque.Did do
         } = attrs
       ) do
     did = did_for_username(mode, did_host(hostname, port), username)
-    handle = handle_for_username(mode, handle_domain, username)
+
+    handle =
+      Map.get_lazy(attrs, :handle, fn -> handle_for_username(mode, handle_domain, username) end)
+
     endpoint = Map.get(attrs, :endpoint, "https://" <> hostname)
 
     document(did, handle, pub_multibase, endpoint)

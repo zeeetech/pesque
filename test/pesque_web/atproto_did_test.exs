@@ -60,6 +60,20 @@ defmodule PesqueWeb.AtprotoDidTest do
     assert conn.resp_body == Pesque.Identity.did()
   end
 
+  # Under path_multi the handle domain is the prefix accounts are minted under,
+  # not a name the server holds: the server's own handle is its hostname, which
+  # leaves the apex of the handle domain for an account.
+  test "under path_multi the server's name is its hostname, not the handle domain" do
+    put_env(:handle_domain, "zeetech.io")
+
+    assert Pesque.handle_domain() == "zeetech.io"
+    assert Pesque.Identity.handle() == Pesque.hostname()
+    assert Pesque.Identity.did_document()["alsoKnownAs"] == ["at://" <> Pesque.hostname()]
+
+    # The apex is nobody's yet, so it does not resolve to the server's DID.
+    assert atproto_did("zeetech.io").status == 404
+  end
+
   # The spec requires the link to work in both directions, and the DID document
   # is where the claim is published. A well-known answer the account's own
   # document does not corroborate resolves to nothing, whatever the endpoint
@@ -96,5 +110,17 @@ defmodule PesqueWeb.AtprotoDidTest do
     # the host header, so the header cannot be set independently of it.
     %Plug.Conn{build_conn() | host: host}
     |> dispatch(PesqueWeb.Endpoint, :get, "/.well-known/atproto-did", nil)
+  end
+
+  defp put_env(key, value) do
+    previous = Application.get_env(:pesque, key)
+
+    on_exit(fn ->
+      if previous == nil,
+        do: Application.delete_env(:pesque, key),
+        else: Application.put_env(:pesque, key, previous)
+    end)
+
+    Application.put_env(:pesque, key, value)
   end
 end

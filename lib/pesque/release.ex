@@ -46,7 +46,15 @@ defmodule Pesque.Release do
         "a blob is larger than this server accepts (#{Pesque.blob_max_bytes()} bytes); raise blob_upload_limit"
 
       :handle_not_available ->
-        "that handle is already taken, or it is not under this server's handle domain"
+        "that handle is already taken on this server"
+
+      :handle_not_under_domain ->
+        "that handle is not under this server's handle domain (" <>
+          "#{Pesque.handle_domain()}); under path_multi a handle looks like " <>
+          "<name>.#{Pesque.handle_domain()}"
+
+      :invalid_handle ->
+        "that is not a valid handle; a label takes letters, numbers and hyphen"
 
       :account_exists ->
         "this server already has an account; conformant_single serves exactly one"

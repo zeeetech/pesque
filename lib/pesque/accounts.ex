@@ -156,13 +156,19 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # A handle this server already resolves: the bare handle domain, or a label
-  # under it. The server owns that resolution, so no network call is needed.
+  # A handle this server resolves without the network, by the shape each mode
+  # mints: conformant_single serves the bare handle domain as its one account,
+  # while path_multi serves only a label under it. The bare handle domain is
+  # not local under path_multi, so the apex is a handle an account takes and
+  # proves like any other, and the server's own identity no longer holds it.
   defp local_handle?(handle) when is_binary(handle) do
     domain = String.downcase(Pesque.handle_domain())
     normalized = handle |> String.trim() |> String.downcase()
 
-    normalized == domain or String.ends_with?(normalized, "." <> domain)
+    case Pesque.mode() do
+      :conformant_single -> normalized == domain
+      :path_multi -> String.ends_with?(normalized, "." <> domain)
+    end
   end
 
   defp local_handle?(_handle), do: false
@@ -1453,23 +1459,31 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp identity_for(_handle), do: {:error, :handle_not_available}
+  defp identity_for(_handle), do: {:error, :invalid_handle}
 
   defp single_account(handle) do
     if String.downcase(String.trim(handle)) == String.downcase(Identity.handle()) do
       {:ok,
        %{mode: :conformant_single, did: Identity.did(), handle: Identity.handle(), username: nil}}
     else
-      {:error, :handle_not_available}
+      {:error, :handle_not_under_domain}
     end
   end
 
+  # The handle this server mints accounts under is `label.<handle_domain>`, so
+  # a handle that is not exactly that shape (a bare domain, a lookalike domain,
+  # a different depth) is one this server does not host. That is a different
+  # answer from "taken", and `:handle_not_under_domain` keeps the two apart: the
+  # operator gets told which, instead of a single sentence guessing between
+  # them. A label that fails the handle syntax is `:invalid_handle` for the same
+  # reason. Nothing here checks the database, so a taken handle and an unhosted
+  # one are distinguishable before any row is read.
   defp path_multi_account(handle) do
     handle = String.downcase(String.trim(handle))
+    domain = String.downcase(Pesque.handle_domain())
 
-    with [label, domain] <- String.split(handle, ".", parts: 2),
-         {:ok, username} <- Did.normalize_username(label),
-         true <- domain == String.downcase(Pesque.handle_domain()) do
+    with [label, ^domain] <- String.split(handle, ".", parts: 2),
+         {:ok, username} <- Did.normalize_username(label) do
       did =
         Did.did_for_username(
           :path_multi,
@@ -1479,7 +1493,8 @@ defmodule Pesque.Accounts do
 
       {:ok, %{mode: :path_multi, did: did, handle: handle, username: username}}
     else
-      _ -> {:error, :handle_not_available}
+      {:error, _reason} -> {:error, :invalid_handle}
+      _other -> {:error, :handle_not_under_domain}
     end
   end
 

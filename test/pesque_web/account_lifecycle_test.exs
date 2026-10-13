@@ -99,7 +99,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
       conn = xrpc_post(@update_path, %{"handle" => "alice.notlocalhost"}, ctx.token)
 
       assert conn.status == 400
-      assert JSON.decode!(conn.resp_body)["error"] == "HandleNotAvailable"
+      assert JSON.decode!(conn.resp_body)["error"] == "InvalidHandle"
     end
 
     test "an account's own handle is not a collision with itself", ctx do

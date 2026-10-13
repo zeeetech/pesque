@@ -82,10 +82,18 @@ defmodule Pesque.MultiAccountTest do
   test "a handle under a lookalike domain is rejected and claims no key file" do
     before = key_files()
 
-    assert {:error, :handle_not_available} =
+    assert {:error, :handle_not_under_domain} =
              Accounts.create_account("alice.notlocalhost", "a@localhost", @password)
 
     assert key_files() == before
+  end
+
+  # A handle the server does not host and a handle that is taken are two
+  # different answers, and the operator acts on them differently: one is "pick
+  # a name on the server's domain", the other is "pick another name".
+  test "a malformed label is answered as a bad handle, not as taken" do
+    assert {:error, :invalid_handle} =
+             Accounts.create_account("bad_label.localhost", "a@localhost", @password)
   end
 
   # An orphan key file makes the next attempt at the handle fail on the
