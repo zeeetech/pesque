@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.13.0](https://github.com/zeeetech/pesque/compare/pesque-v1.12.0...pesque-v1.13.0) (2026-10-13)
+
+
+### Features
+
+* **deploy:** unify on docker and systemd, drop compose and caddy ([ad729b4](https://github.com/zeeetech/pesque/commit/ad729b49f4ca291f486509de1f65fec62b778061))
+
+
+### Bug Fixes
+
+* **migrate:** return the row to running when the code is handed in ([d7bf4b9](https://github.com/zeeetech/pesque/commit/d7bf4b91b5050723f39fee0067efb070badaf291))
+* **record:** only enforce lexicons this server ships ([866c671](https://github.com/zeeetech/pesque/commit/866c671fd85bcca0edbd3c9ae396c2e1a1ada0a5))
+
 ## [1.12.0](https://github.com/zeeetech/pesque/compare/pesque-v1.11.1...pesque-v1.12.0) (2026-10-13)
 
 
