@@ -39,7 +39,16 @@ defmodule PesqueWeb.ServiceAuthTest do
     assert claims["aud"] == @aud
     assert is_integer(claims["exp"])
     assert is_integer(claims["iat"])
+    assert is_binary(claims["jti"])
+    assert claims["jti"] != ""
     refute Map.has_key?(claims, "lxm")
+  end
+
+  test "each minted token carries a fresh nonce", ctx do
+    first = claims(service_auth(ctx, ctx.token))["jti"]
+    second = claims(service_auth(ctx, ctx.token))["jti"]
+
+    refute first == second
   end
 
   test "lxm rides along when the caller asks for it", ctx do

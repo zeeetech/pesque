@@ -103,7 +103,13 @@ defmodule Pesque.ServiceAuth do
 
   defp sign(priv, did, aud, exp, lxm) do
     claims =
-      %{"iss" => did, "aud" => aud, "iat" => System.system_time(:second), "exp" => exp}
+      %{
+        "iss" => did,
+        "aud" => aud,
+        "iat" => System.system_time(:second),
+        "exp" => exp,
+        "jti" => nonce()
+      }
       |> put_lxm(lxm)
 
     header = %{"typ" => "JWT", "alg" => "ES256K"}
@@ -118,6 +124,11 @@ defmodule Pesque.ServiceAuth do
   # claim as no claim to whoever reads the token.
   defp put_lxm(claims, nil), do: claims
   defp put_lxm(claims, lxm), do: Map.put(claims, "lxm", lxm)
+
+  # the spec makes the nonce required, and it is what lets the recipient refuse
+  # a token it has already seen instead of accepting a replay. 16 random bytes
+  # is comfortably under the 256 byte cap the reference implementation enforces.
+  defp nonce, do: Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
   defp encode(bin), do: Base.url_encode64(bin, padding: false)
 
