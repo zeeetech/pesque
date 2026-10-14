@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/zeeetech/pesque/compare/pesque-v1.13.0...pesque-v1.13.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **service-auth:** mint a jti nonce in service auth tokens ([a022a90](https://github.com/zeeetech/pesque/commit/a022a9002931e1d5ddccfd2be9a08937eb9aa51f))
+
 ## [1.13.0](https://github.com/zeeetech/pesque/compare/pesque-v1.12.0...pesque-v1.13.0) (2026-10-13)
 
 
