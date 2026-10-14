@@ -290,3 +290,22 @@ test "dispatch: lexicon add clones, forwards the checkout and restarts" {
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "lexicon", "add" }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "lexicon", "remove" }));
 }
+
+test "backup: without --out the archive lands in the service's data dir" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const release = try ctx.makeRelease();
+    try ctx.env.put("PESQUE_BACKEND", "systemd");
+    try ctx.env.put("PESQUE_RELEASE", release);
+    // A data dir that exists on this host; the shim's default is a real
+    // server's path.
+    try ctx.env.put("PESQUE_FAKE_DATA_DIR", ctx.tmp_path);
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"backup"}));
+
+    const inv = try ctx.lastInvocation();
+    try testutil.Ctx.expectArg(inv, "backup");
+    try testutil.Ctx.expectArg(inv, "--out");
+    // Not "." (the operator's cwd): the data directory the service user owns.
+    try testutil.Ctx.expectArg(inv, ctx.tmp_path);
+}

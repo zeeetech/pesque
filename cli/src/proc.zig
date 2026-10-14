@@ -113,7 +113,15 @@ pub const Host = struct {
     /// Run a child with all three stdio inherited. Returns the child's exit
     /// code; death by signal maps to 1; spawn failure maps to 3.
     pub fn run(self: *Host, argv: []const []const u8) Error!u8 {
-        var child = self.spawn(argv) catch |e| return e;
+        return self.runIn(null, argv);
+    }
+
+    /// Same, but the child starts with `cwd` as its working directory (null
+    /// keeps this process's). Used to run a one-off from the service's data
+    /// directory, so it does not inherit a working directory the service user
+    /// cannot read.
+    pub fn runIn(self: *Host, cwd: ?[]const u8, argv: []const []const u8) Error!u8 {
+        var child = self.spawn(cwd, argv) catch |e| return e;
         const term = child.wait(self.io) catch return error.DriverFailed;
         return termToExit(term);
     }
@@ -153,10 +161,11 @@ pub const Host = struct {
         }
     };
 
-    fn spawn(self: *Host, argv: []const []const u8) Error!std.process.Child {
+    fn spawn(self: *Host, cwd: ?[]const u8, argv: []const []const u8) Error!std.process.Child {
         return std.process.spawn(self.io, .{
             .argv = argv,
             .environ_map = self.environ,
+            .cwd = if (cwd) |c| .{ .path = c } else .inherit,
             .stdin = .inherit,
             .stdout = .inherit,
             .stderr = .inherit,

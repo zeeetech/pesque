@@ -145,6 +145,16 @@ pub fn runOnce(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error
     while (it.next()) |entry| held.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     held.put("PDS_SERVE", "false") catch return error.OutOfMemory;
 
+    // The one-off is meant to run as the service user, whose home and working
+    // directory are the data directory (the unit sets both). Inheriting a home
+    // or cwd that user cannot reach is what killed the release at boot (a bad
+    // cwd breaks code_server) and made `backup` refuse to resolve ".". Run the
+    // child from the data directory and point HOME at it, when it is really
+    // there: a one-off must not fail to spawn over a configured path that is
+    // absent.
+    const data_dir = unitDataDir(host, &pairs);
+    if (data_dir) |dir| held.put("HOME", dir) catch return error.OutOfMemory;
+
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(g);
     const release_bin = std.fs.path.join(g, &.{ self.release, "bin", "pesque" }) catch return error.OutOfMemory;
@@ -155,7 +165,17 @@ pub fn runOnce(self: driver.Systemd, host: *proc.Host, ro: driver.RunOnce) Error
     const saved_map = host.environ;
     host.environ = held;
     defer host.environ = saved_map;
-    return host.run(argv.items);
+    return host.runIn(data_dir, argv.items);
+}
+
+/// The unit's data directory when this process can enter it. Null when the unit
+/// names none, or names one that is not there: the child then keeps this
+/// process's working directory rather than failing to spawn.
+fn unitDataDir(host: *proc.Host, pairs: *std.StringHashMap([]const u8)) ?[]const u8 {
+    const dir = pairs.get("PDS_DATA_DIR") orelse
+        (if (pairs.get("PDS_CONFIG")) |conf| confDataDir(host, conf) else null) orelse return null;
+    _ = Io.Dir.cwd().openDir(host.io, dir, .{}) catch return null;
+    return dir;
 }
 
 // --- lifecycle (the unit owns it) -------------------------------------------

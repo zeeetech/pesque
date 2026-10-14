@@ -540,9 +540,13 @@ fn backup(host: *proc.Host, args: []const []const u8) Error!u8 {
             return usage(host, "unknown option '{s}' for 'backup'", .{args[i]});
         }
     }
-    const given = out_dir orelse ".";
-    const abs = try absPath(host, given);
     const d = try detectBackend(host);
+    // Without --out the archive goes to the service's data directory, not the
+    // working directory: the CLI runs as the service user (`sudo -u pesque
+    // pesque backup`), whose cwd is often one it cannot read, and resolving "."
+    // there failed before the archive was ever made.
+    const given = out_dir orelse (try defaultOutDir(host, d));
+    const abs = try absPath(host, given);
     // The archive is written through a same-path mount, so the file lands on
     // the host exactly where the verb says it does.
     return d.runOnce(host, .{
@@ -551,6 +555,21 @@ fn backup(host: *proc.Host, args: []const []const u8) Error!u8 {
         .mounts = &.{.{ .source = abs, .target = abs }},
         .interactive = true,
     });
+}
+
+/// Where a backup lands when --out is absent. The systemd backend runs the verb
+/// directly against the data directory, the one place the service user is sure
+/// to reach; the docker backend mounts the output path same-path into the
+/// container, so "." keeps the operator's working directory (which the
+/// container sees through the mount).
+fn defaultOutDir(host: *proc.Host, d: driver.Driver) Error![]const u8 {
+    return switch (d) {
+        .systemd => switch (try d.dataDir(host)) {
+            .path => |p| p,
+            .volume => ".",
+        },
+        .docker => ".",
+    };
 }
 
 fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {

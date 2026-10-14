@@ -199,6 +199,22 @@ test "systemd run_once: direct exec of the release with the unit's PDS_* world" 
     try testutil.Ctx.expectArg(inv, "PDS_HOSTNAME=pds.example.com");
 }
 
+test "systemd run_once: the release runs from the unit's data directory" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    const release = try ctx.makeRelease();
+    const d = driver.Driver{ .systemd = .{ .unit = "pesque", .release = release } };
+    // A data dir that exists on this host: the shim's default is a path only a
+    // real server has, and the child is only moved there when it is there.
+    try ctx.env.put("PESQUE_FAKE_DATA_DIR", ctx.tmp_path);
+
+    _ = try d.runOnce(ctx.host, .{ .verb = "account", .argv = &.{"list"} });
+
+    const inv = try ctx.lastInvocation();
+    const want = try std.fmt.allocPrint(ctx.arena_state.allocator(), "PWD={s}", .{ctx.tmp_path});
+    try testutil.Ctx.expectArg(inv, want);
+}
+
 test "systemd lifecycle is a no-op; the unit owns the service" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();

@@ -7,6 +7,7 @@ log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
   for a in "$@"; do printf '%s\n' "$a"; done
   printf 'PDS_SERVE=%s\n' "${PDS_SERVE:-unset}"
   printf 'PDS_HOSTNAME=%s\n' "${PDS_HOSTNAME:-unset}"
+  printf 'PWD=%s\n' "$(pwd)"
   printf '\n'
 } >>"$log"
 exit "${PESQUE_FAKE_EXIT:-0}"
