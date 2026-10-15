@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.2](https://github.com/zeeetech/pesque/compare/pesque-v1.13.1...pesque-v1.13.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* **cli:** run one-offs from the data dir and default backup there ([7fddaa2](https://github.com/zeeetech/pesque/commit/7fddaa289c5cd5c8269694287cc4f0a4cdf1b567))
+
 ## [1.13.1](https://github.com/zeeetech/pesque/compare/pesque-v1.13.0...pesque-v1.13.1) (2026-10-14)
 
 
