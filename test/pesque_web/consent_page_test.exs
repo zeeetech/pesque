@@ -37,6 +37,23 @@ defmodule PesqueWeb.ConsentPageTest do
     refute csp =~ "unsafe-eval"
   end
 
+  test "a native client's private-use scheme may receive the redirect", %{key: key} do
+    redirect_uri = "io.zeetech.knoten:/callback"
+    client_id = Client.client_id(redirect_uri: redirect_uri)
+    pushed = Client.par(key, client_id: client_id, redirect_uri: redirect_uri)
+
+    csp =
+      Client.authorize_page(pushed.request_uri, client_id)
+      |> get_resp_header("content-security-policy")
+      |> hd()
+
+    # RFC 8252 native apps redirect to a private-use scheme written `scheme:/path`,
+    # which carries no host. The consent form's answer is a redirect there, and the
+    # browser checks `form-action` against it, so the scheme has to be named or the
+    # redirect is silently refused and the app never receives its code.
+    assert csp =~ "form-action 'self' io.zeetech.knoten:"
+  end
+
   test "the consent page defaults to Portuguese", %{key: key} do
     body = consent(key).resp_body
 

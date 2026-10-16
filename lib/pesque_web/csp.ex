@@ -29,11 +29,12 @@ defmodule PesqueWeb.Csp do
 
   @doc """
   The form policy for a page whose submission is answered with a redirect to
-  `redirect_uri`: `form/0` plus that URI's origin.
+  `redirect_uri`: `form/0` plus that URI's origin, or, for a native app's
+  private-use scheme, its scheme.
 
   The URI was checked against the client's metadata before the page was built,
-  so this only reads it. A URI that does not name an origin leaves the policy
-  at `form/0`.
+  so this only reads it. A URI that names neither an origin nor a scheme leaves
+  the policy at `form/0`.
   """
   def form(redirect_uri) when is_binary(redirect_uri) do
     case source(redirect_uri) do
@@ -48,6 +49,13 @@ defmodule PesqueWeb.Csp do
       when is_binary(scheme) and is_binary(host) ->
         port = if is_nil(port), do: "", else: ":#{port}"
         "#{scheme}://#{host}#{port}"
+
+      # A native app's private-use scheme is written `scheme:/path` (RFC 8252,
+      # one slash), so it carries a scheme and no host. The browser checks
+      # `form-action` against the submission's redirect target, so the scheme
+      # alone is the source that lets the consent form's answer reach the app.
+      %URI{scheme: scheme} when is_binary(scheme) ->
+        "#{scheme}:"
 
       _ ->
         nil
