@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.3](https://github.com/zeeetech/pesque/compare/pesque-v1.13.2...pesque-v1.13.3) (2026-10-16)
+
+
+### Bug Fixes
+
+* emit scheme for non host csp ([49ed7f2](https://github.com/zeeetech/pesque/commit/49ed7f266fc78d6316cbd0b9dbe3f490942ad53b))
+
 ## [1.13.2](https://github.com/zeeetech/pesque/compare/pesque-v1.13.1...pesque-v1.13.2) (2026-10-14)
 
 
