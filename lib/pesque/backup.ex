@@ -13,8 +13,13 @@ defmodule Pesque.Backup do
   @manifest_format "pesque-backup"
   @manifest_version 1
 
+  # In the archive once, as the staging snapshot: the data directory's copy
+  # stays out of the tar, or a second, live member would overwrite the
+  # snapshot when the archive is extracted.
+  @database "pesque.db"
+
   # What a booted server always has.
-  @files ["pesque.db", "server.secret"]
+  @files [@database, "server.secret"]
   @dirs ["keys", "blobs"]
   # Written only under PDS_IDENTITY=plc.
   @optional ["server.identity.json"]
@@ -54,8 +59,8 @@ defmodule Pesque.Backup do
            :ok <- File.mkdir_p(staging),
            :ok <-
              RepoStore.vacuum_into(
-               Path.join(data_dir, "pesque.db"),
-               Path.join(staging, "pesque.db")
+               Path.join(data_dir, @database),
+               Path.join(staging, @database)
              ),
            :ok <- write_manifest(staging) do
         tar(staging, data_dir, archive)
@@ -158,7 +163,7 @@ defmodule Pesque.Backup do
       for {name, path} <-
             [
               {"manifest.json", Path.join(staging, "manifest.json")},
-              {"pesque.db", Path.join(staging, "pesque.db")}
+              {@database, Path.join(staging, @database)}
             ] ++
               data_dir_entries(data_dir) do
         {String.to_charlist(name), String.to_charlist(path)}
@@ -170,8 +175,12 @@ defmodule Pesque.Backup do
     end
   end
 
+  # The database is not among these: it is already in the archive as the
+  # staging snapshot, and a live member by the same name would overwrite it
+  # when the archive is extracted.
   defp data_dir_entries(data_dir) do
     for name <- @files ++ @dirs ++ @optional,
+        name != @database,
         path = Path.join(data_dir, name),
         File.exists?(path),
         do: {name, path}

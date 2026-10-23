@@ -53,6 +53,47 @@ defmodule Pesque.BackupTest do
     assert Path.wildcard(Path.join(out, ".pesque-backup-staging-*")) == []
   end
 
+  # The database is carried once, as the staging snapshot: a second member by
+  # the live name would overwrite the snapshot when the archive is extracted.
+  test "create archives the database exactly once", %{dir: dir, out: out} do
+    assert {:ok, archive} = Backup.create(dir, out)
+
+    {:ok, entries} = :erl_tar.table(String.to_charlist(archive), [:compressed])
+    names = Enum.map(entries, &to_string/1)
+
+    assert Enum.count(names, &(&1 == "pesque.db")) == 1
+  end
+
+  # A commit still in the live -wal when create runs is part of the snapshot,
+  # so the archived database opens complete: a bare copy of the live file,
+  # taken without its sidecar, would have lost it.
+  test "the archived database is the snapshot, complete through the last commit", %{
+    dir: dir,
+    out: out
+  } do
+    {:ok, conn} = Exqlite.Sqlite3.open(db_path(dir))
+    :ok = Exqlite.Sqlite3.execute(conn, "PRAGMA journal_mode = wal")
+    :ok = Exqlite.Sqlite3.execute(conn, "INSERT INTO things VALUES ('in-wal')")
+
+    assert {:ok, archive} = Backup.create(dir, out)
+    :ok = Exqlite.Sqlite3.close(conn)
+
+    {:ok, [{_name, db_body}]} =
+      :erl_tar.extract(String.to_charlist(archive), [
+        :compressed,
+        :memory,
+        files: [~c"pesque.db"]
+      ])
+
+    snapshot = fresh_dir("pesque-backup-snapshot")
+    File.write!(Path.join(snapshot, "pesque.db"), db_body)
+
+    {:ok, conn} = Exqlite.Sqlite3.open(Path.join(snapshot, "pesque.db"))
+    {:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT count(*) FROM things")
+    assert {:row, [2]} = Exqlite.Sqlite3.step(conn, stmt)
+    :ok = Exqlite.Sqlite3.close(conn)
+  end
+
   test "create refuses a data directory a server never booted in", %{out: out} do
     empty = fresh_dir("pesque-backup-empty")
 
