@@ -601,7 +601,7 @@ msgstr "seu nome e o DNS dele"
 #: lib/pesque_web/migrate_html.ex:228
 #, elixir-autogen, elixir-format
 msgid "That name is not under the domain this server hands out names on. Use the full name, like alice.example.com, or a name that already points at your account."
-msgstr ""
+msgstr "Esse nome não está sob um domínio deste servidor. Use o nome completo, como alice.example.com, ou um nome que já aponta pra sua conta."
 
 #: lib/pesque/cli/explain.ex:65
 #, elixir-autogen, elixir-format
