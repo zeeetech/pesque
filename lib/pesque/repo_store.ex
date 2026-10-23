@@ -541,18 +541,6 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
-  Asks the database a question and waits for the answer: the smallest thing a
-  boot that claims to work can be wrong about. The `health` verb answers
-  from here.
-  """
-  def health_check do
-    case Repo.query("SELECT 1") do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, {:sqlite, reason}}
-    end
-  end
-
-  @doc """
   Writes a consistent snapshot of the database at `db_path` to `target_path`.
 
   Opens its own connection rather than borrowing the pool: reading the file

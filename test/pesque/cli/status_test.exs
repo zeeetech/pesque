@@ -97,6 +97,39 @@ defmodule Pesque.Cli.StatusTest do
     end
   end
 
+  describe "run/1 --json" do
+    # The payload is the gathered facts themselves, so this one boots: the
+    # read is the proof the database opened.
+    setup do
+      Pesque.DataCase.setup()
+      :ok
+    end
+
+    test "answers one status object over the gathered facts" do
+      output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Status.run(["--json"]) end)
+
+      assert {:ok, %{"status" => status}} = JSON.decode(output)
+
+      assert %{
+               "server" => server,
+               "accounts" => accounts,
+               "storage" => storage,
+               "crawlers" => crawlers
+             } = status
+
+      assert server["did"] =~ "did:"
+      assert is_binary(server["hostname"])
+      assert is_binary(server["version"])
+      assert is_integer(accounts["total"])
+      assert is_integer(accounts["active"])
+      assert is_integer(accounts["deactivated"])
+      assert is_binary(storage["data_dir"])
+      assert is_integer(storage["database_bytes"])
+      assert is_integer(storage["blob_bytes"])
+      assert is_list(crawlers)
+    end
+  end
+
   defp render(data) do
     # The trailing newline the last printed line ends with.
     text = data |> Status.report() |> Enum.map_join("\n", &IO.iodata_to_binary/1)

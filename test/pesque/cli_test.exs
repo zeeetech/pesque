@@ -40,13 +40,14 @@ defmodule Pesque.CliTest do
     # The mapping itself lives in main/0, which halts and cannot be called
     # from a test. What is testable is that run/1 answers exactly the three
     # shapes the mapping reads, whatever argv comes in.
-    test "run/1 answers only :ok, {:error, reason} or {:usage, text}" do
+    test "run/1 answers only :ok, {:error, reason}, {:usage, text} or {:help, text}" do
       answers = [Cli.run([]), Cli.run(["bogus"]), Cli.run(["config", "bogus-sub"])]
 
       assert Enum.all?(answers, fn
                :ok -> true
                {:error, _reason} -> true
                {:usage, _text} -> true
+               {:help, _text} -> true
                other -> flunk("run/1 answered #{inspect(other)}")
              end)
     end

@@ -174,6 +174,101 @@ defmodule Pesque.Cli.AccountTest do
     end
   end
 
+  describe "account list --json" do
+    test "answers one accounts object with the storage fields", %{user: user} do
+      {:ok, other} = Accounts.create_account(other_handle(), "bob@localhost", @password)
+      {:ok, _} = Accounts.deactivate_account(other)
+
+      output = capture(fn -> assert :ok = Account.run(["list", "--json"]) end)
+
+      assert {:ok, %{"accounts" => rows}} = JSON.decode(output)
+      assert length(rows) == 2
+
+      by_did = Map.new(rows, &{&1["did"], &1})
+
+      assert by_did[user.did] == %{
+               "did" => user.did,
+               "handle" => user.handle,
+               "email" => "alice@localhost",
+               "active" => true,
+               "deactivated_at" => nil
+             }
+
+      assert by_did[other.did]["active"] == false
+      assert by_did[other.did]["deactivated_at"] =~ "Z"
+    end
+
+    test "composes with --status and --grep", %{user: user} do
+      {:ok, other} = Accounts.create_account(other_handle(), "bob@localhost", @password)
+      {:ok, _} = Accounts.deactivate_account(other)
+
+      output =
+        capture(fn ->
+          assert :ok = Account.run(["list", "--json", "--status", "deactivated", "--grep", "BOB"])
+        end)
+
+      assert {:ok, %{"accounts" => [%{"did" => did}]}} = JSON.decode(output)
+      assert did == other.did
+      _ = user
+    end
+
+    test "an unknown --status stays usage, so stdout carries no payload" do
+      assert {:usage, _text} = Account.run(["list", "--status", "archived", "--json"])
+    end
+  end
+
+  describe "account show --json" do
+    test "answers one account object with its rev and app passwords", %{user: user} do
+      RepoStore.put_meta!("rev:" <> user.did, "rev-from-the-test")
+      {:ok, _} = Accounts.create_app_password(user, "shown", true)
+
+      output = capture(fn -> assert :ok = Account.run(["show", "--did", user.did, "--json"]) end)
+
+      assert {:ok, %{"account" => one}} = JSON.decode(output)
+
+      assert one["did"] == user.did
+      assert one["handle"] == user.handle
+      assert one["email"] == "alice@localhost"
+      assert one["active"] == true
+      assert one["deactivated_at"] == nil
+      assert one["repo_rev"] == "rev-from-the-test"
+
+      assert [%{"name" => "shown", "privileged" => true, "inserted_at" => at}] =
+               one["app_passwords"]
+
+      assert at =~ "Z"
+    end
+
+    test "an account this server does not host answers not_found, stdout empty" do
+      assert {:error, :not_found} =
+               Account.run(["show", "--did", "did:web:nope:nobody", "--json"])
+    end
+  end
+
+  describe "account app-passwords --json" do
+    test "answers one app_passwords array", %{user: user} do
+      {:ok, _} = Accounts.create_app_password(user, "listed", false)
+
+      output =
+        capture(fn ->
+          assert :ok = Account.run(["app-passwords", "--did", user.did, "--json"])
+        end)
+
+      assert {:ok, %{"app_passwords" => rows}} = JSON.decode(output)
+      assert [%{"name" => "listed", "privileged" => false, "inserted_at" => at}] = rows
+      assert at =~ "Z"
+    end
+
+    test "an empty list is an empty array, not prose", %{user: user} do
+      output =
+        capture(fn ->
+          assert :ok = Account.run(["app-passwords", "--did", user.did, "--json"])
+        end)
+
+      assert {:ok, %{"app_passwords" => []}} = JSON.decode(output)
+    end
+  end
+
   defp capture(fun), do: ExUnit.CaptureIO.capture_io(fun)
 
   defp other_handle do

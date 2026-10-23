@@ -26,6 +26,11 @@ defmodule Pesque.Cli.InputTest do
       assert text =~ "unknown option: --bogus"
     end
 
+    test "--help answers the usage it was given, before any parsing" do
+      assert {:help, "usage: pesque"} = Input.options(["--help"], [], "usage: pesque")
+      assert {:help, "usage: pesque"} = Input.options(["--bogus", "--help"], [], "usage: pesque")
+    end
+
     test "a stray positional is usage unless the verb allows one" do
       assert {:usage, text} = Input.options(["stray"], [], "usage: pesque")
       assert text =~ "unexpected argument: stray"

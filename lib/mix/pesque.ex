@@ -31,6 +31,9 @@ defmodule Mix.Pesque do
       :ok ->
         :ok
 
+      {:help, text} ->
+        IO.puts(text)
+
       {:error, reason} ->
         Mix.raise("error: " <> Pesque.Cli.Explain.render(reason))
 

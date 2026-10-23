@@ -294,6 +294,121 @@ test "dispatch: lexicon add clones, forwards the checkout and restarts" {
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "lexicon", "remove" }));
 }
 
+test "dispatch: --help and --json ride to the release verbatim" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    // The strict per-verb parsers know neither flag: the passthrough lets
+    // the release's own parsing answer (per-subcommand usage, read-verb
+    // --json) with the frozen exit codes.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "--help" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "--help" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "list", "--json" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "list", "--json" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "status", "--json" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "status", "--json" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "doctor", "-h" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "doctor", "-h" });
+
+    // A verb this CLI has no special parsing for forwards the same way.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "migrate", "--help" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "migrate", "--help" });
+}
+
+test "dispatch: account list forwards its flags to the release" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "list", "--status", "active", "--grep", "alice" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "list", "--status", "active", "--grep", "alice" });
+}
+
+test "dispatch: account show forwards the selector, and needs exactly one" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "show", "--did", "did:plc:abc" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "show", "--did", "did:plc:abc" });
+
+    // The selector rules hold: none, or both, is usage.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{"account", "show"}));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "show", "--did", "d1", "--handle", "h" }));
+}
+
+test "dispatch: account delete forwards --dry-run; the other selector verbs do not take it" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "delete", "--did", "did:plc:abc", "--dry-run" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "delete", "--did", "did:plc:abc", "--dry-run" });
+
+    // Flag order does not matter: the dry run rides with whatever selector
+    // the parser picked.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "delete", "--dry-run", "--handle", "h" }));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "delete", "--handle", "h", "--dry-run" });
+
+    // Only delete rehearses: reset-password takes no --dry-run.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "reset-password", "--did", "d1", "--dry-run" }));
+}
+
+test "dispatch: restore forwards --dry-run with the archive mounted" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", "--dry-run", archive }));
+    // The cold restore brings the service back up after the run, so the
+    // forwarded exec is not the last invocation; find it.
+    try testutil.Ctx.expectTail(try forwardedRun(try ctx.invocations()), &.{ image, "/app/bin/pesque", "restore", "--dry-run", archive });
+
+    // Without --dry-run the argv is the archive alone, as before.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", archive }));
+    try testutil.Ctx.expectTail(try forwardedRun(try ctx.invocations()), &.{ image, "/app/bin/pesque", "restore", archive });
+
+    // A dry run with no archive, or a second positional, is usage.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{"restore", "--dry-run"}));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", archive, archive }));
+}
+
+test "dispatch: restore --help bypasses the cold-restore lifecycle" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    // Asking for help must not stop the service: the passthrough forwards
+    // before the restore handler would bring it down.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"restore", "--help"}));
+
+    for (try ctx.invocations()) |inv| {
+        try testutil.Ctx.expectNoArg(inv, "stop");
+        try testutil.Ctx.expectNoArg(inv, "start");
+    }
+
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "restore", "--help" });
+}
+
+/// The invocation that ran the release, whatever driver chatter (an image
+/// inspect, a lifecycle stop/start) surrounds it. The last match: a test
+/// that runs the verb twice accumulates both runs in one log.
+fn forwardedRun(invs: []const []const []const u8) ![]const []const u8 {
+    var found: ?[]const []const u8 = null;
+    for (invs) |inv| {
+        for (inv) |a| {
+            if (std.mem.eql(u8, a, "/app/bin/pesque")) {
+                found = inv;
+                break;
+            }
+        }
+    }
+    if (found) |inv| return inv;
+    std.debug.print("no forwarded /app/bin/pesque run among the invocations\n", .{});
+    return error.TestUnexpectedResult;
+}
+
 test "backup: without --out the archive lands in the service's data dir" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();

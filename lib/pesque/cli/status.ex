@@ -6,12 +6,14 @@ defmodule Pesque.Cli.Status do
   Read-only, and it judges exactly one thing: listing the accounts is itself
   the proof the database opened, which is the answer the retired `health`
   check was reaching for. No uptime field, because a one-off boots with the
-  endpoint down, so process uptime would be a lie.
+  endpoint down, so process uptime would be a lie. `--json` prints the same
+  gathered facts as one JSON object on stdout.
   """
 
   use Gettext, backend: PesqueWeb.Gettext
 
   alias Pesque.Cli.Input
+  alias Pesque.Cli.Output
   alias Pesque.Identity
   alias Pesque.Release
   alias Pesque.RepoStore
@@ -23,9 +25,15 @@ defmodule Pesque.Cli.Status do
   @label_width 15
 
   def run(argv) do
-    with {:ok, _opts, []} <- Input.options(argv, [], @usage),
+    with {:ok, opts, []} <- Input.options(argv, [json: :boolean], @usage),
          :ok <- Release.boot!() do
-      gather() |> report() |> Enum.each(&IO.puts/1)
+      data = gather()
+
+      if opts[:json] do
+        Output.json(%{"status" => data})
+      else
+        data |> report() |> Enum.each(&IO.puts/1)
+      end
 
       :ok
     end
@@ -49,31 +57,35 @@ defmodule Pesque.Cli.Status do
     sections |> Enum.intersperse([""]) |> Enum.concat()
   end
 
+  # Field labels are plain literals (a label is a name, not a sentence, and a
+  # short msgid would inherit a browser page's translation under the shared
+  # catalog); the section headers and "none configured" are prose and go
+  # through gettext.
   defp server_fields(server) do
     [
-      field(gettext("did"), server.did),
-      field(gettext("hostname"), server.hostname),
-      field(gettext("handle domain"), server.handle_domain),
-      field(gettext("mode"), server.mode),
-      field(gettext("identity"), server.identity),
-      field(gettext("registration"), server.registration),
-      field(gettext("version"), server.version)
+      field("did", server.did),
+      field("hostname", server.hostname),
+      field("handle domain", server.handle_domain),
+      field("mode", server.mode),
+      field("identity", server.identity),
+      field("registration", server.registration),
+      field("version", server.version)
     ]
   end
 
   defp account_fields(accounts) do
     [
-      field(gettext("total"), accounts.total),
-      field(gettext("active"), accounts.active),
-      field(gettext("deactivated"), accounts.deactivated)
+      field("total", accounts.total),
+      field("active", accounts.active),
+      field("deactivated", accounts.deactivated)
     ]
   end
 
   defp storage_fields(storage) do
     [
-      field(gettext("data dir"), storage.data_dir),
-      field(gettext("database"), bytes(storage.database_bytes)),
-      field(gettext("blobs"), bytes(storage.blob_bytes))
+      field("data dir", storage.data_dir),
+      field("database", bytes(storage.database_bytes)),
+      field("blobs", bytes(storage.blob_bytes))
     ]
   end
 
