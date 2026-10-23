@@ -11,12 +11,12 @@ defmodule Pesque.Cli.Input do
   silently ignored typo, and so is a stray positional argument for a verb
   that takes none; `allow_positional` is for the one that does.
 
-  `--help` is not parsed at all: asking for help is not a usage error, so it
-  answers `{:help, usage}`, the most specific usage the calling clause knows,
-  which prints on stdout and exits 0.
+  `--help` (or its `-h` alias) is not parsed at all: asking for help is not
+  a usage error, so it answers `{:help, usage}`, the most specific usage the
+  calling clause knows, which prints on stdout and exits 0.
   """
   def options(argv, strict, usage, allow_positional \\ false) do
-    if "--help" in argv do
+    if "--help" in argv or "-h" in argv do
       {:help, usage}
     else
       parse(argv, strict, usage, allow_positional)

@@ -334,7 +334,7 @@ test "dispatch: account show forwards the selector, and needs exactly one" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "show", "--did", "did:plc:abc" });
 
     // The selector rules hold: none, or both, is usage.
-    try testing.expectError(error.Usage, main.run(ctx.host, &.{"account", "show"}));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "show" }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "account", "show", "--did", "d1", "--handle", "h" }));
 }
 
@@ -371,7 +371,7 @@ test "dispatch: restore forwards --dry-run with the archive mounted" {
     try testutil.Ctx.expectTail(try forwardedRun(try ctx.invocations()), &.{ image, "/app/bin/pesque", "restore", archive });
 
     // A dry run with no archive, or a second positional, is usage.
-    try testing.expectError(error.Usage, main.run(ctx.host, &.{"restore", "--dry-run"}));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", "--dry-run" }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", archive, archive }));
 }
 
@@ -381,7 +381,7 @@ test "dispatch: restore --help bypasses the cold-restore lifecycle" {
 
     // Asking for help must not stop the service: the passthrough forwards
     // before the restore handler would bring it down.
-    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"restore", "--help"}));
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", "--help" }));
 
     for (try ctx.invocations()) |inv| {
         try testutil.Ctx.expectNoArg(inv, "stop");
@@ -389,6 +389,51 @@ test "dispatch: restore --help bypasses the cold-restore lifecycle" {
     }
 
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "restore", "--help" });
+}
+
+test "dispatch: restore --dry-run never stops or starts the service" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+
+    // A dry run only reads the archive: no stop, no bring-up, just the
+    // forwarded verb.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", archive, "--dry-run" }));
+    var invs = try ctx.invocations();
+    for (invs) |inv| {
+        try testutil.Ctx.expectNoArg(inv, "stop");
+        try testutil.Ctx.expectNoArg(inv, "start");
+    }
+    try testutil.Ctx.expectTail(try forwardedRun(invs), &.{ image, "/app/bin/pesque", "restore", "--dry-run", archive });
+
+    // The same by --archive PATH: the flag only names the archive.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", "--archive", archive, "--dry-run" }));
+    invs = try ctx.invocations();
+    for (invs) |inv| {
+        try testutil.Ctx.expectNoArg(inv, "stop");
+        try testutil.Ctx.expectNoArg(inv, "start");
+    }
+    try testutil.Ctx.expectTail(try forwardedRun(invs), &.{ image, "/app/bin/pesque", "restore", "--dry-run", archive });
+
+    // A plain restore is still cold: it stops the service first and brings
+    // it back up after.
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", archive }));
+    invs = try ctx.invocations();
+    var saw_stop = false;
+    var saw_start = false;
+    for (invs) |inv| {
+        if (anyArg(inv, "stop")) saw_stop = true;
+        if (anyArg(inv, "start")) saw_start = true;
+    }
+    try testing.expect(saw_stop);
+    try testing.expect(saw_start);
+
+    // One archive source: --archive with a positional, or --archive twice,
+    // is usage, the way the release refuses both of its own forms.
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", "--archive", archive, archive }));
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", "--archive", archive, "--archive", archive }));
 }
 
 /// The invocation that ran the release, whatever driver chatter (an image
@@ -407,6 +452,13 @@ fn forwardedRun(invs: []const []const []const u8) ![]const []const u8 {
     if (found) |inv| return inv;
     std.debug.print("no forwarded /app/bin/pesque run among the invocations\n", .{});
     return error.TestUnexpectedResult;
+}
+
+fn anyArg(inv: []const []const u8, arg: []const u8) bool {
+    for (inv) |a| {
+        if (std.mem.eql(u8, a, arg)) return true;
+    }
+    return false;
 }
 
 test "backup: without --out the archive lands in the service's data dir" {
