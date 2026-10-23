@@ -66,6 +66,26 @@ defmodule Pesque.Backup do
   end
 
   @doc """
+  Reads an archive's manifest and entry names without extracting it.
+
+  The dry run's whole read: the manifest is the only member pulled out of the
+  tar, so inspecting a large archive costs its index and one small file, and
+  the checks answer the same refusals restore/2 would. The entries are the
+  archive's member names from its root, which is where restore's staging
+  puts them relative to the data directory.
+  """
+  def inspect_archive(archive) do
+    with {:ok, entries} <- table(archive),
+         {:ok, body} <- manifest_body(archive, entries),
+         {:ok, manifest} <- decode_manifest(body),
+         :ok <- check_format(manifest),
+         :ok <- check_version(manifest),
+         :ok <- check_entry_names(entries) do
+      {:ok, %{manifest: manifest, entries: entries}}
+    end
+  end
+
+  @doc """
   Verifies `archive` and swaps it into `data_dir` cold.
 
   Refuses an archive whose manifest names a format or version this server
@@ -196,15 +216,56 @@ defmodule Pesque.Backup do
 
   defp read_manifest(staged) do
     case File.read(Path.join(staged, "manifest.json")) do
-      {:ok, body} ->
-        case JSON.decode(body) do
-          {:ok, %{} = manifest} -> {:ok, manifest}
-          {:error, _reason} -> {:error, {:bad_archive, :manifest_not_json}}
-        end
-
-      {:error, _reason} ->
-        {:error, {:bad_archive, :no_manifest}}
+      {:ok, body} -> decode_manifest(body)
+      {:error, _reason} -> {:error, {:bad_archive, :no_manifest}}
     end
+  end
+
+  defp decode_manifest(body) do
+    case JSON.decode(body) do
+      {:ok, %{} = manifest} -> {:ok, manifest}
+      {:error, _reason} -> {:error, {:bad_archive, :manifest_not_json}}
+    end
+  end
+
+  # The member names, as plain strings. Without :verbose a table entry is the
+  # name alone, and the archive is read compressed because it is written so.
+  defp table(archive) do
+    case :erl_tar.table(String.to_charlist(archive), [:compressed]) do
+      {:ok, entries} -> {:ok, Enum.map(entries, &to_string/1)}
+      {:error, reason} -> {:error, {:bad_archive, reason}}
+    end
+  end
+
+  # The manifest is the one member a dry run reads, out of the archive and
+  # into memory: nothing is staged, nothing is extracted beside it.
+  defp manifest_body(archive, entries) do
+    if "manifest.json" in entries do
+      case :erl_tar.extract(String.to_charlist(archive), [
+             :compressed,
+             :memory,
+             files: [~c"manifest.json"]
+           ]) do
+        {:ok, [{_name, body}]} -> {:ok, body}
+        {:error, reason} -> {:error, {:bad_archive, reason}}
+      end
+    else
+      {:error, {:bad_archive, :no_manifest}}
+    end
+  end
+
+  # The same refusal restore's check_entries gives, read from the member names
+  # instead of a staged directory: a required name is either a member of its
+  # own or the directory a member lives under.
+  defp check_entry_names(entries) do
+    case Enum.filter(@required_entries, &missing_entry?(entries, &1)) do
+      [] -> :ok
+      missing -> {:error, {:missing_entry, hd(Enum.sort(missing))}}
+    end
+  end
+
+  defp missing_entry?(entries, name) do
+    not Enum.any?(entries, &(&1 == name or String.starts_with?(&1, name <> "/")))
   end
 
   defp check_format(%{"format" => @manifest_format}), do: :ok

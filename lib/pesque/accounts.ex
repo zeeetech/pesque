@@ -1322,6 +1322,27 @@ defmodule Pesque.Accounts do
   end
 
   @doc """
+  The facts a deletion destroys, read and never written.
+
+  Both delete paths print from this one read - the dry run's whole answer and
+  the real run's before-picture - so the rehearsal cannot promise something
+  the action would not do. The event count is how much of the firehose log
+  speaks for the DID; those rows survive the deletion (delete_repo_data!/1
+  keeps the log), and the summary says so.
+  """
+  def describe_deletion(%User{did: did} = user) do
+    %{
+      user: user,
+      key_path: Keys.path(did),
+      rotation_key_path: Pesque.Plc.Keys.rotation_path(did),
+      blob_dir: Path.join(Storage.blobs_dir(), Storage.digest_name(did)),
+      record_count: RepoStore.record_count(did),
+      block_count: RepoStore.block_count(did),
+      event_count: RepoStore.event_count(did)
+    }
+  end
+
+  @doc """
   Issues a short-lived, single-use token authorizing this account's deletion.
 
   The lexicon says the token reaches the account holder by email. There is no
