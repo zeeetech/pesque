@@ -5,6 +5,8 @@ defmodule Pesque.Cli.Invite do
   directly.
   """
 
+  use Gettext, backend: PesqueWeb.Gettext
+
   alias Pesque.Accounts
   alias Pesque.Cli.Input
   alias Pesque.Release
@@ -32,6 +34,9 @@ defmodule Pesque.Cli.Invite do
 
   def run(_argv), do: {:usage, @usage}
 
+  # /signup exists only under path_multi (the SignupController is gated on the
+  # mode), so the ready link is printed only there. Under conformant_single the
+  # codes print bare, with the one line that says how accounts get made instead.
   defp print_groups(groups, uses) do
     for %{account: account, codes: codes} <- groups do
       case account do
@@ -39,9 +44,25 @@ defmodule Pesque.Cli.Invite do
         did -> IO.puts("codes for #{did}, each good for #{uses}:")
       end
 
-      Enum.each(codes, &IO.puts("  " <> &1))
+      Enum.each(codes, &IO.puts(code_line(&1)))
+    end
+
+    unless Pesque.mode() == :path_multi do
+      IO.puts(
+        gettext(
+          "under conformant_single there is no signup page; accounts are made with pesque account create"
+        )
+      )
     end
 
     :ok
+  end
+
+  defp code_line(code) do
+    if Pesque.mode() == :path_multi do
+      "  #{Pesque.base_url()}/signup?code=#{code}"
+    else
+      "  #{code}"
+    end
   end
 end
