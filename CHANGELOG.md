@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.14.0](https://github.com/zeeetech/pesque/compare/pesque-v1.13.3...pesque-v1.14.0) (2026-10-23)
+
+
+### Features
+
+* **cli:** --json output and per-verb --help ([ca2cc4b](https://github.com/zeeetech/pesque/commit/ca2cc4bf707e52d3b950ca1e9f864c56ccbb7bfc))
+* **cli:** add --json output and per-verb --help, close the Zig gaps ([ffc5da0](https://github.com/zeeetech/pesque/commit/ffc5da04fe167cd17943741e5a9f5a681a356706))
+* **cli:** add a status verb and retire the release-side health ([76682a7](https://github.com/zeeetech/pesque/commit/76682a72e3368beb032a2deb6a6638c91ed2fcc9))
+* **cli:** add account show, list filters and dry-run summaries ([4f22ca7](https://github.com/zeeetech/pesque/commit/4f22ca776fe24a56af12de69e01901988f9c4415))
+* **cli:** print signup links and share the next-steps block ([45b70fb](https://github.com/zeeetech/pesque/commit/45b70fb2cfaa36e3a7b3fd6e7a361f16c0303066))
+* **cli:** status verb, account show/dry-run, signup links ([7d362f4](https://github.com/zeeetech/pesque/commit/7d362f4a6414252fd3cfe09af0715af3b86d4478))
+* **cli:** structured operator messages ([9965d4d](https://github.com/zeeetech/pesque/commit/9965d4da68cb847da321ac949e06b4fc626dbb5b))
+* **cli:** translate the operator copy into pt_BR ([f21c6b0](https://github.com/zeeetech/pesque/commit/f21c6b0d0a5f5d4c5f5f8a0f72bdd5c4d1cdd93e))
+
+
+### Bug Fixes
+
+* **accounts:** mint the base32 code the official client requires ([2b50dde](https://github.com/zeeetech/pesque/commit/2b50dde7acd3429c90f1fef8d74dc760e03f84d1))
+* **backup:** archive the database once, from the snapshot ([f4b6cd4](https://github.com/zeeetech/pesque/commit/f4b6cd412e6b626aa3a91777fbea70ae1eefa9aa))
+* **cli:** keep restore --dry-run from touching the service ([ae45251](https://github.com/zeeetech/pesque/commit/ae45251bd7d3319449c8ea5d5a5690cd17c0f04e))
+* **cli:** keep restore --dry-run from touching the service ([4eb1a8e](https://github.com/zeeetech/pesque/commit/4eb1a8e05526cc2331f744713d391e30789f92d0))
+* **web:** translate the migrate handle-domain message ([181e978](https://github.com/zeeetech/pesque/commit/181e9784c8723392c958432339b875ca4a5df521))
+
 ## [1.13.3](https://github.com/zeeetech/pesque/compare/pesque-v1.13.2...pesque-v1.13.3) (2026-10-16)
 
 
