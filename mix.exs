@@ -40,13 +40,13 @@ defmodule Pesque.MixProject do
   defp deps do
     [
       {:phoenix, "~> 1.8"},
-      {:phoenix_html, "~> 4.0"},
-      {:bandit, "~> 1.6"},
-      {:ecto_sql, "~> 3.12"},
-      {:ecto_sqlite3, "~> 0.25"},
-      {:argon2_elixir, "~> 4.0"},
+      {:phoenix_html, "~> 4.3"},
+      {:bandit, "~> 1.13"},
+      {:ecto_sql, "~> 3.14"},
+      {:ecto_sqlite3, "~> 0.26"},
+      {:argon2_elixir, "~> 4.1"},
       {:gettext, "~> 1.0"},
-      {:websock_adapter, "~> 0.5"}
+      {:websock_adapter, "~> 0.6"}
     ]
   end
 
