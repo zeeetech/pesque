@@ -1,6 +1,10 @@
 defmodule Pesque.Release do
   @moduledoc "Release support: task bootstrap, the boot-time migration, and the account printer."
 
+  use Gettext, backend: PesqueWeb.Gettext
+
+  alias Pesque.Cli.Report
+
   @doc """
   Starts the application for a one-off release task.
 
@@ -29,22 +33,22 @@ defmodule Pesque.Release do
 
   @doc """
   Prints the account and what to do next, the part of account creation the
-  account verbs share.
+  account verbs share. The steps after the account exist render through the
+  shared next-steps block (`Pesque.Cli.Report`).
   """
   def print_account(account) do
     IO.puts("")
-    IO.puts("Account created.")
-    IO.puts("  handle  #{account.handle}")
-    IO.puts("  did     #{account.did}")
-    IO.puts("")
-    IO.puts("Point this domain at the server, then add the handle record, and give")
-    IO.puts("DNS a few minutes to catch up:")
-    IO.puts("")
-    Enum.each(dns_lines(account), &IO.puts/1)
-    IO.puts("")
-    IO.puts("Check that everything is reachable from outside:")
-    IO.puts("")
-    IO.puts("  pesque doctor")
+
+    [
+      gettext("Account created.") <> "\n  handle  #{account.handle}\n  did     #{account.did}",
+      gettext(
+        "Point this domain at the server, then add the handle record, and give DNS a few minutes to catch up:"
+      ) <>
+        "\n\n" <> Enum.join(dns_lines(account), "\n"),
+      gettext("Check that everything is reachable from outside:") <> "\n\n  pesque doctor"
+    ]
+    |> Report.next_steps()
+    |> IO.puts()
   end
 
   # A did:web account serves its own handle at /.well-known/atproto-did, so

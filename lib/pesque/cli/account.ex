@@ -1,8 +1,14 @@
 defmodule Pesque.Cli.Account do
   @moduledoc """
-  The account verbs, wired straight to the domain: create, list, delete,
+  The account verbs, wired straight to the domain: show, create, list, delete,
   takedown, activate, reset-password, plc-token and the app-password verbs.
+
+  The delete summary prints from `Accounts.describe_deletion/1` on both the
+  dry run and the real run, so the rehearsal reads the same facts the action
+  acts on.
   """
+
+  use Gettext, backend: PesqueWeb.Gettext
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
@@ -15,8 +21,9 @@ defmodule Pesque.Cli.Account do
   usage: pesque account <subcommand> [flags]
 
     create --handle H --email E
-    list
-    delete --did D | --handle H
+    list [--status active|deactivated] [--grep PATTERN]
+    show (--did D | --handle H)
+    delete --did D | --handle H [--dry-run]
     takedown --did D | --handle H
     activate --did D | --handle H
     reset-password --did D | --handle H
@@ -29,6 +36,7 @@ defmodule Pesque.Cli.Account do
   Plain inputs come from the flag, then the conventional environment
   (ACCOUNT_HANDLE, ACCOUNT_EMAIL), then a prompt. Passwords come from a
   no-echo prompt or a line on stdin, never a flag or the environment.
+  --grep matches a substring, case-insensitively, over did, handle and email.
   """
 
   # --did and --handle name the same account.
@@ -54,37 +62,45 @@ defmodule Pesque.Cli.Account do
   end
 
   def run(["list" | argv]) do
-    with {:ok, _opts, []} <- Input.options(argv, [], @usage),
+    with {:ok, opts, []} <- Input.options(argv, [status: :string, grep: :string], @usage),
+         :ok <- check_status(opts[:status]),
          :ok <- Release.boot!() do
       IO.puts(header())
 
-      Enum.each(RepoStore.list_users(), &print_row/1)
+      opts
+      |> filtered_users()
+      |> Enum.each(&print_row/1)
+
+      :ok
+    end
+  end
+
+  def run(["show" | argv]) do
+    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+         {:ok, identifier} <- identifier(opts),
+         :ok <- Release.boot!(),
+         {:ok, user} <- resolve(identifier) do
+      print_show(user)
       :ok
     end
   end
 
   def run(["delete" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches, @usage),
+           Input.options(argv, @identifier_switches ++ [dry_run: :boolean], @usage),
          {:ok, identifier} <- identifier(opts),
-         {:ok, password} <- Input.password("Account password: "),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
-      # The deletion goes through the protocol flow: token minted for the
-      # account, password checked against it, only then do the rows go.
-      case Accounts.request_account_delete(user) do
-        {:ok, %{token: token}} ->
-          case Accounts.delete_account(user, user.did, password, token) do
-            {:ok, did} ->
-              IO.puts("deleted #{did}")
-              :ok
+      # Both paths print the same before-picture, read once through
+      # describe_deletion/1. The dry run stops there; the real run goes on to
+      # the password gate.
+      print_deletion_summary(Accounts.describe_deletion(user))
 
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
+      if opts[:dry_run] do
+        IO.puts(gettext("dry run: nothing was deleted"))
+        :ok
+      else
+        delete(user)
       end
     end
   end
@@ -199,15 +215,7 @@ defmodule Pesque.Cli.Account do
       if rows == [] do
         IO.puts("no app passwords for #{user.handle || user.did}")
       else
-        Enum.each(rows, fn row ->
-          priv = if row.privileged, do: "privileged", else: "-"
-
-          IO.puts(
-            String.pad_trailing(row.name, 32) <>
-              String.pad_trailing(priv, 12) <>
-              DateTime.to_iso8601(row.inserted_at)
-          )
-        end)
+        Enum.each(rows, &print_app_password_row/1)
       end
 
       :ok
@@ -273,4 +281,116 @@ defmodule Pesque.Cli.Account do
        String.pad_trailing(email || "-", 32) <> deactivated)
     |> IO.puts()
   end
+
+  # Filtering lives here, not in SQL: a PDS's account list is small, and the
+  # moment it is not, that becomes a RepoStore query (see the C7 notes).
+  defp filtered_users(opts) do
+    opts[:status]
+    |> status_scope()
+    |> filter_grep(opts[:grep])
+  end
+
+  # list_users/0 answers active beside the deactivation timestamp, because an
+  # imported account starts deactivated with no timestamp at all: the row is
+  # the status, the timestamp is only "since when".
+  defp status_scope(nil), do: RepoStore.list_users()
+  defp status_scope("active"), do: Enum.filter(RepoStore.list_users(), & &1.active)
+
+  defp status_scope("deactivated"),
+    do: Enum.filter(RepoStore.list_users(), &(not &1.active))
+
+  # A substring over each identifying column, case-insensitively; a nil
+  # column (a handle under conformant_single) matches nothing.
+  defp filter_grep(users, nil), do: users
+
+  defp filter_grep(users, pattern) do
+    needle = String.downcase(pattern)
+
+    Enum.filter(users, fn user ->
+      Enum.any?([user.did, user.handle, user.email], fn value ->
+        value != nil and String.contains?(String.downcase(value), needle)
+      end)
+    end)
+  end
+
+  # Anything else is a typo, and a typo is usage, not an empty list that
+  # reads as "no such accounts".
+  defp check_status(nil), do: :ok
+  defp check_status("active"), do: :ok
+  defp check_status("deactivated"), do: :ok
+
+  defp check_status(_other),
+    do: {:usage, gettext("status must be active or deactivated") <> "\n\n" <> @usage}
+
+  defp print_show(user) do
+    field(gettext("did"), user.did)
+    field(gettext("handle"), user.handle || "-")
+    field(gettext("email"), user.email || "-")
+    field(gettext("active"), if(user.active, do: gettext("yes"), else: gettext("no")))
+    field(gettext("deactivated at"), stamp(user.deactivated_at))
+    field(gettext("repo rev"), RepoStore.repo_rev(user.did) || "-")
+
+    case Accounts.list_app_passwords(user.did) do
+      [] -> IO.puts(gettext("no app passwords"))
+      rows -> Enum.each(rows, &print_app_password_row/1)
+    end
+  end
+
+  # The dry run's whole answer, and the real run's before-picture: the same
+  # lines, from the same read. What the summary promises is what the action
+  # does, and the one line it promises beyond the rows is the caveat.
+  defp print_deletion_summary(facts) do
+    user = facts.user
+
+    IO.puts(gettext("this permanently deletes the account and its repo; it cannot be undone"))
+    field(gettext("did"), user.did)
+    field(gettext("handle"), user.handle || "-")
+    field(gettext("email"), user.email || "-")
+    field(gettext("active"), if(user.active, do: gettext("yes"), else: gettext("no")))
+    field(gettext("repo records"), Integer.to_string(facts.record_count))
+    field(gettext("repo blocks"), Integer.to_string(facts.block_count))
+    field(gettext("firehose events"), Integer.to_string(facts.event_count))
+    field(gettext("signing key"), facts.key_path)
+    field(gettext("rotation key"), facts.rotation_key_path)
+    field(gettext("blob directory"), facts.blob_dir)
+    IO.puts(gettext("firehose events already emitted survive this deletion"))
+  end
+
+  # The deletion goes through the protocol flow: token minted for the
+  # account, password checked against it, only then do the rows go.
+  defp delete(user) do
+    with {:ok, password} <- Input.password("Account password: "),
+         {:ok, %{token: token}} <- Accounts.request_account_delete(user) do
+      case Accounts.delete_account(user, user.did, password, token) do
+        {:ok, did} ->
+          IO.puts("deleted #{did}")
+          :ok
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  # Shared by the app-passwords verb and show, so the two views of one thing
+  # cannot drift apart. Names and privileges only; the passwords themselves
+  # are unrecoverable by construction.
+  defp print_app_password_row(row) do
+    priv = if row.privileged, do: "privileged", else: "-"
+
+    IO.puts(
+      String.pad_trailing(row.name, 32) <>
+        String.pad_trailing(priv, 12) <>
+        DateTime.to_iso8601(row.inserted_at)
+    )
+  end
+
+  # The label column both report shapes share: two spaces in, the label padded
+  # past its longest neighbour, then the value.
+  @field_width 17
+
+  defp field(label, value), do: IO.puts("  " <> String.pad_trailing(label, @field_width) <> value)
+
+  defp stamp(nil), do: "-"
+  defp stamp(datetime), do: DateTime.to_iso8601(datetime)
 end

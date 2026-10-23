@@ -13,14 +13,14 @@ defmodule Pesque.Cli do
     Crawl,
     Doctor,
     Explain,
-    Health,
     Invite,
     Locale,
     Migrate,
-    Restore
+    Restore,
+    Status
   }
 
-  @verbs ~w(account invite migrate doctor backup restore config crawl health)
+  @verbs ~w(account invite migrate doctor status backup restore config crawl)
 
   @doc "The verbs the release wrapper dispatches, in the order it names them."
   def verbs, do: @verbs
@@ -54,11 +54,11 @@ defmodule Pesque.Cli do
   defp dispatch(["invite" | rest]), do: Invite.run(rest)
   defp dispatch(["migrate" | rest]), do: Migrate.run(rest)
   defp dispatch(["doctor" | rest]), do: Doctor.run(rest)
+  defp dispatch(["status" | rest]), do: Status.run(rest)
   defp dispatch(["backup" | rest]), do: Backup.run(rest)
   defp dispatch(["restore" | rest]), do: Restore.run(rest)
   defp dispatch(["config" | rest]), do: Config.run(rest)
   defp dispatch(["crawl" | rest]), do: Crawl.run(rest)
-  defp dispatch(["health" | rest]), do: Health.run(rest)
   defp dispatch([]), do: {:usage, usage()}
   defp dispatch([unknown | _]), do: {:usage, "unknown command: #{unknown}\n\n" <> usage()}
 
@@ -84,12 +84,12 @@ defmodule Pesque.Cli do
       invite create [--count N] [--uses N] [--for DID]
       migrate --old-pds URL --handle H --email E [--plc-token T]
       doctor
+      status
       backup [--out DIR]
       restore (--archive PATH | PATH)
       config validate
       config template [--out PATH]
       crawl request
-      health
 
     Passwords come from a no-echo prompt, or from a line on stdin so they
     can be piped, never argv or the environment.

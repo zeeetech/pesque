@@ -6,7 +6,10 @@ defmodule Pesque.Cli.Migrate do
   (or set `MIGRATE_PLC_TOKEN`) on the second run.
   """
 
+  use Gettext, backend: PesqueWeb.Gettext
+
   alias Pesque.Cli.Input
+  alias Pesque.Cli.Report
   alias Pesque.Migrate
   alias Pesque.Release
 
@@ -62,8 +65,12 @@ defmodule Pesque.Cli.Migrate do
   defp request_plc_code(base, handle) do
     case Migrate.request_plc_code(base) do
       :ok ->
-        IO.puts("a PLC operation code was emailed to #{handle}")
-        IO.puts("run pesque migrate --plc-token <code> (or set MIGRATE_PLC_TOKEN) to finish")
+        IO.puts(gettext("a PLC operation code was emailed to %{handle}", handle: handle))
+
+        [gettext("run pesque migrate --plc-token <code> (or set MIGRATE_PLC_TOKEN) to finish")]
+        |> Report.next_steps()
+        |> IO.puts()
+
         :ok
 
       {:error, reason} ->

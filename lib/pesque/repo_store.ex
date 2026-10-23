@@ -120,6 +120,15 @@ defmodule Pesque.RepoStore do
     Repo.delete_all(from r in Record, where: r.did == ^did)
   end
 
+  @doc """
+  A count, not a length, for the same reason block_count/1 is one: the
+  deletion summary reports how much of a repo is about to go, and a count
+  answers without pulling the rows first.
+  """
+  def record_count(did) do
+    Repo.one(from r in Record, where: r.did == ^did, select: count(r.cid)) || 0
+  end
+
   # blocks
 
   def blocks_for(did) do
@@ -397,6 +406,15 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  The event rows a DID owns. The deletion summary reports the count, and the
+  rows themselves survive the account (delete_repo_data!/1 keeps the firehose
+  log), so this is how much of the log speaks for a DID, not how much will go.
+  """
+  def event_count(did) do
+    Repo.one(from e in Event, where: e.did == ^did, select: count(e.seq)) || 0
+  end
+
+  @doc """
   Deletes every row a DID owns in the repository layer: its records, blocks,
   blob rows and meta rows.
 
@@ -467,6 +485,13 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  The rev of one hosted repo, or nil when it has none: a repo that has never
+  been written to has no rows here. The single-repo companion of
+  all_repo_heads/0, for the one account an operator is looking at.
+  """
+  def repo_rev(did), do: get_meta("rev:" <> did)
+
+  @doc """
   The rev and head commit of every hosted repo, keyed by DID.
 
   Meta is where a repo's rev and head live, so this reads them all in one
@@ -492,7 +517,10 @@ defmodule Pesque.RepoStore do
 
   @doc """
   Every account, ordered by DID, for the operator's account list: the DID,
-  the handle, the email, and when the account was deactivated, if it is.
+  the handle, the email, whether the account is active, and when it was
+  deactivated, if it is. Active is selected beside the timestamp because the
+  two only agree once an account has been deactivated: an imported account
+  starts deactivated with no deactivation time at all.
 
   The one read that answers with emails, because the caller is the operator
   on their own server; every public listing goes through
@@ -506,6 +534,7 @@ defmodule Pesque.RepoStore do
           did: u.did,
           handle: u.handle,
           email: u.email,
+          active: u.active,
           deactivated_at: u.deactivated_at
         }
     )
