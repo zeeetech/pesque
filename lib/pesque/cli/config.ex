@@ -14,8 +14,13 @@ defmodule Pesque.Cli.Config do
          pesque config template [--out PATH]
   """
 
+  @validate_usage "usage: pesque config validate"
+  @template_usage "usage: pesque config template [--out PATH]"
+
+  def run(["--help"]), do: {:help, @usage}
+
   def run(["validate" | argv]) do
-    with {:ok, _opts, []} <- Input.options(argv, [], @usage),
+    with {:ok, _opts, []} <- Input.options(argv, [], @validate_usage),
          :ok <- Config.validate_env(),
          {:ok, entries} <- Config.resolution() do
       IO.puts("config file: #{Config.path()}")
@@ -26,7 +31,7 @@ defmodule Pesque.Cli.Config do
   end
 
   def run(["template" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, [out: :string], @usage) do
+    with {:ok, opts, []} <- Input.options(argv, [out: :string], @template_usage) do
       write(opts[:out], Config.template())
     end
   end

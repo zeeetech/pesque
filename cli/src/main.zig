@@ -36,8 +36,9 @@ const usage_text =
     \\
     \\Accounts and domain tasks (run inside the release):
     \\  account create --handle H --email E
-    \\  account list
-    \\  account delete --did D | --handle H
+    \\  account list [--status active|deactivated] [--grep PATTERN]
+    \\  account show --did D | --handle H
+    \\  account delete --did D | --handle H [--dry-run]
     \\  account takedown --did D | --handle H      (deactivate)
     \\  account activate --did D | --handle H
     \\  account reset-password --did D | --handle H
@@ -51,11 +52,16 @@ const usage_text =
     \\  doctor                     run the federation preflight
     \\  status                     the operator report: identity, accounts, storage
     \\  backup [--out DIR]         live-safe backup (VACUUM INTO + blobs)
-    \\  restore <archive.tar.gz>   cold restore (stops the service)
+    \\  restore <archive.tar.gz> [--dry-run]
+    \\                             cold restore (stops the service)
     \\  config validate | config template [--out PATH]
     \\  crawl request              ask the relay to crawl this server
     \\  lexicon add --from URL [--ref REF] [--dir SUBPATH]
     \\                             install a git repo's lexicons, then restart
+    \\
+    \\The read verbs (`account list`, `account show`, `account app-passwords`,
+    \\`status`) take --json for machine-readable output on stdout, and every
+    \\verb takes --help for its usage.
     \\
     \\First run: write a config (config template --out pesque.conf), edit it,
     \\'pesque up', then 'pesque account create'. Put the TLS proxy in front
@@ -175,6 +181,13 @@ fn dispatch(host: *proc.Host, cmd: []const []const u8) Error!u8 {
     }
     // Domain verbs: the release owns the logic; the CLI resolves password
     // inputs and forwards everything through run_once.
+    if (isDomainVerb(name)) {
+        // A tail asking for help or JSON rides to the release verbatim,
+        // bypassing the strict per-verb parsers: the release's own parsing
+        // owns the per-subcommand usage and the read verbs' --json, and
+        // neither flag is one this file's parsers know.
+        if (verbatimTail(rest)) return runDomain(host, name, rest, &.{});
+    }
     if (std.mem.eql(u8, name, "account")) return account(host, rest);
     if (std.mem.eql(u8, name, "invite")) return invite(host, rest);
     if (std.mem.eql(u8, name, "migrate")) return migrate(host, rest);
@@ -194,6 +207,25 @@ fn noSubArgs(host: *proc.Host, args: []const []const u8, what: []const u8) Error
         host.err("'{s}' takes no arguments (got '{s}').", .{ what, args[0] });
         return error.Usage;
     }
+}
+
+// The verbs that run inside the release, in the order dispatch offers them.
+const domain_verbs = [_][]const u8{ "account", "invite", "migrate", "doctor", "status", "backup", "restore", "config", "crawl", "lexicon" };
+
+fn isDomainVerb(name: []const u8) bool {
+    for (domain_verbs) |verb| {
+        if (std.mem.eql(u8, name, verb)) return true;
+    }
+    return false;
+}
+
+/// Whether the tail names a flag only the release's own parsing can answer:
+/// `--help`/`-h` (its per-subcommand usage) or `--json` (the read verbs).
+fn verbatimTail(args: []const []const u8) bool {
+    for (args) |a| {
+        if (std.mem.eql(u8, a, "--help") or std.mem.eql(u8, a, "-h") or std.mem.eql(u8, a, "--json")) return true;
+    }
+    return false;
 }
 
 // --- driver verbs -------------------------------------------------------------
@@ -282,19 +314,44 @@ fn failInput(host: *proc.Host, comptime fmt: []const u8, args: anytype) Error {
 }
 
 fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
-    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, delete, takedown, activate, reset-password, plc-token, email-token, reset-token, app-passwords or revoke-app-password", .{});
+    if (args.len == 0) return usage(host, "'account' needs a subcommand: create, list, show, delete, takedown, activate, reset-password, plc-token, email-token, reset-token, app-passwords or revoke-app-password", .{});
     const sub = args[0];
     const rest = args[1..];
 
+    // list's flags (--status, --grep) are the release's to parse.
     if (std.mem.eql(u8, sub, "list")) {
-        return simpleVerbNamed(host, "account", "list", rest);
+        return subVerbTail(host, "account", "list", rest);
+    }
+    if (std.mem.eql(u8, sub, "show")) {
+        const sel = try parseSelector(host, rest);
+        return runDomain(host, "account", &.{ "show", sel.flag, sel.value }, &.{});
     }
     if (std.mem.eql(u8, sub, "create")) {
         const f = try parseAccountCreate(host, rest);
         return runAccountCreate(host, f);
     }
-    if (std.mem.eql(u8, sub, "delete") or std.mem.eql(u8, sub, "takedown") or
-        std.mem.eql(u8, sub, "activate") or std.mem.eql(u8, sub, "reset-password") or
+    if (std.mem.eql(u8, sub, "delete")) {
+        // --dry-run is delete's one extra flag; the selector parser stays
+        // strict about everything else, and the other selector verbs take
+        // no flag at all.
+        var dry_run = false;
+        var selector_args: std.ArrayList([]const u8) = .empty;
+        defer selector_args.deinit(host.gpa);
+        for (rest) |a| {
+            if (std.mem.eql(u8, a, "--dry-run")) {
+                dry_run = true;
+            } else {
+                try selector_args.append(host.gpa, a);
+            }
+        }
+        const sel = try parseSelector(host, selector_args.items);
+        if (dry_run) {
+            return runDomain(host, "account", &.{ "delete", sel.flag, sel.value, "--dry-run" }, &.{});
+        }
+        return runDomain(host, "account", &.{ "delete", sel.flag, sel.value }, &.{});
+    }
+    if (std.mem.eql(u8, sub, "takedown") or std.mem.eql(u8, sub, "activate") or
+        std.mem.eql(u8, sub, "reset-password") or
         std.mem.eql(u8, sub, "plc-token") or std.mem.eql(u8, sub, "email-token") or
         std.mem.eql(u8, sub, "reset-token"))
     {
@@ -439,6 +496,16 @@ fn simpleVerbNamed(host: *proc.Host, verb: []const u8, sub: []const u8, args: []
     return runDomain(host, verb, &.{sub}, &.{});
 }
 
+/// A sub verb whose flags are the release's to parse: the tail forwards
+/// verbatim after the subcommand word.
+fn subVerbTail(host: *proc.Host, verb: []const u8, sub: []const u8, rest: []const []const u8) Error!u8 {
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(host.gpa);
+    try argv.append(host.gpa, sub);
+    try argv.appendSlice(host.gpa, rest);
+    return runDomain(host, verb, argv.items, &.{});
+}
+
 fn runDomain(host: *proc.Host, verb: []const u8, argv: []const []const u8, env: []const proc.Env) Error!u8 {
     const d = try detectBackend(host);
     return d.runOnce(host, .{ .verb = verb, .argv = argv, .env = env, .interactive = true });
@@ -575,8 +642,23 @@ fn defaultOutDir(host: *proc.Host, d: driver.Driver) Error![]const u8 {
 }
 
 fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
-    if (args.len != 1) return usage(host, "restore takes the archive path: pesque restore <archive.tar.gz>", .{});
-    const abs = try absPath(host, args[0]);
+    // --dry-run is the one flag restore takes; the archive is the one
+    // positional. Anything else here is usage before a service is touched.
+    var dry_run = false;
+    var archive: ?[]const u8 = null;
+    for (args) |a| {
+        if (std.mem.eql(u8, a, "--dry-run")) {
+            dry_run = true;
+        } else if (std.mem.startsWith(u8, a, "-")) {
+            return usage(host, "unknown option '{s}' for 'restore'", .{a});
+        } else if (archive == null) {
+            archive = a;
+        } else {
+            return usage(host, "restore takes one archive path: pesque restore <archive.tar.gz> [--dry-run]", .{});
+        }
+    }
+    const abs = try absPath(host, archive orelse
+        return usage(host, "restore takes the archive path: pesque restore <archive.tar.gz>", .{}));
     const d = try detectBackend(host);
     // Restore is cold: stop the service first when the CLI owns the
     // lifecycle; the verb refuses a locked db as a second line of defense.
@@ -589,7 +671,7 @@ fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
     }
     const outcome = d.runOnce(host, .{
         .verb = "restore",
-        .argv = &.{abs},
+        .argv = if (dry_run) &.{ "--dry-run", abs } else &.{abs},
         .mounts = &.{.{ .source = abs, .target = abs }},
         .interactive = true,
     });

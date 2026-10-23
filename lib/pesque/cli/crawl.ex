@@ -9,6 +9,8 @@ defmodule Pesque.Cli.Crawl do
 
   @usage "usage: pesque crawl request"
 
+  def run(["--help"]), do: {:help, @usage}
+
   def run(["request" | argv]) do
     with {:ok, _opts, []} <- Input.options(argv, [], @usage),
          :ok <- Release.boot!() do

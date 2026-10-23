@@ -10,8 +10,20 @@ defmodule Pesque.Cli.Input do
   Parses verb flags. An unknown flag is usage (exit 2), not a crash or a
   silently ignored typo, and so is a stray positional argument for a verb
   that takes none; `allow_positional` is for the one that does.
+
+  `--help` is not parsed at all: asking for help is not a usage error, so it
+  answers `{:help, usage}`, the most specific usage the calling clause knows,
+  which prints on stdout and exits 0.
   """
   def options(argv, strict, usage, allow_positional \\ false) do
+    if "--help" in argv do
+      {:help, usage}
+    else
+      parse(argv, strict, usage, allow_positional)
+    end
+  end
+
+  defp parse(argv, strict, usage, allow_positional) do
     case OptionParser.parse(argv, strict: strict) do
       {_opts, _args, invalid} when invalid != [] ->
         flags = Enum.map_join(invalid, ", ", fn {flag, _value} -> flag end)

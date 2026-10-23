@@ -2,8 +2,11 @@ defmodule Pesque.Cli do
   @moduledoc """
   Release-side verb dispatch: `bin/pesque <verb> <argv>` arrives here through
   one fixed eval, and the answer is the exit code alone: 0 ok, 1 domain
-  failure, 2 usage. Mix tasks run the same verbs through `run/1`, which
-  answers instead of halting, so tests exercise dispatch without leaving the VM.
+  failure, 2 usage. `run/1` answers `:ok | {:error, reason} | {:usage, text} |
+  {:help, text}`, and the fourth is the pleasant one: a `--help` the verb
+  asked for prints on stdout with exit 0. Mix tasks run the same verbs
+  through `run/1`, which answers instead of halting, so tests exercise
+  dispatch without leaving the VM.
   """
 
   alias Pesque.Cli.{
@@ -29,6 +32,10 @@ defmodule Pesque.Cli do
   def main do
     case run(System.argv()) do
       :ok ->
+        System.halt(0)
+
+      {:help, text} ->
+        IO.puts(text)
         System.halt(0)
 
       {:error, reason} ->
@@ -71,8 +78,9 @@ defmodule Pesque.Cli do
     usage: pesque <verb> [flags]
 
       account create --handle H --email E
-      account list
-      account delete --did D | --handle H
+      account list [--status active|deactivated] [--grep PATTERN]
+      account show --did D | --handle H
+      account delete --did D | --handle H [--dry-run]
       account takedown --did D | --handle H
       account activate --did D | --handle H
       account reset-password --did D | --handle H
@@ -86,10 +94,14 @@ defmodule Pesque.Cli do
       doctor
       status
       backup [--out DIR]
-      restore (--archive PATH | PATH)
+      restore (--archive PATH | PATH) [--dry-run]
       config validate
       config template [--out PATH]
       crawl request
+
+    The read verbs (account list, account show, account app-passwords,
+    status) take --json for machine-readable output on stdout; every verb
+    takes --help for its usage.
 
     Passwords come from a no-echo prompt, or from a line on stdin so they
     can be piped, never argv or the environment.

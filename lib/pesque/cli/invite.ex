@@ -13,6 +13,8 @@ defmodule Pesque.Cli.Invite do
 
   @usage "usage: pesque invite create [--count N] [--uses N] [--for DID]"
 
+  def run(["--help"]), do: {:help, @usage}
+
   def run(["create" | argv]) do
     with {:ok, opts, []} <-
            Input.options(argv, [count: :integer, uses: :integer, for: :string], @usage),

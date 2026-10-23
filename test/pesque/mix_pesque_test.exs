@@ -24,6 +24,11 @@ defmodule Pesque.MixPesqueTest do
              end) =~ "did"
     end
 
+    test "--help prints the usage and does not raise" do
+      output = capture_io(fn -> Mix.Tasks.Pesque.Account.run(["--help"]) end)
+      assert output =~ "usage: pesque account"
+    end
+
     test "--password is no longer a flag: the verb answers usage" do
       assert_raise Mix.Error, ~r/unknown option: --password/, fn ->
         capture_io(fn ->

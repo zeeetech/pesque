@@ -13,6 +13,7 @@ defmodule Pesque.Cli.Account do
   alias Pesque.Accounts
   alias Pesque.Accounts.User
   alias Pesque.Cli.Input
+  alias Pesque.Cli.Output
   alias Pesque.Plc
   alias Pesque.Release
   alias Pesque.RepoStore
@@ -39,12 +40,59 @@ defmodule Pesque.Cli.Account do
   --grep matches a substring, case-insensitively, over did, handle and email.
   """
 
+  # The most specific usage each subcommand answers `--help` with, written
+  # out so a new subcommand has to answer the help question to join. The
+  # account-level @usage above stays the answer for `account --help` and the
+  # catch-all.
+  @sub_usage %{
+    "create" => """
+    usage: pesque account create --handle H --email E
+
+    The handle and email come from the flag, then the conventional
+    environment (ACCOUNT_HANDLE, ACCOUNT_EMAIL), then a prompt. The password
+    comes from a no-echo prompt or a line on stdin, never a flag.
+    """,
+    "list" => """
+    usage: pesque account list [--status active|deactivated] [--grep PATTERN]
+
+    --grep matches a substring, case-insensitively, over did, handle and
+    email. Both filters compose with --json.
+    """,
+    "show" => "usage: pesque account show (--did D | --handle H)\n",
+    "delete" => """
+    usage: pesque account delete --did D | --handle H [--dry-run]
+
+    --dry-run prints what would go and changes nothing. The real run asks
+    for the account password (a no-echo prompt or a line on stdin).
+    """,
+    "takedown" => "usage: pesque account takedown --did D | --handle H\n",
+    "activate" => "usage: pesque account activate --did D | --handle H\n",
+    "reset-password" => """
+    usage: pesque account reset-password --did D | --handle H
+
+    The new password comes from a no-echo prompt or a line on stdin, never a
+    flag or the environment.
+    """,
+    "plc-token" => "usage: pesque account plc-token --did D | --handle H\n",
+    "email-token" => "usage: pesque account email-token --did D | --handle H\n",
+    "reset-token" => "usage: pesque account reset-token --did D | --handle H\n",
+    "app-passwords" => "usage: pesque account app-passwords --did D | --handle H\n",
+    "revoke-app-password" =>
+      "usage: pesque account revoke-app-password --did D | --handle H --name N\n"
+  }
+
   # --did and --handle name the same account.
   @identifier_switches [did: :string, handle: :string]
 
+  # The read verbs' published JSON surface: stdout carries the data, stderr
+  # the prose, and the field names are the storage vocabulary.
+  @json [json: :boolean]
+
+  def run(["--help"]), do: {:help, @usage}
+
   def run(["create" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, [handle: :string, email: :string], @usage),
+           Input.options(argv, [handle: :string, email: :string], @sub_usage["create"]),
          {:ok, handle} <- Input.text(opts, :handle, "ACCOUNT_HANDLE", "handle: "),
          {:ok, email} <- Input.text(opts, :email, "ACCOUNT_EMAIL", "email: "),
          {:ok, password} <-
@@ -62,32 +110,46 @@ defmodule Pesque.Cli.Account do
   end
 
   def run(["list" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, [status: :string, grep: :string], @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, [status: :string, grep: :string] ++ @json, @sub_usage["list"]),
          :ok <- check_status(opts[:status]),
          :ok <- Release.boot!() do
-      IO.puts(header())
+      users = filtered_users(opts)
 
-      opts
-      |> filtered_users()
-      |> Enum.each(&print_row/1)
+      if opts[:json] do
+        Output.json(%{"accounts" => Enum.map(users, &user_json/1)})
+      else
+        IO.puts(header())
+        Enum.each(users, &print_row/1)
+      end
 
       :ok
     end
   end
 
   def run(["show" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches ++ @json, @sub_usage["show"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
-      print_show(user)
+      if opts[:json] do
+        Output.json(%{"account" => show_json(user)})
+      else
+        print_show(user)
+      end
+
       :ok
     end
   end
 
   def run(["delete" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches ++ [dry_run: :boolean], @usage),
+           Input.options(
+             argv,
+             @identifier_switches ++ [dry_run: :boolean],
+             @sub_usage["delete"]
+           ),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
@@ -106,7 +168,8 @@ defmodule Pesque.Cli.Account do
   end
 
   def run(["takedown" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches, @sub_usage["takedown"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
@@ -122,7 +185,8 @@ defmodule Pesque.Cli.Account do
   end
 
   def run(["activate" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches, @sub_usage["activate"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
@@ -139,7 +203,7 @@ defmodule Pesque.Cli.Account do
 
   def run(["reset-password" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches, @usage),
+           Input.options(argv, @identifier_switches, @sub_usage["reset-password"]),
          {:ok, identifier} <- identifier(opts),
          {:ok, password} <- Input.password("new password: "),
          :ok <- Release.boot!(),
@@ -154,7 +218,8 @@ defmodule Pesque.Cli.Account do
   # reaches the operator through the log or here, and it is what
   # signPlcOperation spends.
   def run(["plc-token" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches, @sub_usage["plc-token"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier),
@@ -171,7 +236,8 @@ defmodule Pesque.Cli.Account do
   # One code serves both email flows: confirmEmail spends it to confirm the
   # address, and updateEmail spends it when a confirmed address is being moved.
   def run(["email-token" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches, @sub_usage["email-token"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier),
@@ -188,7 +254,8 @@ defmodule Pesque.Cli.Account do
   # anonymous and answers nothing, so on a server with no mail this verb is how
   # the operator mints one; resetPassword spends it.
   def run(["reset-token" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches, @sub_usage["reset-token"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier),
@@ -206,16 +273,17 @@ defmodule Pesque.Cli.Account do
   # a compromised app password) is here. Names and privileges only; the
   # passwords themselves are unrecoverable by construction.
   def run(["app-passwords" | argv]) do
-    with {:ok, opts, []} <- Input.options(argv, @identifier_switches, @usage),
+    with {:ok, opts, []} <-
+           Input.options(argv, @identifier_switches ++ @json, @sub_usage["app-passwords"]),
          {:ok, identifier} <- identifier(opts),
          :ok <- Release.boot!(),
          {:ok, user} <- resolve(identifier) do
       rows = Accounts.list_app_passwords(user.did)
 
-      if rows == [] do
-        IO.puts("no app passwords for #{user.handle || user.did}")
+      if opts[:json] do
+        Output.json(%{"app_passwords" => Enum.map(rows, &app_password_json/1)})
       else
-        Enum.each(rows, &print_app_password_row/1)
+        print_app_passwords(user, rows)
       end
 
       :ok
@@ -224,7 +292,11 @@ defmodule Pesque.Cli.Account do
 
   def run(["revoke-app-password" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, @identifier_switches ++ [name: :string], @usage),
+           Input.options(
+             argv,
+             @identifier_switches ++ [name: :string],
+             @sub_usage["revoke-app-password"]
+           ),
          {:ok, identifier} <- identifier(opts),
          {:ok, name} <- Input.text(opts, :name, "APP_PASSWORD_NAME", "name: "),
          :ok <- Release.boot!(),
@@ -322,13 +394,17 @@ defmodule Pesque.Cli.Account do
   defp check_status(_other),
     do: {:usage, gettext("status must be active or deactivated") <> "\n\n" <> @usage}
 
+  # Field labels below ("did", "repo rev", ...) are plain literals on
+  # purpose: a label is a name, not a sentence, and a short msgid would
+  # inherit a browser page's translation under the shared catalog. The prose
+  # around them goes through gettext.
   defp print_show(user) do
-    field(gettext("did"), user.did)
-    field(gettext("handle"), user.handle || "-")
-    field(gettext("email"), user.email || "-")
-    field(gettext("active"), if(user.active, do: gettext("yes"), else: gettext("no")))
-    field(gettext("deactivated at"), stamp(user.deactivated_at))
-    field(gettext("repo rev"), RepoStore.repo_rev(user.did) || "-")
+    field("did", user.did)
+    field("handle", user.handle || "-")
+    field("email", user.email || "-")
+    field("active", if(user.active, do: gettext("yes"), else: gettext("no")))
+    field("deactivated at", stamp(user.deactivated_at))
+    field("repo rev", RepoStore.repo_rev(user.did) || "-")
 
     case Accounts.list_app_passwords(user.did) do
       [] -> IO.puts(gettext("no app passwords"))
@@ -343,18 +419,51 @@ defmodule Pesque.Cli.Account do
     user = facts.user
 
     IO.puts(gettext("this permanently deletes the account and its repo; it cannot be undone"))
-    field(gettext("did"), user.did)
-    field(gettext("handle"), user.handle || "-")
-    field(gettext("email"), user.email || "-")
-    field(gettext("active"), if(user.active, do: gettext("yes"), else: gettext("no")))
-    field(gettext("repo records"), Integer.to_string(facts.record_count))
-    field(gettext("repo blocks"), Integer.to_string(facts.block_count))
-    field(gettext("firehose events"), Integer.to_string(facts.event_count))
-    field(gettext("signing key"), facts.key_path)
-    field(gettext("rotation key"), facts.rotation_key_path)
-    field(gettext("blob directory"), facts.blob_dir)
+    field("did", user.did)
+    field("handle", user.handle || "-")
+    field("email", user.email || "-")
+    field("active", if(user.active, do: gettext("yes"), else: gettext("no")))
+    field("repo records", Integer.to_string(facts.record_count))
+    field("repo blocks", Integer.to_string(facts.block_count))
+    field("firehose events", Integer.to_string(facts.event_count))
+    field("signing key", facts.key_path)
+    field("rotation key", facts.rotation_key_path)
+    field("blob directory", facts.blob_dir)
     IO.puts(gettext("firehose events already emitted survive this deletion"))
   end
+
+  # The --json shapes for the read verbs. Field names are the storage
+  # vocabulary and absence is null (never the dash the table prints), so a
+  # script reads the same field both ways.
+  defp user_json(user) do
+    %{
+      did: user.did,
+      handle: user.handle,
+      email: user.email,
+      active: user.active,
+      deactivated_at: stamp_json(user.deactivated_at)
+    }
+  end
+
+  defp show_json(user) do
+    user_json(user)
+    |> Map.put(:repo_rev, RepoStore.repo_rev(user.did))
+    |> Map.put(
+      :app_passwords,
+      user.did |> Accounts.list_app_passwords() |> Enum.map(&app_password_json/1)
+    )
+  end
+
+  defp app_password_json(row) do
+    %{
+      name: row.name,
+      privileged: row.privileged,
+      inserted_at: DateTime.to_iso8601(row.inserted_at)
+    }
+  end
+
+  defp stamp_json(nil), do: nil
+  defp stamp_json(datetime), do: DateTime.to_iso8601(datetime)
 
   # The deletion goes through the protocol flow: token minted for the
   # account, password checked against it, only then do the rows go.
@@ -369,6 +478,16 @@ defmodule Pesque.Cli.Account do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  # The table form of the app-passwords verb: the empty case is named in
+  # prose, where the JSON form answers an empty array.
+  defp print_app_passwords(user, rows) do
+    if rows == [] do
+      IO.puts("no app passwords for #{user.handle || user.did}")
+    else
+      Enum.each(rows, &print_app_password_row/1)
     end
   end
 

@@ -55,13 +55,14 @@ defmodule Pesque.Cli.Restore do
   # The dry run's whole answer, and the real run's before-picture. The
   # manifest itself is not listed among the entries: it is the archive's own
   # metadata, verified and then left with the staging directory, and its
-  # contents are the first lines of this block.
+  # contents are the first lines of this block. Field labels are plain
+  # literals (names, not sentences), like every other report's.
   defp print_inspection(data_dir, %{manifest: manifest, entries: entries}, dry_run) do
     if dry_run, do: IO.puts(gettext("dry run: nothing has been restored"))
 
-    field(gettext("version"), manifest_value(manifest, "version"))
-    field(gettext("created at"), manifest_value(manifest, "created_at"))
-    field(gettext("pesque version"), manifest_value(manifest, "pesque_version"))
+    field("version", manifest_value(manifest, "version"))
+    field("created at", manifest_value(manifest, "created_at"))
+    field("pesque version", manifest_value(manifest, "pesque_version"))
 
     Enum.each(entries -- ["manifest.json"], fn name ->
       IO.puts("    #{name} -> #{Path.join(data_dir, name)}")
