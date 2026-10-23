@@ -52,7 +52,7 @@ const usage_text =
     \\  doctor                     run the federation preflight
     \\  status                     the operator report: identity, accounts, storage
     \\  backup [--out DIR]         live-safe backup (VACUUM INTO + blobs)
-    \\  restore <archive.tar.gz> [--dry-run]
+    \\  restore (--archive PATH | PATH) [--dry-run]
     \\                             cold restore (stops the service)
     \\  config validate | config template [--out PATH]
     \\  crawl request              ask the relay to crawl this server
@@ -642,32 +642,45 @@ fn defaultOutDir(host: *proc.Host, d: driver.Driver) Error![]const u8 {
 }
 
 fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
-    // --dry-run is the one flag restore takes; the archive is the one
-    // positional. Anything else here is usage before a service is touched.
+    // --dry-run is the one boolean flag; the archive comes by --archive PATH
+    // or the one positional, exactly one of the two (the release's own
+    // contract). Anything else here is usage before a service is touched.
+    const one_archive_usage = "restore takes one archive path: pesque restore (--archive PATH | PATH) [--dry-run]";
     var dry_run = false;
     var archive: ?[]const u8 = null;
-    for (args) |a| {
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
         if (std.mem.eql(u8, a, "--dry-run")) {
             dry_run = true;
+        } else if (std.mem.eql(u8, a, "--archive")) {
+            if (archive != null) {
+                return usage(host, one_archive_usage, .{});
+            }
+            archive = try valueFlag(host, args, &i, "--archive");
         } else if (std.mem.startsWith(u8, a, "-")) {
             return usage(host, "unknown option '{s}' for 'restore'", .{a});
         } else if (archive == null) {
             archive = a;
         } else {
-            return usage(host, "restore takes one archive path: pesque restore <archive.tar.gz> [--dry-run]", .{});
+            return usage(host, one_archive_usage, .{});
         }
     }
     const abs = try absPath(host, archive orelse
-        return usage(host, "restore takes the archive path: pesque restore <archive.tar.gz>", .{}));
+        return usage(host, "restore takes the archive path: pesque restore (--archive PATH | PATH)", .{}));
     const d = try detectBackend(host);
     // Restore is cold: stop the service first when the CLI owns the
     // lifecycle; the verb refuses a locked db as a second line of defense.
+    // A dry run reads the archive and changes nothing, so it skips the
+    // dance entirely: no stop, and no bring-up after.
     var stopped = false;
-    if (d.ownsLifecycle()) {
-        _ = try d.down(host);
-        stopped = true;
-    } else {
-        host.note("the service is managed outside this CLI: if the archive restore refuses a locked database, stop the service and run this again.", .{});
+    if (!dry_run) {
+        if (d.ownsLifecycle()) {
+            _ = try d.down(host);
+            stopped = true;
+        } else {
+            host.note("the service is managed outside this CLI: if the archive restore refuses a locked database, stop the service and run this again.", .{});
+        }
     }
     const outcome = d.runOnce(host, .{
         .verb = "restore",
