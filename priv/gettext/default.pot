@@ -32,6 +32,7 @@ msgstr ""
 msgid "about this server"
 msgstr ""
 
+#: lib/pesque/cli/status.ex:50
 #: lib/pesque_web/page_html.ex:26
 #, elixir-autogen, elixir-format
 msgid "accounts"
@@ -887,4 +888,107 @@ msgstr ""
 #: lib/pesque/cli/explain.ex:370
 #, elixir-autogen, elixir-format
 msgid "upgrade pesque to restore it"
+msgstr ""
+
+#: lib/pesque/cli/status.ex:99
+#, elixir-autogen, elixir-format
+msgid "%{n} bytes"
+msgstr ""
+
+#: lib/pesque/release.ex:43
+#, elixir-autogen, elixir-format
+msgid "Account created."
+msgstr ""
+
+#: lib/pesque/release.ex:48
+#, elixir-autogen, elixir-format
+msgid "Check that everything is reachable from outside:"
+msgstr ""
+
+#: lib/pesque/release.ex:44
+#, elixir-autogen, elixir-format
+msgid "Point this domain at the server, then add the handle record, and give DNS a few minutes to catch up:"
+msgstr ""
+
+#: lib/pesque/cli/migrate.ex:68
+#, elixir-autogen, elixir-format
+msgid "a PLC operation code was emailed to %{handle}"
+msgstr ""
+
+#: lib/pesque/cli/status.ex:92
+#: lib/pesque/cli/status.ex:93
+#, elixir-autogen, elixir-format
+msgid "crawlers"
+msgstr ""
+
+#: lib/pesque/cli/restore.ex:61
+#, elixir-autogen, elixir-format
+msgid "dry run: nothing has been restored"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:162
+#, elixir-autogen, elixir-format
+msgid "dry run: nothing was deleted"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:432
+#, elixir-autogen, elixir-format
+msgid "firehose events already emitted survive this deletion"
+msgstr ""
+
+#: lib/pesque/cli/restore.ex:71
+#, elixir-autogen, elixir-format
+msgid "if anything stops the swap, the previous state is left in the .old files"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:405
+#: lib/pesque/cli/account.ex:425
+#, elixir-autogen, elixir-format
+msgid "no"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:410
+#, elixir-autogen, elixir-format
+msgid "no app passwords"
+msgstr ""
+
+#: lib/pesque/cli/status.ex:92
+#, elixir-autogen, elixir-format
+msgid "none configured"
+msgstr ""
+
+#: lib/pesque/cli/migrate.ex:70
+#, elixir-autogen, elixir-format
+msgid "run pesque migrate --plc-token <code> (or set MIGRATE_PLC_TOKEN) to finish"
+msgstr ""
+
+#: lib/pesque/cli/status.ex:49
+#, elixir-autogen, elixir-format
+msgid "server"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:395
+#, elixir-autogen, elixir-format
+msgid "status must be active or deactivated"
+msgstr ""
+
+#: lib/pesque/cli/status.ex:51
+#, elixir-autogen, elixir-format
+msgid "storage"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:421
+#, elixir-autogen, elixir-format
+msgid "this permanently deletes the account and its repo; it cannot be undone"
+msgstr ""
+
+#: lib/pesque/cli/invite.ex:54
+#, elixir-autogen, elixir-format
+msgid "under conformant_single there is no signup page; accounts are made with pesque account create"
+msgstr ""
+
+#: lib/pesque/cli/account.ex:405
+#: lib/pesque/cli/account.ex:425
+#, elixir-autogen, elixir-format
+msgid "yes"
 msgstr ""
