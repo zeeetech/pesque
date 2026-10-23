@@ -49,6 +49,7 @@ const usage_text =
     \\  invite create [--count N] [--uses N] [--for DID]
     \\  migrate --old-pds URL --handle H --email E
     \\  doctor                     run the federation preflight
+    \\  status                     the operator report: identity, accounts, storage
     \\  backup [--out DIR]         live-safe backup (VACUUM INTO + blobs)
     \\  restore <archive.tar.gz>   cold restore (stops the service)
     \\  config validate | config template [--out PATH]
@@ -178,6 +179,7 @@ fn dispatch(host: *proc.Host, cmd: []const []const u8) Error!u8 {
     if (std.mem.eql(u8, name, "invite")) return invite(host, rest);
     if (std.mem.eql(u8, name, "migrate")) return migrate(host, rest);
     if (std.mem.eql(u8, name, "doctor")) return simpleVerb(host, "doctor", rest);
+    if (std.mem.eql(u8, name, "status")) return simpleVerb(host, "status", rest);
     if (std.mem.eql(u8, name, "backup")) return backup(host, rest);
     if (std.mem.eql(u8, name, "restore")) return restore(host, rest);
     if (std.mem.eql(u8, name, "config")) return configVerb(host, rest);

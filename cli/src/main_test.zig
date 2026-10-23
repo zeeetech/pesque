@@ -59,6 +59,9 @@ test "dispatch: domain verbs forward to bin/pesque with the verb tail" {
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"doctor"}));
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "doctor" });
 
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{"status"}));
+    try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "status" });
+
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "account", "list" }));
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "account", "list" });
 
