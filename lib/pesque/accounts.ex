@@ -23,7 +23,9 @@ defmodule Pesque.Accounts do
 
   require Logger
 
-  @deletion_token_ttl_seconds 24 * 60 * 60
+  # The reference PDS gives every emailed code 15 minutes, the deletion code
+  # included. A short life is the point: spending it destroys the account.
+  @deletion_token_ttl_seconds 15 * 60
 
   # The reference PDS gives its emailed confirmation and reset codes 15
   # minutes. An operator reading one out of a log or a CLI hands it over in

@@ -314,6 +314,8 @@ defmodule PesqueWeb.PlcSignatureTest do
       assert output =~ "single use"
       assert [code] = Regex.run(~r/token for #{user.did}: (\S+)/, output, capture: :all_but_first)
 
+      assert code =~ ~r/^[A-Z2-7]{5}-[A-Z2-7]{5}$/
+
       conn = xrpc_post(@sign_path, %{"token" => code}, token(user))
 
       assert conn.status == 200

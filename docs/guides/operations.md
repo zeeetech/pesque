@@ -88,7 +88,10 @@ Secrets are `0600` and `keys/` is `0700`; the data directory takes your umask.
   code to the account holder; there is no mail here, so the code reaches the
   operator instead: it is logged when a client asks, and `pesque account
   plc-token --did D | --handle H` mints another on demand. It is good for 15
-  minutes and single use; `signPlcOperation` spends it. The signed operation is
+  minutes and single use; `signPlcOperation` spends it. Every code in these
+  flows is the `XXXXX-XXXXX` base32 shape the official client requires: ten
+  characters from `A-Z2-7` (no `0`, `1`, `8` or `9`), which is what lets the
+  app send it at all. The signed operation is
   the answer, not a submission: hand it to the client, which submits it to the
   PLC directory or to the PDS the account is moving to.
 - `com.atproto.server.requestEmailConfirmation` / `confirmEmail` prove an

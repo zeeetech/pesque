@@ -61,6 +61,14 @@ defmodule Pesque.Accounts.DeleteAccountTest do
     assert Accounts.get_user(user.did)
   end
 
+  test "the deletion code is the shape the official client accepts", %{user: user} do
+    assert {:ok, %{token: token}} = Accounts.request_account_delete(user)
+    assert token =~ ~r/^[A-Z2-7]{5}-[A-Z2-7]{5}$/
+
+    assert {:ok, did} = Accounts.delete_account(user, user.did, @password, token)
+    assert did == user.did
+  end
+
   defp put_mode(mode) do
     previous = Application.get_env(:pesque, :mode)
 

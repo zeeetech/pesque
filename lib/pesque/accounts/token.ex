@@ -5,6 +5,13 @@ defmodule Pesque.Accounts.Token do
   password. One table and one module, because the flows differ only in what
   spending a code then does.
 
+  The code's shape is not free: it is `XXXXX-XXXXX`, ten base32 characters from
+  `A-Z2-7`. The lexicon calls the token an opaque string, but the official
+  client validates it before the request is ever sent, so a server that issues
+  any other shape is unreachable from that client for confirmEmail, updateEmail,
+  resetPassword, deleteAccount and signPlcOperation. The reference PDS mints
+  the same shape, 50 bits, for every code.
+
   A code is stored hashed, never in the clear, so a row read out of this table
   is not a code that authorizes anything. `purpose` keeps a code minted for one
   flow from being spent by another - without it a deletion code and a password
@@ -27,6 +34,9 @@ defmodule Pesque.Accounts.Token do
   @purposes [:plc_operation, :account_delete, :email, :reset_password]
 
   @type purpose :: :plc_operation | :account_delete | :email | :reset_password
+
+  # RFC 4648 base32: the 32 characters the official client accepts in a code.
+  @alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
   schema "account_tokens" do
     field :token_hash, :string
@@ -54,7 +64,7 @@ defmodule Pesque.Accounts.Token do
           {:ok, %{token: String.t(), expires_at: DateTime.t()}} | {:error, :token_failed}
   def issue(purpose, did, ttl_seconds, email \\ nil)
       when purpose in @purposes and is_integer(ttl_seconds) do
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token = new_code()
 
     expires_at =
       DateTime.utc_now()
@@ -99,8 +109,10 @@ defmodule Pesque.Accounts.Token do
   def fetch(purpose, token, did \\ nil)
 
   def fetch(purpose, token, did) when is_binary(token) do
+    hash = token |> normalize() |> hash_token()
+
     query =
-      from(t in __MODULE__, where: t.token_hash == ^hash_token(token) and t.purpose == ^purpose)
+      from(t in __MODULE__, where: t.token_hash == ^hash and t.purpose == ^purpose)
 
     query = if did, do: where(query, [t], t.did == ^did), else: query
 
@@ -129,6 +141,39 @@ defmodule Pesque.Accounts.Token do
   end
 
   def hash_token(token), do: Base.encode16(:crypto.hash(:sha256, token), case: :lower)
+
+  @doc """
+  Canonicalises a presented code to the shape `issue/4` mints: uppercase, the
+  base32 alphabet only, one dash after the fifth character.
+
+  The official client sends a code already in this shape, so this is what makes
+  a code pasted without the dash, or in lowercase, still match. Anything that
+  does not reduce to ten alphabet characters is returned compacted and simply
+  fails to match.
+  """
+  @spec normalize(String.t()) :: String.t()
+  def normalize(token) when is_binary(token) do
+    compact = token |> String.upcase() |> String.replace(~r/[^A-Z2-7]/, "")
+
+    case compact do
+      <<head::binary-size(5), tail::binary-size(5)>> -> head <> "-" <> tail
+      _ -> compact
+    end
+  end
+
+  def normalize(token), do: token
+
+  # Ten base32 characters, the reference PDS's code and the shape the official
+  # client requires. 256 is a multiple of 32, so masking a random byte to five
+  # bits is uniform: no rejection sampling, no modulo bias.
+  defp new_code do
+    chars =
+      for <<byte <- :crypto.strong_rand_bytes(10)>>,
+        do: :binary.at(@alphabet, Bitwise.band(byte, 31))
+
+    {head, tail} = Enum.split(chars, 5)
+    List.to_string(head) <> "-" <> List.to_string(tail)
+  end
 
   defp not_expired(%__MODULE__{expires_at: expires_at} = row) do
     if DateTime.before?(expires_at, DateTime.utc_now()) do
