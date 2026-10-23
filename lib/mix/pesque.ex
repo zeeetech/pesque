@@ -32,7 +32,7 @@ defmodule Mix.Pesque do
         :ok
 
       {:error, reason} ->
-        Mix.raise("error: " <> Pesque.Release.describe_error(reason))
+        Mix.raise("error: " <> Pesque.Cli.Explain.render(reason))
 
       {:usage, text} ->
         Mix.raise(text)

@@ -602,3 +602,289 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "That name is not under the domain this server hands out names on. Use the full name, like alice.example.com, or a name that already points at your account."
 msgstr ""
+
+#: lib/pesque/cli/explain.ex:65
+#, elixir-autogen, elixir-format
+msgid "a blob is larger than this server accepts (%{bytes} bytes)"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:98
+#, elixir-autogen, elixir-format
+msgid "a label takes letters, numbers and hyphen"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:170
+#, elixir-autogen, elixir-format
+msgid "a single-use token could not be issued"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:224
+#, elixir-autogen, elixir-format
+msgid "a variable the server reads is a config key uppercased with a PDS_ prefix (pesque.conf.example lists them all); the internal ones the tooling sets are PDS_CONFIG, PDS_PUBLIC_IP and PDS_TAG"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:122
+#, elixir-autogen, elixir-format
+msgid "an email address is required"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:130
+#, elixir-autogen, elixir-format
+msgid "another account already uses that email"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:279
+#, elixir-autogen, elixir-format
+msgid "cannot read %{path}: %{reason}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:287
+#, elixir-autogen, elixir-format
+msgid "cannot write %{path}: %{reason}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:32
+#: lib/pesque/cli/explain.ex:41
+#, elixir-autogen, elixir-format
+msgid "check --old-pds; the old server has to stay up until the migration finishes"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:76
+#, elixir-autogen, elixir-format
+msgid "choose another name, or see who has it with pesque account list"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:413
+#, elixir-autogen, elixir-format
+msgid "could not complete the operation"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:307
+#, elixir-autogen, elixir-format
+msgid "could not write the archive: %{reason}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:195
+#, elixir-autogen, elixir-format
+msgid "doctor found problems"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:196
+#, elixir-autogen, elixir-format
+msgid "fix the failures above and run it again"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:212
+#, elixir-autogen, elixir-format
+msgid "give it by flag or environment"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:147
+#, elixir-autogen, elixir-format
+msgid "list what exists with pesque account list"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:56
+#, elixir-autogen, elixir-format
+msgid "no PLC code was read"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:146
+#, elixir-autogen, elixir-format
+msgid "no account with that DID or handle on this server"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:203
+#, elixir-autogen, elixir-format
+msgid "no relay is configured to ask"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:187
+#, elixir-autogen, elixir-format
+msgid "nothing was read from the prompt"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:68
+#, elixir-autogen, elixir-format
+msgid "raise blob_upload_limit"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:188
+#, elixir-autogen, elixir-format
+msgid "run this from a terminal, or pipe the value on stdin"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:57
+#, elixir-autogen, elixir-format
+msgid "run this where the prompt can be answered, or set MIGRATE_PLC_TOKEN"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:204
+#, elixir-autogen, elixir-format
+msgid "set crawler = https://bsky.network"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:324
+#, elixir-autogen, elixir-format
+msgid "stop the server (the driver does this) and run restore again"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:179
+#, elixir-autogen, elixir-format
+msgid "that account is not a did:plc identity, and only those move through the PLC"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:75
+#, elixir-autogen, elixir-format
+msgid "that handle is already taken on this server"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:138
+#, elixir-autogen, elixir-format
+msgid "that handle is not allowed on this server"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:84
+#, elixir-autogen, elixir-format
+msgid "that handle is not under this server's handle domain (%{domain})"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:97
+#, elixir-autogen, elixir-format
+msgid "that is not a valid handle"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:154
+#, elixir-autogen, elixir-format
+msgid "that is not this account's password"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:162
+#, elixir-autogen, elixir-format
+msgid "the account row could not be updated"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:331
+#, elixir-autogen, elixir-format
+msgid "the archive carries no manifest.json, so it is not a pesque backup"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:357
+#, elixir-autogen, elixir-format
+msgid "the archive could not be read: %{reason}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:366
+#, elixir-autogen, elixir-format
+msgid "the archive is backup version %{version}; this server writes and restores version 1"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:378
+#, elixir-autogen, elixir-format
+msgid "the archive is missing %{name}, so it is not a complete pesque backup"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:349
+#, elixir-autogen, elixir-format
+msgid "the archive's manifest names another format, so it is not a pesque backup"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:340
+#, elixir-autogen, elixir-format
+msgid "the archive's manifest.json does not decode, so it is not a pesque backup"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:271
+#, elixir-autogen, elixir-format
+msgid "the config file has a key with no value on line %{line}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:260
+#, elixir-autogen, elixir-format
+msgid "the config file has a line that is not a comment, blank, or key = value on line %{line}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:236
+#, elixir-autogen, elixir-format
+msgid "the config file names an unknown key %{key} on line %{line}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:248
+#, elixir-autogen, elixir-format
+msgid "the config file repeats %{key} on line %{line}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:296
+#, elixir-autogen, elixir-format
+msgid "the data directory is missing %{entries}; a server that has never booted has nothing to back up"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:315
+#, elixir-autogen, elixir-format
+msgid "the database answered: %{reason}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:323
+#, elixir-autogen, elixir-format
+msgid "the database is locked"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:211
+#, elixir-autogen, elixir-format
+msgid "the migration is missing %{key}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:39
+#, elixir-autogen, elixir-format
+msgid "the old PDS answered %{status}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:27
+#, elixir-autogen, elixir-format
+msgid "the old PDS answered %{status}: %{message}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:48
+#, elixir-autogen, elixir-format
+msgid "the old PDS could not be reached: %{detail}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:114
+#, elixir-autogen, elixir-format
+msgid "the password must be at least 8 characters"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:401
+#, elixir-autogen, elixir-format
+msgid "the restore could not move %{name}: %{reason}; the previous state is in the .old files"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:389
+#, elixir-autogen, elixir-format
+msgid "the restore is missing its staged %{name}; the previous state is in the .old files"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:414
+#, elixir-autogen, elixir-format
+msgid "this looks like a defect. run it again with PESQUE_DEBUG=1 and report it"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:106
+#, elixir-autogen, elixir-format
+msgid "this server already has an account; conformant_single serves exactly one"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:88
+#, elixir-autogen, elixir-format
+msgid "under path_multi a handle looks like <name>.%{domain}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:220
+#, elixir-autogen, elixir-format
+msgid "unknown PDS_ variables in the environment: %{names}"
+msgstr ""
+
+#: lib/pesque/cli/explain.ex:370
+#, elixir-autogen, elixir-format
+msgid "upgrade pesque to restore it"
+msgstr ""

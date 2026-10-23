@@ -12,8 +12,10 @@ defmodule Pesque.Cli do
     Config,
     Crawl,
     Doctor,
+    Explain,
     Health,
     Invite,
+    Locale,
     Migrate,
     Restore
   }
@@ -30,7 +32,7 @@ defmodule Pesque.Cli do
         System.halt(0)
 
       {:error, reason} ->
-        IO.puts(:stderr, "error: " <> Pesque.Release.describe_error(reason))
+        IO.puts(:stderr, "error: " <> Explain.render(reason))
         System.halt(1)
 
       {:usage, text} ->
@@ -39,17 +41,26 @@ defmodule Pesque.Cli do
     end
   end
 
-  def run(["account" | rest]), do: Account.run(rest)
-  def run(["invite" | rest]), do: Invite.run(rest)
-  def run(["migrate" | rest]), do: Migrate.run(rest)
-  def run(["doctor" | rest]), do: Doctor.run(rest)
-  def run(["backup" | rest]), do: Backup.run(rest)
-  def run(["restore" | rest]), do: Restore.run(rest)
-  def run(["config" | rest]), do: Config.run(rest)
-  def run(["crawl" | rest]), do: Crawl.run(rest)
-  def run(["health" | rest]), do: Health.run(rest)
-  def run([]), do: {:usage, usage()}
-  def run([unknown | _]), do: {:usage, "unknown command: #{unknown}\n\n" <> usage()}
+  @doc """
+  Answers the verb: puts the CLI locale for the calling process, then
+  dispatches. `main/0` and the mix tasks both come through here.
+  """
+  def run(argv) do
+    Locale.put()
+    dispatch(argv)
+  end
+
+  defp dispatch(["account" | rest]), do: Account.run(rest)
+  defp dispatch(["invite" | rest]), do: Invite.run(rest)
+  defp dispatch(["migrate" | rest]), do: Migrate.run(rest)
+  defp dispatch(["doctor" | rest]), do: Doctor.run(rest)
+  defp dispatch(["backup" | rest]), do: Backup.run(rest)
+  defp dispatch(["restore" | rest]), do: Restore.run(rest)
+  defp dispatch(["config" | rest]), do: Config.run(rest)
+  defp dispatch(["crawl" | rest]), do: Crawl.run(rest)
+  defp dispatch(["health" | rest]), do: Health.run(rest)
+  defp dispatch([]), do: {:usage, usage()}
+  defp dispatch([unknown | _]), do: {:usage, "unknown command: #{unknown}\n\n" <> usage()}
 
   @doc """
   The verb menu. The passwords line is the contract: no `--password VALUE`
