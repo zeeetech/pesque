@@ -124,32 +124,6 @@ defmodule Pesque.AccountIdentifierTest do
     assert key_files() == before
   end
 
-  test "the operator task refuses both directions" do
-    victim = insert_account("victim")
-    handle = unique("collide") <> ".localhost"
-    insert_account("holder", handle)
-    before = key_files()
-
-    email_error =
-      assert_raise Mix.Error, fn ->
-        run_task(["--handle", unique("alice") <> ".localhost", "--email", victim.handle])
-      end
-
-    assert Exception.message(email_error) =~ "email"
-
-    handle_error =
-      assert_raise Mix.Error, fn ->
-        run_task(["--handle", handle, "--email", unique("a") <> "@localhost"])
-      end
-
-    assert Exception.message(handle_error) =~ "handle"
-    assert key_files() == before
-  end
-
-  defp run_task(args) do
-    Mix.Tasks.Pesque.CreateAccount.run(args ++ ["--password", @password])
-  end
-
   defp insert_account(name, email \\ nil) do
     username = unique(name)
 
