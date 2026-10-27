@@ -64,7 +64,7 @@ defmodule Pesque.DidTest do
     assert Did.handle_for_username(:multi, "example.com", "alice") == "alice.example.com"
 
     assert_raise FunctionClauseError, fn ->
-      Did.did_for_username(:multi, "example.com", "alice")
+      apply(Did, :did_for_username, [:multi, "example.com", "alice"])
     end
   end
 
