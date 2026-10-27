@@ -7,10 +7,13 @@ defmodule PesqueWeb.ServerEndpointsTest do
 
   use PesqueWeb.ConnCase, async: false
 
-  setup do
-    alice = create_account("alice")
-
-    %{alice: alice, token: token(alice)}
+  setup context do
+    if context[:repo_account] do
+      alice = insert_repo_account("alice")
+      %{alice: alice, token: token(alice)}
+    else
+      %{}
+    end
   end
 
   test "describeServer answers with this server's own did" do
@@ -61,6 +64,7 @@ defmodule PesqueWeb.ServerEndpointsTest do
     assert links["termsOfService"] == "https://example.com/terms"
   end
 
+  @tag :repo_account
   test "checkAccountStatus reports a repo that has been written to", ctx do
     params = %{
       "repo" => ctx.alice.did,
@@ -81,6 +85,7 @@ defmodule PesqueWeb.ServerEndpointsTest do
 
   # An account nobody has written to is still an account. Answering 404 or
   # activated false would tell an AppView to drop a repo that exists.
+  @tag :repo_account
   test "checkAccountStatus reports an account with no records as activated", ctx do
     body = status(ctx.alice.did)
 
@@ -96,6 +101,7 @@ defmodule PesqueWeb.ServerEndpointsTest do
     assert body["repoBlocks"] > 0
   end
 
+  @tag :repo_account
   test "checkAccountStatus answers for a handle as well as a did", ctx do
     assert status(ctx.alice.handle)["activated"]
   end

@@ -5,6 +5,7 @@ defmodule Pesque.DoctorTest do
   alias Pesque.Identity
 
   setup do
+    Pesque.DataCase.setup()
     previous = Application.get_env(:pesque, :hostname)
     previous_crawlers = Application.get_env(:pesque, :crawlers)
     Application.put_env(:pesque, :hostname, "pds.example.com")
@@ -112,17 +113,15 @@ defmodule Pesque.DoctorTest do
     assert status(all_ok(http: http), "did document") == :fail
   end
 
-  # Under path_multi accounts are did:plc but the server's own DID is a
+  # Under multi accounts are did:plc but the server's own DID is a
   # host-level did:web, so its document is served here and the directory has
   # none. The check follows the server's own DID method, not the account
   # method, or it asks plc.directory for a did:web and reads the 400 as a
   # federation failure.
-  test "under path_multi the server's own did:web document is checked locally" do
-    put_env(:mode, :path_multi)
-    put_env(:identity, :plc)
+  test "under multi the server's own did:web document is checked locally" do
+    put_env(:mode, :multi)
 
     assert Identity.did() == "did:web:pds.example.com"
-    refute Identity.plc?()
 
     results = all_ok()
 

@@ -46,38 +46,14 @@ url_port =
   end
 
 mode =
-  case get.("mode", "conformant_single") do
-    "conformant_single" -> :conformant_single
-    "path_multi" -> :path_multi
-    other -> raise "mode must be conformant_single or path_multi, got: #{other}"
+  case get.("mode", "single") do
+    "single" -> :single
+    "multi" -> :multi
+    other -> raise "mode must be single or multi, got: #{other}"
   end
 
-# The DID method. Under path_multi it is always plc: the official client
-# expects a did:plc account, and path-based did:web is not a valid ATProto DID.
-# Under conformant_single the operator chooses, defaulting to did:web of the
-# hostname.
-identity =
-  case mode do
-    :path_multi ->
-      case get.("identity", "plc") do
-        "plc" ->
-          :plc
-
-        other ->
-          raise "identity = #{other} is not valid under mode = path_multi: " <>
-                  "path_multi accounts are did:plc, and path-based did:web is not a valid ATProto DID"
-      end
-
-    :conformant_single ->
-      case get.("identity", "web") do
-        "web" -> :web
-        "plc" -> :plc
-        other -> raise "identity must be web or plc, got: #{other}"
-      end
-  end
-
-# Only read when identity = plc. A directory the operator points at is a
-# deployment choice, so it is configuration rather than a constant.
+# Only read when an account is minted as did:plc. A directory the operator
+# points at is a deployment choice, so it is configuration rather than a constant.
 plc_directory = get.("plc_directory", "https://plc.directory")
 
 # A PLC directory that keeps its operations in a file instead of submitting
@@ -130,8 +106,8 @@ crawlers =
   |> Enum.reject(&(&1 == ""))
 
 # handle goes away with multi-account, so until then it is what
-# conformant_single publishes, and path_multi ignores it.
-handle_domain = get.("handle_domain", if(mode == :path_multi, do: hostname, else: handle))
+# single publishes, and multi ignores it.
+handle_domain = get.("handle_domain", if(mode == :multi, do: hostname, else: handle))
 
 admin_dids =
   "admin_dids"
@@ -220,7 +196,6 @@ config :pesque, PesqueWeb.Endpoint,
 config :pesque,
   data_dir: data_dir,
   mode: mode,
-  identity: identity,
   plc_directory: plc_directory,
   lexicon_aggregator: lexicon_aggregator,
   crawlers: crawlers,
@@ -244,9 +219,9 @@ config :pesque,
   # ceiling is this times that cap. 12 is 4 MiB and still slow enough to be
   # worth attacking.
   argon2_opts: [t_cost: 3, m_cost: 12],
-  # Under :path_multi there is no account that is the server, so the operator
+  # Under :multi there is no account that is the server, so the operator
   # is named here. Empty means the server identity only, which under
-  # :path_multi means nobody: a closed server that admits no one is fixed by
+  # :multi means nobody: a closed server that admits no one is fixed by
   # adding one line, one that admits the first account to ask is not fixed at
   # all.
   admin_dids: admin_dids

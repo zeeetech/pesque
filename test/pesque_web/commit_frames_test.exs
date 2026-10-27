@@ -21,7 +21,7 @@ defmodule PesqueWeb.CommitFramesTest do
   alias Pesque.Secp256k1
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
     {:ok, pid} = Pesque.RepoSupervisor.ensure_started(alice.did)
 
     %{alice: alice, pid: pid}

@@ -22,7 +22,7 @@ defmodule Pesque.EventFramesTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
     :ok
   end
 

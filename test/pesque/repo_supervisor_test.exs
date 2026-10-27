@@ -13,7 +13,7 @@ defmodule Pesque.RepoSupervisorTest do
   alias Pesque.RepoSupervisor
 
   test "returns a live server right after a stop, without waiting" do
-    user = create_account("supervisor")
+    user = create_repo_account("supervisor")
     {:ok, pid} = RepoSupervisor.ensure_started(user.did)
 
     assert {:ok, :stopped} = RepoServer.stop(user.did)

@@ -9,8 +9,8 @@ defmodule PesqueWeb.MigrateController do
   submitted form is answered with the page that watches it, and the code the
   old server emails is handed in on that same page.
 
-  The path exists only under `path_multi`, like signup: under
-  `conformant_single` the server is its single account, so there is nothing
+  The path exists only under `multi`, like signup: under
+  `single` the server is its single account, so there is nothing
   here to serve and the path answers 404.
 
   A failure the form can answer comes back as the form with what was typed
@@ -33,10 +33,10 @@ defmodule PesqueWeb.MigrateController do
   alias PesqueWeb.Layout
   alias PesqueWeb.MigrateHTML
 
-  # The path is for a server with many accounts. Under conformant_single the
+  # The path is for a server with many accounts. Under single the
   # account already exists, made by its operator, so there is no form here and
   # the path reads like any other this server does not have.
-  plug :require_path_multi
+  plug :require_multi
 
   # A move that is still going has a page that watches the row, and the row is
   # all the page has: the tag below re-reads it every three seconds until the
@@ -114,8 +114,8 @@ defmodule PesqueWeb.MigrateController do
     end
   end
 
-  defp require_path_multi(conn, _opts) do
-    if Pesque.mode() == :path_multi do
+  defp require_multi(conn, _opts) do
+    if Pesque.mode() == :multi do
       conn
     else
       conn |> ErrorHTML.not_found() |> halt()

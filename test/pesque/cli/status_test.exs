@@ -21,8 +21,7 @@ defmodule Pesque.Cli.StatusTest do
         did: "did:plc:abc123",
         hostname: "example.com",
         handle_domain: "example.com",
-        mode: :conformant_single,
-        identity: :web,
+        mode: :single,
         registration: :closed,
         version: "1.13.3"
       },
@@ -61,8 +60,7 @@ defmodule Pesque.Cli.StatusTest do
                did            did:plc:abc123
                hostname       example.com
                handle domain  example.com
-               mode           conformant_single
-               identity       web
+               mode           single
                registration   closed
                version        1.13.3
 

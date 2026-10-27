@@ -15,7 +15,7 @@ defmodule PesqueWeb.OAuth.DPoPTest do
   alias PesqueWeb.OAuthCase, as: Client
 
   setup do
-    %{user: create_account("alice"), key: Client.dpop_key()}
+    %{user: insert_account("alice"), key: Client.dpop_key()}
   end
 
   describe "a proof is required" do

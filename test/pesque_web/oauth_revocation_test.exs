@@ -17,7 +17,7 @@ defmodule PesqueWeb.OAuth.RevocationTest do
   alias PesqueWeb.OAuthCase, as: Client
 
   setup do
-    %{user: create_account("alice"), key: Client.dpop_key()}
+    %{user: insert_account("alice"), key: Client.dpop_key()}
   end
 
   test "revoking an access token stops it verifying", ctx do

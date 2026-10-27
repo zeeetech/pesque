@@ -85,9 +85,28 @@ defmodule Pesque.Cli.Explain do
           domain: Pesque.handle_domain()
         ),
       next:
-        gettext("under path_multi a handle looks like <name>.%{domain}",
+        gettext("under multi a handle looks like <name>.%{domain}",
           domain: Pesque.handle_domain()
         ),
+      detail: nil
+    }
+  end
+
+  def for_reason(:web_not_supported_under_multi) do
+    %{
+      problem: gettext("multi-user accounts are always did:plc; did:web needs single mode"),
+      next:
+        gettext(
+          "omit --identity to mint a did:plc, or run mode = single to host a single did:web account"
+        ),
+      detail: nil
+    }
+  end
+
+  def for_reason(:invalid_identity) do
+    %{
+      problem: gettext("that account DID method is not supported"),
+      next: gettext("choose web or plc"),
       detail: nil
     }
   end
@@ -102,8 +121,7 @@ defmodule Pesque.Cli.Explain do
 
   def for_reason(:account_exists) do
     %{
-      problem:
-        gettext("this server already has an account; conformant_single serves exactly one"),
+      problem: gettext("this server already has an account; single mode serves exactly one"),
       next: nil,
       detail: nil
     }

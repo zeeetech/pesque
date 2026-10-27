@@ -93,11 +93,11 @@ defmodule Pesque.CliTest do
     setup do
       Pesque.DataCase.setup()
 
-      # path_multi so the account gets a handle: under conformant_single the
+      # multi so the account gets a handle: under single the
       # seeded server row has no handle and every account compares as taken.
       previous = Application.get_env(:pesque, :mode)
       on_exit(fn -> Application.put_env(:pesque, :mode, previous) end)
-      Application.put_env(:pesque, :mode, :path_multi)
+      Application.put_env(:pesque, :mode, :multi)
 
       handle =
         "appword" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"
@@ -218,7 +218,7 @@ defmodule Pesque.CliTest do
 
       previous = Application.get_env(:pesque, :mode)
       on_exit(fn -> Application.put_env(:pesque, :mode, previous) end)
-      Application.put_env(:pesque, :mode, :path_multi)
+      Application.put_env(:pesque, :mode, :multi)
 
       handle =
         "codetok" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"

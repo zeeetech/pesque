@@ -19,7 +19,6 @@ defmodule PesqueWeb.MigrationEndpointsTest do
 
   describe "getRecommendedDidCredentials" do
     setup do
-      put_identity(:plc)
       put_env(:plc_client, Pesque.Plc.TestClient)
       :ok
     end
@@ -39,8 +38,12 @@ defmodule PesqueWeb.MigrationEndpointsTest do
     end
 
     test "a did:web account has no rotation key" do
-      put_identity(:web)
-      user = create_account("webuser")
+      put_env(:mode, :single)
+
+      {:ok, user} =
+        Accounts.create_account(Pesque.Identity.handle(), "web@localhost", "hunter2hunter2",
+          identity: :web
+        )
 
       body = @recommended_path |> xrpc_get(token(user)) |> json_body()
 
@@ -58,7 +61,6 @@ defmodule PesqueWeb.MigrationEndpointsTest do
 
   describe "submitPlcOperation" do
     setup do
-      put_identity(:plc)
       put_env(:plc_client, Pesque.Plc.TestClient)
       :ok
     end
@@ -181,8 +183,6 @@ defmodule PesqueWeb.MigrationEndpointsTest do
     assert conn.status == 200
     JSON.decode!(conn.resp_body)
   end
-
-  defp put_identity(identity), do: put_env(:identity, identity)
 
   defp put_env(key, value) do
     previous = Application.get_env(:pesque, key)

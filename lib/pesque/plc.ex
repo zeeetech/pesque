@@ -2,9 +2,10 @@ defmodule Pesque.Plc do
   @moduledoc """
   did:plc account minting and updates against the PLC directory.
 
-  Opt-in through `PDS_IDENTITY=plc`. Under the default `PDS_IDENTITY=web`
-  nothing here runs: accounts are did:web, `Pesque.Accounts` never calls into
-  this module, and every code path below is dead.
+  Always available. Whether an account is a did:plc is a property of the
+  account, chosen at creation time (`Pesque.Accounts.create_account/4`), not a
+  server-wide config knob. A did:plc account is minted here on demand; a did:web
+  account never touches this module.
 
   A freshly minted account is registered with the directory before its row is
   written. If the submission fails nothing is persisted: the caller gets an
@@ -46,9 +47,6 @@ defmodule Pesque.Plc do
   # The fields a signPlcOperation request may replace wholesale. Everything
   # else the operation carries - type, prev, sig - is not a client's to name.
   @plc_fields ["rotationKeys", "alsoKnownAs", "verificationMethods", "services"]
-
-  @doc "Whether accounts are minted as did:plc."
-  def enabled?, do: Pesque.identity() == :plc
 
   @doc """
   Mints a did:plc identity for a handle: repo and rotation keys, a signed

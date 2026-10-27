@@ -34,7 +34,7 @@ defmodule PesqueWeb.AppPasswordTest do
   @target "did:plc:ewvi7nxzyoun6zhxrhs64oiz"
 
   setup do
-    user = create_account("alice")
+    user = create_repo_account("alice")
 
     # The proxy needs a target that resolves and answers.
     :persistent_term.put(:app_password_documents, documents())
@@ -275,8 +275,10 @@ defmodule PesqueWeb.AppPasswordTest do
       assert error_name(conn) == "InsufficientScope"
     end
 
-    # This account is did:web, so the controller, not the plug, is what
-    # answers the privileged tier.
+    # The privileged tier reaches the controller rather than being refused by
+    # the plug with a 403. What the controller answers depends on the params
+    # (an empty body is missing the operation, or the plc token), so the pin is
+    # that it is not the plug's InsufficientScope, not a specific status.
     for path <- [
           "/xrpc/com.atproto.identity.submitPlcOperation",
           "/xrpc/com.atproto.identity.requestPlcOperationSignature",
@@ -284,8 +286,8 @@ defmodule PesqueWeb.AppPasswordTest do
         ] do
       conn = post_xrpc(path, %{}, ctx.priv_token)
 
-      assert conn.status == 400, path
-      assert error_name(conn) == "InvalidRequest"
+      assert conn.status != 403, path
+      refute error_name(conn) == "InsufficientScope"
     end
   end
 
@@ -307,7 +309,7 @@ defmodule PesqueWeb.AppPasswordTest do
   end
 
   test "the privileged tier passes account management, deactivate and activate included", _ctx do
-    scratch = create_account("scratch")
+    scratch = create_repo_account("scratch")
     {:ok, scratch_credential} = Accounts.create_app_password(scratch, "scratch-app", true)
     priv = login(scratch.handle, scratch_credential.password)["accessJwt"]
 

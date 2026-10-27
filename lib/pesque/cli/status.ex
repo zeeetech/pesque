@@ -67,7 +67,6 @@ defmodule Pesque.Cli.Status do
       field("hostname", server.hostname),
       field("handle domain", server.handle_domain),
       field("mode", server.mode),
-      field("identity", server.identity),
       field("registration", server.registration),
       field("version", server.version)
     ]
@@ -107,7 +106,6 @@ defmodule Pesque.Cli.Status do
         hostname: Pesque.hostname(),
         handle_domain: Pesque.handle_domain(),
         mode: Pesque.mode(),
-        identity: Pesque.identity(),
         registration: Pesque.registration(),
         version: Pesque.version()
       },

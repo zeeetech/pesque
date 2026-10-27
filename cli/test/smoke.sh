@@ -31,7 +31,7 @@ mkdir -p "$work/data"
 
 cat >"$work/pesque.conf" <<EOF
 hostname = localhost
-mode = conformant_single
+mode = single
 url_scheme = http
 EOF
 export PESQUE_CONFIG="$work/pesque.conf"
@@ -46,7 +46,7 @@ echo '==> doctor'
 "$cli" doctor || true
 
 echo '==> account create'
-# Prompts for the password with echo off. In conformant_single the server
+# Prompts for the password with echo off. In single the server
 # handle is the hostname, so the first account uses it.
 "$cli" account create --handle localhost --email smoke@example.com
 

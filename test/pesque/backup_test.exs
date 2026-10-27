@@ -16,11 +16,6 @@ defmodule Pesque.BackupTest do
     File.write!(Path.join(dir, "server.secret"), "secret-1234")
     File.write!(Path.join([dir, "keys", "signing.key"]), "key-bytes")
 
-    File.write!(
-      Path.join(dir, "server.identity.json"),
-      ~s({"did": "did:plc:test", "operation": {}})
-    )
-
     # One row, so the round trip can prove the database came back.
     {:ok, conn} = Exqlite.Sqlite3.open(db_path(dir))
     :ok = Exqlite.Sqlite3.execute(conn, "CREATE TABLE things (value TEXT)")
@@ -47,6 +42,8 @@ defmodule Pesque.BackupTest do
     for entry <- ["manifest.json", "pesque.db", "server.secret", "keys/signing.key"] do
       assert entry in names, "the archive is missing #{entry}"
     end
+
+    refute "server.identity.json" in names
 
     # Staging lives under out_dir (the system tmp dir can be tmpfs) and is
     # gone when create is done.
@@ -113,7 +110,7 @@ defmodule Pesque.BackupTest do
 
     assert File.read!(Path.join(target, "server.secret")) == "secret-1234"
     assert File.read!(Path.join([target, "keys", "signing.key"])) == "key-bytes"
-    assert File.exists?(Path.join(target, "server.identity.json"))
+    refute File.exists?(Path.join(target, "server.identity.json"))
 
     assert {:row, ["kept"]} = query_value(target)
 
@@ -138,10 +135,7 @@ defmodule Pesque.BackupTest do
     assert {:row, ["kept"]} = query_value(target)
   end
 
-  # The identity file is an optional entry: a server that never minted a PLC
-  # identity has none to back up, and the restore still removes the running
-  # one, so the restored data directory is exactly the archive's.
-  test "an archive without the optional PLC identity removes the running one", %{out: out} do
+  test "restore does not create a legacy server identity file", %{out: out} do
     source = fresh_dir("pesque-backup-noid")
     File.mkdir_p!(Path.join(source, "keys"))
     File.mkdir_p!(Path.join(source, "blobs"))
@@ -154,8 +148,6 @@ defmodule Pesque.BackupTest do
     {:ok, archive} = Backup.create(source, out)
 
     target = fresh_dir("pesque-backup-noid-dst")
-    File.write!(Path.join(target, "server.identity.json"), "{}")
-
     assert :ok = Backup.restore(target, archive)
     refute File.exists?(Path.join(target, "server.identity.json"))
     assert File.read!(Path.join(target, "server.secret")) == "secret-noid"

@@ -77,7 +77,7 @@ defmodule Pesque.Cli do
     """
     usage: pesque <verb> [flags]
 
-      account create --handle H --email E
+      account create --handle H --email E [--identity web|plc]
       account list [--status active|deactivated] [--grep PATTERN]
       account show --did D | --handle H
       account delete --did D | --handle H [--dry-run]

@@ -21,7 +21,7 @@ defmodule Pesque.Accounts.InviteCodeLimitsTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
   end
 
   test "a codeCount inside the bound is minted" do

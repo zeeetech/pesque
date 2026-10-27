@@ -83,9 +83,6 @@ defmodule Pesque.Doctor do
   defp hint(:fail, "did document"),
     do: "the domain publishes a different key; restart the server and check PDS_HOSTNAME"
 
-  defp hint(:fail, "plc document"),
-    do: "the PLC directory has not published this key yet; wait a moment and retry"
-
   defp hint(:fail, "handle"),
     do:
       "add the _atproto DNS TXT record, or serve /.well-known/atproto-did at the handle's domain"
@@ -103,7 +100,7 @@ defmodule Pesque.Doctor do
 
   defp config_check do
     detail =
-      "mode=#{Pesque.mode()} identity=#{Pesque.identity()} hostname=#{Pesque.hostname()} " <>
+      "mode=#{Pesque.mode()} hostname=#{Pesque.hostname()} " <>
         "base_url=#{Pesque.base_url()} handle=#{Identity.handle()} did=#{Identity.did()}"
 
     if Pesque.hostname_is_ip?() do
@@ -174,21 +171,12 @@ defmodule Pesque.Doctor do
     end
   end
 
-  # A did:web document is served here; a did:plc document is served by the
-  # directory, so the check follows the DID method to whichever host owns it.
-  # The method is the server's own DID's, not the account method: under
-  # path_multi the server's own DID is a did:web even though accounts are
-  # did:plc, and the directory has no document for it.
+  # The server's own DID is always a host-level did:web, so its document is
+  # always served at the local well-known route. A did:plc account's document
+  # lives at the directory, but that is an account-identity matter, not the
+  # server-identity one this check is about.
   defp did_document_check(http) do
-    if Identity.plc?() do
-      check_document(http, plc_document_url(), "plc document")
-    else
-      check_document(http, Pesque.base_url() <> "/.well-known/did.json", "did document")
-    end
-  end
-
-  defp plc_document_url do
-    String.trim_trailing(Pesque.plc_directory(), "/") <> "/" <> Identity.did()
+    check_document(http, Pesque.base_url() <> "/.well-known/did.json", "did document")
   end
 
   defp check_document(http, url, title) do
@@ -214,9 +202,11 @@ defmodule Pesque.Doctor do
     end
   end
 
+  # Under single the handle belongs to the account, whose DID can be did:web or
+  # did:plc. Check the account's stored DID rather than assuming it equals the
+  # host identity. Under multi the host identity owns the hostname handle.
   defp handle_check(resolves) do
-    handle = Identity.handle()
-    did = Identity.did()
+    {handle, did} = handle_subject()
 
     if resolves.(handle, did) do
       {:ok, "handle", "#{handle} resolves back to #{did}"}
@@ -224,6 +214,19 @@ defmodule Pesque.Doctor do
       {:fail, "handle",
        "#{handle} does not resolve to #{did} (set DNS TXT _atproto.#{handle} or serve " <>
          "https://#{handle}/.well-known/atproto-did)"}
+    end
+  end
+
+  defp handle_subject do
+    case Pesque.mode() do
+      :single ->
+        case Pesque.Accounts.resolve_handle(Identity.handle()) do
+          {:ok, did} -> {Identity.handle(), did}
+          {:error, _reason} -> {Identity.handle(), Identity.did()}
+        end
+
+      :multi ->
+        {Identity.handle(), Identity.did()}
     end
   end
 

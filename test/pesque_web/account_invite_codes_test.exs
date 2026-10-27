@@ -14,7 +14,7 @@ defmodule PesqueWeb.AccountInviteCodesTest do
   @path "/xrpc/com.atproto.server.getAccountInviteCodes"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

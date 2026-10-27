@@ -29,7 +29,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
   @delete_path "/xrpc/com.atproto.server.deleteAccount"
 
   setup do
-    alice = create_account("alice")
+    alice = create_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -86,7 +86,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
     end
 
     test "a handle another account holds is refused", ctx do
-      bob = create_account("bob")
+      bob = insert_account("bob")
 
       conn = xrpc_post(@update_path, %{"handle" => bob.handle}, ctx.token)
 
@@ -95,11 +95,14 @@ defmodule PesqueWeb.AccountLifecycleTest do
       assert Accounts.get_user(ctx.alice.did).handle == ctx.alice.handle
     end
 
-    test "a handle under a lookalike domain is refused", ctx do
+    # A did:plc account may move to a foreign handle, but only one that already
+    # resolves back to it. A name that does not resolve is HandleNotFound, not
+    # a syntax refusal: under did:plc a foreign domain is a legitimate target.
+    test "a foreign handle that does not resolve is refused", ctx do
       conn = xrpc_post(@update_path, %{"handle" => "alice.notlocalhost"}, ctx.token)
 
       assert conn.status == 400
-      assert JSON.decode!(conn.resp_body)["error"] == "InvalidHandle"
+      assert JSON.decode!(conn.resp_body)["error"] == "HandleNotFound"
     end
 
     test "an account's own handle is not a collision with itself", ctx do
@@ -161,7 +164,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
 
     test "refuses a did that is not the authenticated account", ctx do
       body = request_delete(ctx.token)
-      other = create_account("bob")
+      other = insert_account("bob")
 
       conn = delete(other.did, @password, body["token"], ctx.token)
 
@@ -193,7 +196,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
     # Another account's token must not delete this account, even with this
     # account's password: the token names who authorized the deletion.
     test "refuses a token issued for another account", ctx do
-      bob = create_account("bob")
+      bob = insert_account("bob")
       body = request_delete(token(bob))
 
       conn = delete(ctx.alice.did, @password, body["token"], ctx.token)
@@ -380,7 +383,7 @@ defmodule PesqueWeb.AccountLifecycleTest do
     end
 
     test "another account is untouched", ctx do
-      bob = create_account("bob")
+      bob = insert_repo_account("bob")
       body = request_delete(ctx.token)
 
       delete(ctx.alice.did, @password, body["token"], ctx.token)

@@ -1,8 +1,8 @@
 defmodule Pesque.Cli.InviteTest do
   @moduledoc """
   What a mint prints: the ready signup link where a signup page exists
-  (path_multi), the bare codes with the account verb where it does not
-  (conformant_single, where /signup answers 404).
+  (multi), the bare codes with the account verb where it does not
+  (single, where /signup answers 404).
   """
 
   use ExUnit.Case, async: false
@@ -17,8 +17,8 @@ defmodule Pesque.Cli.InviteTest do
     :ok
   end
 
-  test "under path_multi each code prints as the ready signup link" do
-    put_mode(:path_multi)
+  test "under multi each code prints as the ready signup link" do
+    put_mode(:multi)
 
     output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Invite.run(["create"]) end)
 
@@ -27,8 +27,8 @@ defmodule Pesque.Cli.InviteTest do
     refute output =~ "pesque account create"
   end
 
-  test "under conformant_single the codes print bare and name the account verb" do
-    put_mode(:conformant_single)
+  test "under single the codes print bare and name the account verb" do
+    put_mode(:single)
 
     output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Invite.run(["create"]) end)
 

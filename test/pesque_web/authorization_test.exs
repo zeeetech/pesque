@@ -16,13 +16,12 @@ defmodule PesqueWeb.AuthorizationTest do
   alias Pesque.Accounts.User
   alias Pesque.Blob
   alias Pesque.CID
-  alias Pesque.Did
   alias Pesque.Repo
   alias Pesque.RepoStore
 
   setup do
-    alice = create_account("alice")
-    bob = create_account("bob")
+    alice = insert_repo_account("alice")
+    bob = insert_repo_account("bob")
 
     %{
       alice: alice,
@@ -143,7 +142,7 @@ defmodule PesqueWeb.AuthorizationTest do
     assert xrpc_get("/xrpc/com.atproto.server.getSession", token).status == 401
   end
 
-  test "the bare server did and handle are not accounts under path_multi", ctx do
+  test "the bare server did and handle are not accounts under multi", ctx do
     assert Accounts.repo_did(Pesque.Identity.did()) == {:error, :not_found}
     assert Accounts.repo_did(Pesque.Identity.handle()) == {:error, :not_found}
     assert create_record(Pesque.Identity.handle(), ctx.alice_token).status == 400
@@ -420,7 +419,8 @@ defmodule PesqueWeb.AuthorizationTest do
     )
   end
 
-  defp ghost_did, do: Did.did_for_username(:path_multi, host(), unique("ghost"))
+  defp ghost_did,
+    do: "did:plc:" <> String.downcase(Pesque.Base32.encode(:crypto.strong_rand_bytes(15)))
 
   defp stable_headers(conn) do
     Enum.reject(conn.resp_headers, fn {name, _} ->
@@ -434,6 +434,4 @@ defmodule PesqueWeb.AuthorizationTest do
     [verification] = doc["verificationMethod"]
     verification["publicKeyMultibase"]
   end
-
-  defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
 end

@@ -10,8 +10,8 @@ defmodule PesqueWeb.SignupController do
   account in one step. Nothing here signs the person in: the browser surface
   has no session, and the account is used through a client.
 
-  The path exists only under `path_multi`, where an account is one of many.
-  Under `conformant_single` the server is its single account, created by its
+  The path exists only under `multi`, where an account is one of many.
+  Under `single` the server is its single account, created by its
   operator, so there is nothing here to serve and the path answers 404.
 
   A failure the domain answers comes back as the form with what was typed still
@@ -33,10 +33,10 @@ defmodule PesqueWeb.SignupController do
   alias PesqueWeb.Layout
   alias PesqueWeb.SignupHTML
 
-  # The path is for a server with many accounts. Under conformant_single there
+  # The path is for a server with many accounts. Under single there
   # is no form here, and the path reads like any other this server does not
   # have rather than as a form that could never succeed.
-  plug :require_path_multi
+  plug :require_multi
 
   @doc "The form, with the invite code pre-filled when the link carried one."
   def show(conn, params) do
@@ -74,8 +74,8 @@ defmodule PesqueWeb.SignupController do
 
   def done(conn, _params), do: redirect(conn, to: "/signup")
 
-  defp require_path_multi(conn, _opts) do
-    if Pesque.mode() == :path_multi do
+  defp require_multi(conn, _opts) do
+    if Pesque.mode() == :multi do
       conn
     else
       conn |> ErrorHTML.not_found() |> halt()

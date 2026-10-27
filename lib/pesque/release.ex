@@ -52,7 +52,7 @@ defmodule Pesque.Release do
   end
 
   # A did:web account serves its own handle at /.well-known/atproto-did, so
-  # only the host record is needed. A path_multi account is resolved at
+  # only the host record is needed. A multi account is resolved at
   # _atproto.<handle>, which nothing else publishes, so the TXT carries the
   # DID the directory minted.
   defp dns_lines(%{did: "did:plc:" <> _} = account) do

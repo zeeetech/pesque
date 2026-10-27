@@ -9,8 +9,8 @@
 Um Personal Data Server de ATProto, escrito em Elixir.
 
 Ele faz criação de conta, OAuth (PAR, PKCE, DPoP), sessões legadas, repositórios
-assinados, leituras públicas, storage de blobs, firehose e identidade que é
-`did:web` por padrão e `did:plc` quando configurado. PDS guarda registros, assina
+assinados, leituras públicas, storage de blobs, firehose e identidade do servidor
+`did:web`, com identidades de conta escolhidas na criação. PDS guarda registros, assina
 commits, entrega esses commits pra quem pedir, e responde `describeServer`
 direito o suficiente pro cliente decidir se conversa com ele. Sem feed, sem
 ranqueamento, sem fila de moderação.
@@ -85,6 +85,10 @@ mix pesque.account create --handle alice.example.com --email alice@example.com
 
 `mix pesque.create_account` é a mesma task com o nome antigo, mantida pra guias
 e scripts mais velhos continuarem funcionando.
+
+O `PDS_MODE` escolhe apenas entre uma conta (`single`) ou várias (`multi`). Em
+`single`, `pesque account create --identity web|plc` escolhe o DID da conta;
+`multi` sempre cria contas `did:plc`. O DID do servidor continua `did:web`.
 
 As migrações rodam no boot e o `_health` consulta a tabela de usuários, então um
 servidor cujas migrações nunca rodaram responde `503` em vez de um ok alegre.

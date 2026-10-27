@@ -8,7 +8,6 @@ defmodule PesqueWeb.InviteCodeTest do
 
   alias Pesque.Accounts
   alias Pesque.Accounts.InviteCode
-  alias Pesque.Did
   alias Pesque.Repo
 
   @path "/xrpc/com.atproto.server.createInviteCodes"
@@ -17,10 +16,10 @@ defmodule PesqueWeb.InviteCodeTest do
 
   setup do
     put_registration(:closed)
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     # Minting a code is the operator's call and the plug holds the line, so
-    # these tests have to be the operator. The suite runs :path_multi, where
+    # these tests have to be the operator. The suite runs :multi, where
     # there is no server identity to hold a session, so the operator is named
     # the way that topology names one.
     Application.put_env(:pesque, :admin_dids, [alice.did])
@@ -32,7 +31,7 @@ defmodule PesqueWeb.InviteCodeTest do
   # The gate is the point of the endpoint, so it gets its own test rather than
   # being only implied by every other test in this file passing.
   test "createInviteCodes refuses an account that is not the operator", _ctx do
-    mallory = create_account("mallory")
+    mallory = insert_account("mallory")
 
     conn = xrpc_post(@path, %{"codeCount" => 1, "useCount" => 1}, token(mallory))
 
@@ -85,7 +84,11 @@ defmodule PesqueWeb.InviteCodeTest do
   end
 
   test "createInviteCodes answers one group per forAccount", ctx do
-    dids = [ctx.alice.did, did_for("bob")]
+    dids = [
+      ctx.alice.did,
+      "did:plc:" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+    ]
+
     body = codes(%{"codeCount" => 2, "useCount" => 1, "forAccounts" => dids}, ctx.token)
 
     assert [first, second] = body["codes"]
@@ -102,7 +105,7 @@ defmodule PesqueWeb.InviteCodeTest do
     body = created_account(unique("bob"), code)
 
     assert body["active"]
-    assert body["did"] == Did.did_for_username(:path_multi, host(), created_username(body))
+    assert String.starts_with?(body["did"], "did:plc:")
 
     row = Repo.get_by(InviteCode, code: code)
     assert row.used_by == body["did"]
@@ -145,18 +148,25 @@ defmodule PesqueWeb.InviteCodeTest do
     assert %{uses: 0} = Repo.get_by(InviteCode, code: code)
   end
 
-  test "a code restricted to a DID it names still creates that account", ctx do
+  # A restricted code names the DID it is good for. A fresh did:plc signup
+  # mints its DID at creation, so the DID cannot be known in advance and a
+  # restricted code never matches it: the supported path for a restricted code
+  # is an import, where the DID arrives with the account. This pins that a
+  # restricted code is refused for a fresh signup rather than silently spent.
+  test "a code restricted to a DID is refused for a fresh did:plc signup", ctx do
     username = unique("bob")
+    predicted = "did:plc:" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
     code =
       sole_code(
-        %{"codeCount" => 1, "useCount" => 1, "forAccounts" => [did_for(username)]},
+        %{"codeCount" => 1, "useCount" => 1, "forAccounts" => [predicted]},
         ctx.token
       )
 
-    body = created_account(username, code)
+    conn = post_account(username, code)
 
-    assert body["did"] == did_for(username)
+    assert conn.status == 400
+    assert JSON.decode!(conn.resp_body)["error"] == "InvalidInviteCode"
   end
 
   test "a code no row names is refused" do
@@ -232,8 +242,6 @@ defmodule PesqueWeb.InviteCodeTest do
     code
   end
 
-  defp did_for(username), do: Did.did_for_username(:path_multi, host(), username)
-
   defp post_account(username, code) do
     params =
       %{
@@ -251,9 +259,6 @@ defmodule PesqueWeb.InviteCodeTest do
     assert conn.status == 200
     JSON.decode!(conn.resp_body)
   end
-
-  defp created_username(%{"did" => did}), do: did |> String.split(":user:") |> List.last()
-  defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
 
   defp put_registration(mode) do
     previous = Application.get_env(:pesque, :registration)

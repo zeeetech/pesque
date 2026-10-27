@@ -5,14 +5,13 @@ defmodule Pesque.AccountIdentifierTest do
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
-  alias Pesque.Did
   alias Pesque.Repo
 
   @password "hunter2hunter2"
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
   end
 
   # An account's DID is minted once, at creation. did:web percent-encodes a
@@ -85,7 +84,7 @@ defmodule Pesque.AccountIdentifierTest do
     assert did == user.did
   end
 
-  # conformant_single's stored handle is Pesque.handle_domain/0, and repo_did/1
+  # single's stored handle is Pesque.handle_domain/0, and repo_did/1
   # downcases the query, so a domain written with capitals has to come back
   # lowercase or the account it minted is unreachable.
   test "handle_domain is normalized to lowercase" do
@@ -126,11 +125,14 @@ defmodule Pesque.AccountIdentifierTest do
 
   defp insert_account(name, email \\ nil) do
     username = unique(name)
+    # A unique did:plc per account. Multi accounts are did:plc, minted by the
+    # directory; the derived host DID would collide across inserted rows.
+    did = "did:plc:" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
     user =
       Repo.insert!(
         User.changeset(%{
-          did: Did.did_for_username(:path_multi, host(), username),
+          did: did,
           handle: username <> ".localhost",
           username: username,
           pubkey_multibase: "z" <> username,
@@ -162,8 +164,6 @@ defmodule Pesque.AccountIdentifierTest do
     Application.put_env(:pesque, :mode, mode)
     :ok
   end
-
-  defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
 
   defp key_files, do: Pesque.Storage.keys_dir() |> File.ls!() |> Enum.sort()
 

@@ -1,11 +1,11 @@
 defmodule PesqueWeb.ImportAccountTest do
   @moduledoc """
-  createAccount carrying a `did`: importing an identity this server did not
-  mint.
+  createAccount carrying a `did`: importing an existing `did:plc` identity this
+  server did not mint.
 
   The caller proves control of the DID with a service-auth token signed by the
-  DID's current signing key, so the DID may be any identity, not only one this
-  server would derive. The account starts deactivated and empty until the move
+  DID's current signing key. A did:web identity cannot move to another PDS. The
+  account starts deactivated and empty until the move
   is finished.
 
   The DID document is an injected fake, so nothing here reaches the network.
@@ -113,6 +113,16 @@ defmodule PesqueWeb.ImportAccountTest do
     assert conn.status == 400
     assert JSON.decode!(conn.resp_body)["error"] == "UnresolvableDid"
     refute Accounts.get_user(did)
+  end
+
+  test "did:web cannot be imported as an account identity" do
+    assert {:error, :invalid_did} =
+             Accounts.create_imported_account(
+               "import.localhost",
+               "import@localhost",
+               @password,
+               "did:web:old.example"
+             )
   end
 
   defp import_account(did, token) do

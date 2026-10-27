@@ -74,7 +74,7 @@ what to fall back to when something in the task does not fit.
 
 ## Before you start
 
-- The new server runs `PDS_MODE=path_multi` with `PDS_IDENTITY=plc`, behind TLS,
+- The new server runs `PDS_MODE=multi`, behind TLS,
   with `PDS_CRAWLER` set if you want a relay to pick it up.
 - The handle is verified before it is accepted: DNS TXT at `_atproto.<handle>`,
   then the well-known document, cross-checked against the DID document's
@@ -95,7 +95,7 @@ what to fall back to when something in the task does not fit.
 **1. Deploy the new PDS.**
 
 ```bash
-PDS_MODE=path_multi PDS_IDENTITY=plc PDS_HOSTNAME=pds.example.com \
+PDS_MODE=multi PDS_HOSTNAME=pds.example.com \
 PDS_HANDLE_DOMAIN=example.com PDS_CRAWLER=https://relay.example.com
 ```
 

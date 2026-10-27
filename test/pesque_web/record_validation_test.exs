@@ -16,7 +16,7 @@ defmodule PesqueWeb.RecordValidationTest do
   }
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

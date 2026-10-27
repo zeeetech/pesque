@@ -30,7 +30,6 @@ defmodule PesqueWeb.PageController do
     assigns = %{
       hostname: Pesque.hostname(),
       mode: Pesque.mode(),
-      identity: Pesque.identity(),
       handle_domain: Pesque.handle_domain(),
       registration: Pesque.registration(),
       version: Pesque.version(),
@@ -54,11 +53,11 @@ defmodule PesqueWeb.PageController do
     render_page(conn, PageHTML.handle(assigns), user.handle, Pesque.base_url())
   end
 
-  # Under conformant_single the server is the one account, so the landing also
+  # Under single the server is the one account, so the landing also
   # carries its identity. There is no account until one is created, and a server
   # with none shows no identity rather than the DID it would mint.
   defp single_account do
-    with :conformant_single <- Pesque.mode(),
+    with :single <- Pesque.mode(),
          {:ok, did} <- Accounts.resolve_handle(Identity.handle()) do
       %{handle: Identity.handle(), did: did}
     else

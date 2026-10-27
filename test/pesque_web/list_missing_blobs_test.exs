@@ -13,7 +13,7 @@ defmodule PesqueWeb.ListMissingBlobsTest do
   @path "/xrpc/com.atproto.repo.listMissingBlobs"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

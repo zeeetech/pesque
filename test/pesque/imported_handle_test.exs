@@ -103,10 +103,10 @@ defmodule Pesque.ImportedHandleTest do
       assert user.username == String.split(handle, ".") |> hd()
     end
 
-    # The apex of the handle domain is not local under path_multi: the server
+    # The apex of the handle domain is not local under multi: the server
     # mints `label.<domain>`, so the bare domain is a handle an account takes
     # and proves by resolution, like any other.
-    test "under path_multi the bare handle domain is a foreign handle" do
+    test "under multi the bare handle domain is a foreign handle" do
       put_env(:handle_domain, "zeetech.io")
       did = did()
 
@@ -126,8 +126,8 @@ defmodule Pesque.ImportedHandleTest do
       assert user.username == nil
     end
 
-    test "refuses a foreign handle under conformant_single" do
-      put_env(:mode, :conformant_single)
+    test "refuses a foreign handle under single" do
+      put_env(:mode, :single)
 
       put_env(:handle_resolver_dns, fn _name ->
         flunk("a foreign handle is not claimed in this mode")

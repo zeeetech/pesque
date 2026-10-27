@@ -12,9 +12,47 @@ defmodule Pesque.Plc.TestClient do
   @doc "Records the last submitted operation and answers the configured result."
   def submit(did, op) do
     FakeStore.put(:plc_last_submit, {did, op})
-    FakeStore.get(:plc_submit_result, :ok)
+
+    case FakeStore.get(:plc_submit_result, :ok) do
+      :ok = result ->
+        operations = FakeStore.get(:plc_operations, %{})
+        FakeStore.put(:plc_operations, Map.put(operations, did, op))
+        result
+
+      result ->
+        result
+    end
   end
 
-  @doc "Answers the configured resolution result."
-  def resolve(_did), do: FakeStore.get(:plc_resolve_result, {:error, :not_found})
+  @doc "Answers an explicit resolution override, or resolves a locally submitted operation."
+  def resolve(did) do
+    case FakeStore.get(:plc_resolve_result, :unset) do
+      :unset ->
+        case FakeStore.get(:plc_operations, %{}) do
+          %{^did => operation} -> {:ok, document(did, operation)}
+          _missing -> {:error, :not_found}
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp document(did, operation) do
+    services =
+      case operation["services"] do
+        %{"atproto_pds" => %{"type" => type, "endpoint" => endpoint}} ->
+          [%{"id" => "#atproto_pds", "type" => type, "serviceEndpoint" => endpoint}]
+
+        _missing ->
+          []
+      end
+
+    %{
+      "id" => did,
+      "alsoKnownAs" => operation["alsoKnownAs"],
+      "verificationMethod" => operation["verificationMethods"],
+      "service" => services
+    }
+  end
 end

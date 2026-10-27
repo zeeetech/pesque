@@ -15,7 +15,7 @@ defmodule PesqueWeb.OAuth.FlowTest do
 
   setup do
     %{
-      user: create_account("alice"),
+      user: insert_account("alice"),
       key: Client.dpop_key()
     }
   end
@@ -295,7 +295,7 @@ defmodule PesqueWeb.OAuth.FlowTest do
     end
 
     test "a login_hint binds the flow to that account", ctx do
-      other = create_account("bob")
+      other = insert_account("bob")
 
       params = Map.put(base_params(), "login_hint", ctx.user.handle)
       pushed = Client.par(ctx.key, params: params)

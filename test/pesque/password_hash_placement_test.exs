@@ -24,7 +24,7 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
   end
 
   # Reached from the open createAccount endpoint, and the shape that made the
@@ -77,7 +77,8 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
   # The hash being outside the transaction means it happens even when the
   # transaction is about to fail, so the failure path has to clean up after
   # itself. A leaked key file makes the next attempt at that handle fail on the
-  # exclusive create.
+  # exclusive create. The failed create (email_taken, before the mint) leaves
+  # nothing; the successful one leaves the repo and rotation keys.
   test "a failed create leaves no key file behind" do
     create("alice")
     before = key_files()
@@ -85,9 +86,12 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
     assert {:error, :email_taken} =
              Accounts.create_account("bob.localhost", "alice@localhost", @password)
 
-    create("bob")
+    assert key_files() == before
 
-    assert key_files() -- before == [Path.basename(Pesque.Keys.path(did_for("bob")))]
+    bob = create("bob")
+
+    assert bob.did |> String.starts_with?("did:plc:")
+    assert File.exists?(Pesque.Keys.path(bob.did))
   end
 
   defp mint(use_count \\ 1) do
@@ -99,10 +103,6 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
     {:ok, user} = Accounts.create_account(name <> ".localhost", name <> "@localhost", @password)
     user
   end
-
-  defp did_for(username), do: Pesque.Did.did_for_username(:path_multi, host(), username)
-
-  defp host, do: Pesque.Did.did_host(Pesque.hostname(), Pesque.port())
 
   defp key_files, do: File.ls!(Pesque.Storage.keys_dir())
 

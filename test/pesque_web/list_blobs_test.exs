@@ -12,7 +12,7 @@ defmodule PesqueWeb.ListBlobsTest do
   @path "/xrpc/com.atproto.sync.listBlobs"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

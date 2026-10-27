@@ -7,18 +7,12 @@ defmodule PesqueWeb.Xrpc.IdentityController do
   alias Pesque.Plc
   alias PesqueWeb.Xrpc
 
-  # The server's own DID decides this, not the account method. Only under
-  # conformant_single with identity = plc is that DID a did:plc, which resolves
-  # through plc.directory rather than at this route: serving the did:web-shaped
-  # document here would publish a second, conflicting document for the DID.
-  # Under path_multi accounts are did:plc but the server's own DID is a
-  # host-level did:web, which resolves here.
+  # The server's own DID is always a host-level did:web, so its document is
+  # always served here. It is the host identity, independent of any account's
+  # method: a did:plc account's document lives at the directory, but the
+  # server's own did:web document lives at this route in every mode.
   def did_document(conn, _params) do
-    if Pesque.Identity.plc?() do
-      send_resp(conn, 404, "")
-    else
-      json(conn, Pesque.Identity.did_document())
-    end
+    json(conn, Pesque.Identity.did_document())
   end
 
   # The HTTPS half of handle resolution. The DID answered depends on the name
@@ -129,29 +123,26 @@ defmodule PesqueWeb.Xrpc.IdentityController do
 
   # The server's own names answer with the server's own DID, which is not the
   # same question as an account's handle: it is the host-level identity the
-  # /.well-known/did.json beside this endpoint publishes.
+  # /.well-known/did.json beside this endpoint publishes. In single mode the
+  # handle may belong to a separate did:plc account, so resolve the account
+  # first when this host is its handle domain.
   defp did_for_host(host) do
-    if host in served_names() do
-      {:ok, Pesque.Identity.did()}
-    else
-      Accounts.resolve_handle(host)
-    end
-  end
+    host = strip_port(host)
+    handle_domain = strip_port(Pesque.handle_domain())
+    hostname = strip_port(Pesque.hostname())
 
-  # The names the server answers for itself. Its hostname always, and the
-  # handle domain only under conformant_single, where the bare domain is the
-  # one account's handle and the server publishes it. Under path_multi the
-  # handle domain is the prefix accounts are minted under and the apex there
-  # belongs to an account, so a request for it is resolved against the rows
-  # rather than answered with the server's own DID.
-  defp served_names do
-    names =
-      case Pesque.mode() do
-        :conformant_single -> [Pesque.hostname(), Pesque.handle_domain()]
-        :path_multi -> [Pesque.hostname()]
+    account_result =
+      if Pesque.mode() == :single and host == handle_domain do
+        Accounts.resolve_handle(host)
+      else
+        {:error, :not_found}
       end
 
-    Enum.map(names, &strip_port/1)
+    case account_result do
+      {:ok, _did} = found -> found
+      {:error, _reason} when host == hostname -> {:ok, Pesque.Identity.did()}
+      {:error, _reason} -> Accounts.resolve_handle(host)
+    end
   end
 
   defp strip_port(host) do

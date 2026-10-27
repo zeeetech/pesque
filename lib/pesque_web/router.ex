@@ -15,8 +15,8 @@ defmodule PesqueWeb.Router do
     get "/_tls-check", TlsCheckController, :show
   end
 
-  # Routes are compiled, mode is configured at boot, so a path_multi server
-  # carries the conformant_single routes too and the controller decides.
+  # Routes are compiled, mode is configured at boot, so a multi server
+  # carries the single routes too and the controller decides.
   scope "/", PesqueWeb.Xrpc do
     get "/.well-known/did.json", IdentityController, :did_document
     get "/.well-known/atproto-did", IdentityController, :atproto_did
@@ -73,7 +73,7 @@ defmodule PesqueWeb.Router do
 
   # Minting invite codes is what decides who gets an account on a closed
   # server, so it is not an account-scoped call: it takes the server's own
-  # identity, not any account's. Under :path_multi there is no server identity
+  # identity, not any account's. Under :multi there is no server identity
   # and this refuses everyone including the operator, so that topology needs
   # an operator DID list before this is reachable.
   pipeline :admin do

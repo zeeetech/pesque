@@ -21,16 +21,13 @@ defmodule Pesque.Backup do
   # What a booted server always has.
   @files [@database, "server.secret"]
   @dirs ["keys", "blobs"]
-  # Written only under PDS_IDENTITY=plc.
-  @optional ["server.identity.json"]
 
   # Swap order: each entry moves aside before its replacement lands. The
   # optional entry may be absent from the archive, in which case the running
   # one is still removed, so the restored data directory holds exactly what
   # the archive carried.
   @required_entries ["pesque.db", "server.secret", "keys", "blobs"]
-  @optional_entries ["server.identity.json"]
-  @swap_order @required_entries ++ @optional_entries
+  @swap_order @required_entries
 
   # A stale -wal beside the restored database would have SQLite replay the
   # old writes onto it, so the sidecars move aside under the name the old
@@ -179,7 +176,7 @@ defmodule Pesque.Backup do
   # staging snapshot, and a live member by the same name would overwrite it
   # when the archive is extracted.
   defp data_dir_entries(data_dir) do
-    for name <- @files ++ @dirs ++ @optional,
+    for name <- @files ++ @dirs,
         name != @database,
         path = Path.join(data_dir, name),
         File.exists?(path),
@@ -307,13 +304,7 @@ defmodule Pesque.Backup do
     current = Path.join(data_dir, name)
 
     with :ok <- move_aside(current, current <> ".old") do
-      cond do
-        name in @optional_entries and not File.exists?(Path.join(staged_dir, name)) ->
-          :ok
-
-        true ->
-          promote(staged_dir, name, current)
-      end
+      promote(staged_dir, name, current)
     end
   end
 

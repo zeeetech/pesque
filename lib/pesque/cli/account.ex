@@ -21,7 +21,7 @@ defmodule Pesque.Cli.Account do
   @usage """
   usage: pesque account <subcommand> [flags]
 
-    create --handle H --email E
+    create --handle H --email E [--identity web|plc]
     list [--status active|deactivated] [--grep PATTERN]
     show (--did D | --handle H)
     delete --did D | --handle H [--dry-run]
@@ -46,11 +46,15 @@ defmodule Pesque.Cli.Account do
   # catch-all.
   @sub_usage %{
     "create" => """
-    usage: pesque account create --handle H --email E
+    usage: pesque account create --handle H --email E [--identity web|plc]
 
     The handle and email come from the flag, then the conventional
     environment (ACCOUNT_HANDLE, ACCOUNT_EMAIL), then a prompt. The password
     comes from a no-echo prompt or a line on stdin, never a flag.
+
+    --identity picks the DID method. Under single it defaults to web (the
+    account is the server's own did:web); plc mints a fresh did:plc instead.
+    Under multi accounts are always did:plc and web is refused.
     """,
     "list" => """
     usage: pesque account list [--status active|deactivated] [--grep PATTERN]
@@ -92,13 +96,18 @@ defmodule Pesque.Cli.Account do
 
   def run(["create" | argv]) do
     with {:ok, opts, []} <-
-           Input.options(argv, [handle: :string, email: :string], @sub_usage["create"]),
+           Input.options(
+             argv,
+             [handle: :string, email: :string, identity: :string],
+             @sub_usage["create"]
+           ),
          {:ok, handle} <- Input.text(opts, :handle, "ACCOUNT_HANDLE", "handle: "),
          {:ok, email} <- Input.text(opts, :email, "ACCOUNT_EMAIL", "email: "),
+         {:ok, method} <- identity_method(opts[:identity]),
          {:ok, password} <-
            Input.password("Password for the new account (at least 8 characters): "),
          :ok <- Release.boot!() do
-      case Accounts.create_account(handle, email, password) do
+      case Accounts.create_account(handle, email, password, identity: method) do
         {:ok, account} ->
           Release.print_account(account)
           :ok
@@ -108,6 +117,9 @@ defmodule Pesque.Cli.Account do
       end
     end
   end
+
+  # --identity web|plc is parsed in run(["create"|...]); the helpers live with
+  # the other private functions below, after the run/1 clauses.
 
   def run(["list" | argv]) do
     with {:ok, opts, []} <-
@@ -319,6 +331,16 @@ defmodule Pesque.Cli.Account do
 
   def run(_argv), do: {:usage, @usage}
 
+  # --identity web|plc. Absent means the mode default (single -> web, multi ->
+  # plc), which create_account/4 applies when no :identity option is given. A
+  # value other than web or plc is a usage error, not a domain reason.
+  defp identity_method(nil), do: {:ok, nil}
+  defp identity_method("web"), do: {:ok, :web}
+  defp identity_method("plc"), do: {:ok, :plc}
+
+  defp identity_method(other),
+    do: {:usage, "--identity must be web or plc, got: #{other}\n\n" <> @sub_usage["create"]}
+
   # repo_did/1 matches a DID exactly and a handle case-insensitively, so the
   # verbs need no second resolver.
   defp resolve(identifier) do
@@ -372,7 +394,7 @@ defmodule Pesque.Cli.Account do
     do: Enum.filter(RepoStore.list_users(), &(not &1.active))
 
   # A substring over each identifying column, case-insensitively; a nil
-  # column (a handle under conformant_single) matches nothing.
+  # column (a handle under single) matches nothing.
   defp filter_grep(users, nil), do: users
 
   defp filter_grep(users, pattern) do

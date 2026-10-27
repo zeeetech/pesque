@@ -32,7 +32,6 @@ defmodule PesqueWeb.PlcSignatureTest do
   @sign_path "/xrpc/com.atproto.identity.signPlcOperation"
 
   setup do
-    put_identity(:plc)
     put_env(:plc_client, Pesque.Plc.TestClient)
     :ok
   end
@@ -281,8 +280,7 @@ defmodule PesqueWeb.PlcSignatureTest do
 
   describe "a did:web account" do
     setup do
-      put_identity(:web)
-      user = create_account("webuser")
+      user = create_web_account()
       %{user: user}
     end
 
@@ -322,12 +320,25 @@ defmodule PesqueWeb.PlcSignatureTest do
     end
 
     test "a did:web account is named as the reason" do
-      put_identity(:web)
-      user = create_account("webuser")
+      user = create_web_account()
 
       assert {:error, :not_a_plc_account} =
                Cli.run(["account", "plc-token", "--handle", user.handle])
     end
+  end
+
+  # A genuine did:web account: single mode, the bare handle domain, the web
+  # method. Under the one-knob model did:web accounts exist only in single
+  # mode, so the plc-only endpoints must refuse them.
+  defp create_web_account do
+    put_env(:mode, :single)
+
+    {:ok, user} =
+      Accounts.create_account(Pesque.Identity.handle(), "web@localhost", "hunter2hunter2",
+        identity: :web
+      )
+
+    user
   end
 
   # The domain function's answer, the one the controller swallows and the log
@@ -357,8 +368,6 @@ defmodule PesqueWeb.PlcSignatureTest do
     assert conn.status == 200
     JSON.decode!(conn.resp_body)
   end
-
-  defp put_identity(identity), do: put_env(:identity, identity)
 
   defp put_env(key, value) do
     previous = Application.get_env(:pesque, key)

@@ -11,7 +11,7 @@ defmodule PesqueWeb.SessionEmailConfirmedTest do
   @password "hunter2hunter2"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -30,7 +30,7 @@ defmodule PesqueWeb.SessionEmailConfirmedTest do
   end
 
   test "createSession reports emailConfirmed with the email" do
-    user = create_account("bob")
+    user = insert_account("bob")
 
     body = decode(create_session(user))
 
