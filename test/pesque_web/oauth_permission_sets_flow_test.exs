@@ -33,7 +33,7 @@ defmodule PesqueWeb.OAuth.PermissionSetsFlowTest do
   end
 
   setup do
-    %{user: create_account("alice"), key: Client.dpop_key()}
+    %{user: insert_account("alice"), key: Client.dpop_key()}
   end
 
   test "PAR refuses an include of a set it cannot resolve, naming the set", ctx do

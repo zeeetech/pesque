@@ -9,8 +9,8 @@
 A Personal Data Server for ATProto, written in Elixir.
 
 It does account creation, OAuth (PAR, PKCE, DPoP), legacy sessions, signed
-repositories, public reads, blob storage, a firehose, and identity that is
-`did:web` by default and `did:plc` when configured. A PDS stores records, signs
+repositories, public reads, blob storage, a firehose, and `did:web` server
+identity with account identities chosen at creation. A PDS stores records, signs
 commits, hands those commits to anyone who asks, and answers `describeServer`
 well enough that a client can decide to talk to it. No feed, no ranking, no
 moderation queue.
@@ -86,8 +86,10 @@ mix pesque.account create --handle alice.example.com --email alice@example.com
 `mix pesque.create_account` is the same task under the old name, kept so older
 guides and scripts keep working.
 
-Signing up needs `PDS_MODE=path_multi`, which mints `did:plc` accounts and
-submits them to the public PLC directory. To sign up or migrate in development
+Signing up needs `PDS_MODE=multi`, which mints `did:plc` accounts and
+submits them to the public PLC directory. `PDS_MODE` controls only whether the
+server hosts one account or many; a single account can choose `did:web` or
+`did:plc` with `pesque account create --identity`. To sign up or migrate in development
 without minting a real DID there, add `PDS_PLC_LOCAL=true`: the operations are
 kept under `data_dir` instead. The setting is refused outside the dev and test
 environments.

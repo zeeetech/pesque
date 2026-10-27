@@ -17,7 +17,7 @@ defmodule PesqueWeb.ImportRepoTest do
   @import "/xrpc/com.atproto.repo.importRepo"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -66,7 +66,7 @@ defmodule PesqueWeb.ImportRepoTest do
   # different account would store another repo's records under this DID, so it
   # is refused before anything is written.
   test "a CAR whose commit names another repo is refused", ctx do
-    bob = create_account("bob")
+    bob = insert_repo_account("bob")
     write_post(bob, token(bob), "bob's post", "1")
     car = export(bob.did)
 

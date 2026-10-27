@@ -17,7 +17,7 @@ defmodule PesqueWeb.ApplyWritesTest do
   @path "/xrpc/com.atproto.repo.applyWrites"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -259,7 +259,7 @@ defmodule PesqueWeb.ApplyWritesTest do
   end
 
   test "a write to another account's repo is refused and changes nothing", ctx do
-    bob = create_account("bob")
+    bob = insert_repo_account("bob")
     seed_for(bob, token(bob))
 
     before = head_for(bob)

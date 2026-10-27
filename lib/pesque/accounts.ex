@@ -50,7 +50,7 @@ defmodule Pesque.Accounts do
   Creates a local account from a handle, an email, and a password.
 
   The handle is the whole identifier: the username is derived from it, and
-  under path_multi the domain must equal the handle domain exactly, so a
+  under multi the domain must equal the handle domain exactly, so a
   lookalike domain is rejected rather than normalized into acceptance.
   :invite_code, when given, is claimed in the same transaction that inserts
   the account, so a code spent on an insert that failed is spendable again.
@@ -64,7 +64,8 @@ defmodule Pesque.Accounts do
   whole hash, and a wrong invite code is answered before any hash is burned.
   """
   def create_account(handle, email, password, opts \\ []) do
-    with {:ok, identity} <- identity_for(handle),
+    with {:ok, method} <- account_method(opts),
+         {:ok, identity} <- identity_for(handle, method),
          :ok <- check_password(password),
          :ok <- check_email(email),
          :ok <- check_available(identity, email),
@@ -79,6 +80,18 @@ defmodule Pesque.Accounts do
         true,
         account.plc_operation
       )
+    end
+  end
+
+  # The DID method a new account is minted with. An explicit :identity option
+  # wins; otherwise it defaults from the mode: single mode defaults to did:web
+  # (the account is the server), multi mode to did:plc (the only method multi
+  # supports). PLC is always available; nothing gates it on configuration.
+  defp account_method(opts) do
+    case Keyword.get(opts, :identity) do
+      nil -> {:ok, if(Pesque.mode() == :single, do: :web, else: :plc)}
+      method when method in [:web, :plc] -> {:ok, method}
+      _other -> {:error, :invalid_identity}
     end
   end
 
@@ -115,24 +128,27 @@ defmodule Pesque.Accounts do
     end
   end
 
-  defp check_import_did(did) when is_binary(did) do
-    if String.starts_with?(did, "did:"), do: :ok, else: {:error, :invalid_did}
-  end
-
+  # ATProto account migration is a PLC identity operation. did:web cannot be
+  # moved to another PDS, so accepting it here would build an account whose
+  # identity cannot complete the migration flow.
+  defp check_import_did("did:plc:" <> rest) when rest != "", do: :ok
   defp check_import_did(_did), do: {:error, :invalid_did}
 
   # A handle under the server's own domain is resolved here, so it takes the
   # local derivation with no network. A foreign handle has no local username and
   # is proved by resolving it to the imported DID before the identity is built.
   # A foreign handle is only meaningful where accounts have their own DIDs: under
-  # conformant_single the account is the server, and admitting one would be a
+  # single the account is the server, and admitting one would be a
   # second account in a mode that serves one.
+  #
+  # An import always brings an existing did:plc, so the local branch builds the
+  # identity with the :plc method before the imported DID replaces the nil one.
   defp imported_identity_for(handle, did) do
     cond do
       local_handle?(handle) ->
-        with {:ok, identity} <- identity_for(handle), do: put_import_did(identity, did)
+        with {:ok, identity} <- identity_for(handle, :plc), do: put_import_did(identity, did)
 
-      Pesque.mode() == :path_multi ->
+      Pesque.mode() == :multi ->
         with {:ok, identity} <- foreign_handle_identity(handle, did, nil),
              :ok <- HandleResolver.verify(identity.handle, did) do
           {:ok, identity}
@@ -143,33 +159,35 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # The identity_for/1 struct carries the DID this server would derive for the
-  # handle. An import replaces it with the caller's, so the row, the key file
-  # and every check below are about the imported identity and not the local one.
+  # The identity_for/2 struct carries the DID this server would derive for the
+  # handle (nil under :plc). An import replaces it with the caller's, so the row,
+  # the key file and every check below are about the imported identity and not
+  # the local one.
   defp put_import_did(identity, did), do: {:ok, %{identity | did: did}}
 
   # A foreign handle's stored spelling comes from the resolver, which settles
   # the syntax without the local-domain requirement. There is no local path
   # label behind it, so the username is nil; a did:plc document is keyed by the
-  # stored DID and does not need one.
+  # stored DID and does not need one. An import is always a did:plc.
   defp foreign_handle_identity(handle, did, username) do
     with {:ok, normalized} <- HandleResolver.normalize(handle) do
-      {:ok, %{mode: Pesque.mode(), did: did, handle: normalized, username: username}}
+      {:ok,
+       %{mode: Pesque.mode(), method: :plc, did: did, handle: normalized, username: username}}
     end
   end
 
   # A handle this server resolves without the network, by the shape each mode
-  # mints: conformant_single serves the bare handle domain as its one account,
-  # while path_multi serves only a label under it. The bare handle domain is
-  # not local under path_multi, so the apex is a handle an account takes and
+  # mints: single serves the bare handle domain as its one account,
+  # while multi serves only a label under it. The bare handle domain is
+  # not local under multi, so the apex is a handle an account takes and
   # proves like any other, and the server's own identity no longer holds it.
   defp local_handle?(handle) when is_binary(handle) do
     domain = String.downcase(Pesque.handle_domain())
     normalized = handle |> String.trim() |> String.downcase()
 
     case Pesque.mode() do
-      :conformant_single -> normalized == domain
-      :path_multi -> String.ends_with?(normalized, "." <> domain)
+      :single -> normalized == domain
+      :multi -> String.ends_with?(normalized, "." <> domain)
     end
   end
 
@@ -312,7 +330,7 @@ defmodule Pesque.Accounts do
   @doc """
   The DID document of the account named by a username, or of the account itself.
 
-  The struct clause exists because the single account under conformant_single
+  The struct clause exists because the single account under single
   has no username, so its document is not reachable by one.
   """
   def did_document_for(%User{} = user), do: {:ok, document(user)}
@@ -777,7 +795,11 @@ defmodule Pesque.Accounts do
   answer the commit would give.
   """
   def handle_available?(handle) when is_binary(handle) do
-    case identity_for(handle) do
+    # The mode default method, so a multi handle is checked as the did:plc it
+    # would be minted as (never triggering the multi did:web refusal).
+    method = if Pesque.mode() == :single, do: :web, else: :plc
+
+    case identity_for(handle, method) do
       {:ok, identity} -> check_available(identity, nil) == :ok
       {:error, _reason} -> false
     end
@@ -910,13 +932,13 @@ defmodule Pesque.Accounts do
   # here, so a foreign handle would name a document this server does not own.
   defp update_handle_identity(%User{did: "did:plc:" <> _} = user, handle) do
     if local_handle?(handle) do
-      identity_for(handle)
+      identity_for(handle, :plc)
     else
       foreign_handle_identity(handle, user.did, user.username)
     end
   end
 
-  defp update_handle_identity(%User{}, handle), do: identity_for(handle)
+  defp update_handle_identity(%User{}, handle), do: identity_for(handle, :web)
 
   # The handle has to already resolve to this account before the PLC operation
   # publishes it, otherwise a directory that accepted the operation would name a
@@ -1475,19 +1497,28 @@ defmodule Pesque.Accounts do
 
   defp find_by_identifier(_identifier), do: nil
 
-  defp identity_for(handle) when is_binary(handle) do
+  # The identity an account is created with: its topology (mode), its DID
+  # method (:web or :plc), its handle, its username, and its DID. Under :web
+  # the DID is derived (single mode: the server's own host DID). Under :plc
+  # the DID is nil here and is filled in by claim_account/2, which mints it
+  # through the directory; until then there is no DID to derive.
+  defp identity_for(handle, method) when is_binary(handle) do
     case Pesque.mode() do
-      :conformant_single -> single_account(handle)
-      :path_multi -> path_multi_account(handle)
+      :single -> single_account(handle, method)
+      :multi -> multi_account(handle, method)
     end
   end
 
-  defp identity_for(_handle), do: {:error, :invalid_handle}
+  defp identity_for(_handle, _method), do: {:error, :invalid_handle}
 
-  defp single_account(handle) do
+  # A single-mode account is the server itself when it is did:web (one
+  # identity), or a did:plc held by the same operator when it is :plc (two
+  # identities: the server's host did:web and the account's did:plc). Either
+  # way the handle is the bare handle domain and the username is nil.
+  defp single_account(handle, method) do
     if String.downcase(String.trim(handle)) == String.downcase(Identity.handle()) do
-      {:ok,
-       %{mode: :conformant_single, did: Identity.did(), handle: Identity.handle(), username: nil}}
+      did = if method == :web, do: Identity.did(), else: nil
+      {:ok, %{mode: :single, method: method, did: did, handle: Identity.handle(), username: nil}}
     else
       {:error, :handle_not_under_domain}
     end
@@ -1501,23 +1532,41 @@ defmodule Pesque.Accounts do
   # them. A label that fails the handle syntax is `:invalid_handle` for the same
   # reason. Nothing here checks the database, so a taken handle and an unhosted
   # one are distinguishable before any row is read.
-  defp path_multi_account(handle) do
+  #
+  # Multi accounts are always did:plc, so the DID is nil until the mint fills
+  # it in. A request for did:web under multi is refused: multi-user did:web
+  # needs a subdomain DID per account, a distinct topology this server does not
+  # serve (see docs/reference/identity-refactor.md, "Deferred").
+  defp multi_account(handle, :web), do: multi_web_refusal(handle)
+
+  defp multi_account(handle, :plc) do
     handle = String.downcase(String.trim(handle))
     domain = String.downcase(Pesque.handle_domain())
 
     with [label, ^domain] <- String.split(handle, ".", parts: 2),
          {:ok, username} <- Did.normalize_username(label) do
-      did =
-        Did.did_for_username(
-          :path_multi,
-          Did.did_host(Pesque.hostname(), Pesque.port()),
-          username
-        )
-
-      {:ok, %{mode: :path_multi, did: did, handle: handle, username: username}}
+      {:ok, %{mode: :multi, method: :plc, did: nil, handle: handle, username: username}}
     else
       {:error, _reason} -> {:error, :invalid_handle}
       _other -> {:error, :handle_not_under_domain}
+    end
+  end
+
+  defp multi_web_refusal(handle) when is_binary(handle) do
+    # Validate the handle shape first so a malformed handle still answers
+    # :invalid_handle / :handle_not_under_domain rather than the method refusal.
+    handle = String.downcase(String.trim(handle))
+    domain = String.downcase(Pesque.handle_domain())
+
+    case String.split(handle, ".", parts: 2) do
+      [label, ^domain] ->
+        case Did.normalize_username(label) do
+          {:ok, _username} -> {:error, :web_not_supported_under_multi}
+          {:error, _reason} -> {:error, :invalid_handle}
+        end
+
+      _other ->
+        {:error, :handle_not_under_domain}
     end
   end
 
@@ -1530,19 +1579,24 @@ defmodule Pesque.Accounts do
 
   defp check_password(_password), do: {:error, :password_too_short}
 
-  # conformant_single has exactly one account and it is the server, so a
+  # single has exactly one account and it is the server, so a
   # second attempt is an existing server rather than a taken handle.
   #
   # An identifier is a handle or an email, so a string in one column can
   # collide with a string in the other and leave login unable to say which
   # account it means; create_account/3 refuses both directions, and the
   # comparison is exact because that is the one find_by_identifier/1 makes.
+  #
+  # The DID is compared only when present: a did:plc account's DID is nil until
+  # the mint fills it in, and pinning nil into `==` raises in Ecto. The handle
+  # is always present and is the unique key that matters before the mint.
   defp check_available(%{mode: mode} = identity, email) do
     taken =
-      Repo.exists?(from u in User, where: u.did == ^identity.did or u.handle == ^identity.handle)
+      Repo.exists?(from u in User, where: u.handle == ^identity.handle) or
+        (identity.did != nil and Repo.exists?(from u in User, where: u.did == ^identity.did))
 
     if taken do
-      {:error, if(mode == :conformant_single, do: :account_exists, else: :handle_not_available)}
+      {:error, if(mode == :single, do: :account_exists, else: :handle_not_available)}
     else
       check_identifier(identity, email)
     end
@@ -1565,41 +1619,34 @@ defmodule Pesque.Accounts do
     end
   end
 
-  # The single account is the server, whose identity was minted at boot, so
-  # there is nothing to mint here: the boot-time key is claimed and the
-  # operation that registered the DID is carried onto the row. Under the
-  # default web identity server_operation/0 is nil, which is the old shape.
-  defp claim_account(%{mode: :conformant_single} = identity) do
+  # A did:web account claims a key. Under single it is the server's own host
+  # DID, whose key was created at boot, so the boot key is claimed (claiming a
+  # second one would sign with a key the host document does not carry). There
+  # is no PLC operation for a did:web account.
+  defp claim_account(%{method: :web} = identity) do
     with {:ok, key} <- claim_key(identity) do
-      {:ok, %{identity: identity, key: key, plc_operation: Identity.server_operation()}}
+      {:ok, %{identity: identity, key: key, plc_operation: nil}}
     end
   end
 
-  # Under PDS_IDENTITY=plc the DID is minted by the directory rather than
-  # derived from the hostname, so the key claim and the DID arrive together
-  # from Pesque.Plc. Under the default web identity this is exactly the old
-  # claim_key/1 with the extra fields left nil.
-  defp claim_account(identity) do
-    if Pesque.Plc.enabled?() do
-      with {:ok, minted} <- Pesque.Plc.mint(identity.handle) do
-        {:ok,
-         %{
-           identity: %{identity | did: minted.did},
-           key: minted.key,
-           plc_operation: minted.operation
-         }}
-      end
-    else
-      with {:ok, key} <- claim_key(identity) do
-        {:ok, %{identity: identity, key: key, plc_operation: nil}}
-      end
+  # A did:plc account is minted by the directory rather than derived from the
+  # hostname, so the key claim and the DID arrive together from Pesque.Plc. This
+  # is where the DID that identity_for/2 left nil gets filled in.
+  defp claim_account(%{method: :plc} = identity) do
+    with {:ok, minted} <- Pesque.Plc.mint(identity.handle) do
+      {:ok,
+       %{
+         identity: %{identity | did: minted.did},
+         key: minted.key,
+         plc_operation: minted.operation
+       }}
     end
   end
 
   # The single account is the server and publishes the key created at boot,
   # so claiming a second one here would sign with a key the DID document
   # does not carry.
-  defp claim_key(%{mode: :conformant_single} = identity) do
+  defp claim_key(%{mode: :single, method: :web} = identity) do
     case Keys.ensure(identity.did) do
       {:ok, key} ->
         {:ok, key}
@@ -1650,10 +1697,10 @@ defmodule Pesque.Accounts do
       {:error, changeset} ->
         Pesque.Plc.Keys.delete(identity.did)
 
-        if email_taken?(changeset) do
-          {:error, :email_taken}
-        else
-          {:error, :missing_fields}
+        cond do
+          email_taken?(changeset) -> {:error, :email_taken}
+          handle_taken?(changeset) -> {:error, :handle_not_available}
+          true -> {:error, :missing_fields}
         end
     end
   end
@@ -1683,6 +1730,19 @@ defmodule Pesque.Accounts do
       {_msg, opts} when is_list(opts) -> opts[:constraint] == :unique
       _ -> false
     end
+  end
+
+  # A lost handle race surfaces as a unique violation on handle, username or
+  # did rather than on email. All three mean the same thing to the operator:
+  # the name is taken, so the answer is :handle_not_available, not the
+  # catch-all :missing_fields.
+  defp handle_taken?(changeset) do
+    Enum.any?([:handle, :username, :did], fn field ->
+      case Keyword.get(changeset.errors, field) do
+        {_msg, opts} when is_list(opts) -> opts[:constraint] == :unique
+        _ -> false
+      end
+    end)
   end
 
   # alsoKnownAs is taken from the row rather than Did.did_document/2's

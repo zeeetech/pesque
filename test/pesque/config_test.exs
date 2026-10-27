@@ -15,7 +15,7 @@ defmodule Pesque.ConfigTest do
       # a comment
       hostname = pds.example.com
 
-      mode = path_multi # trailing comment
+      mode = multi # trailing comment
       port=4000
       """
 
@@ -23,7 +23,7 @@ defmodule Pesque.ConfigTest do
 
       assert values == %{
                "hostname" => "pds.example.com",
-               "mode" => "path_multi",
+               "mode" => "multi",
                "port" => "4000"
              }
     end
@@ -128,6 +128,13 @@ defmodule Pesque.ConfigTest do
       assert {:error, {:unknown_env, ["PDS_NOT_A_REAL_KEY"]}} = Config.validate_env()
     end
 
+    test "the retired identity setting is refused rather than read" do
+      System.put_env("PDS_IDENTITY", "plc")
+      on_exit(fn -> System.delete_env("PDS_IDENTITY") end)
+
+      assert {:error, {:unknown_env, ["PDS_IDENTITY"]}} = Config.validate_env()
+    end
+
     test "variables of other namespaces are none of this layer's business" do
       System.put_env("PESQUE_BACKEND", "docker")
       on_exit(fn -> System.delete_env("PESQUE_BACKEND") end)
@@ -168,8 +175,7 @@ defmodule Pesque.ConfigTest do
 
       assert values == %{
                "hostname" => "pds.example.com",
-               "mode" => "path_multi",
-               "identity" => "plc",
+               "mode" => "multi",
                "handle_domain" => "example.com",
                "registration" => "closed"
              }

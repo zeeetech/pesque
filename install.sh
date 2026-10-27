@@ -13,7 +13,7 @@
 # Flags:
 #   --backend docker|systemd              what to install (default: docker)
 #   --hostname H                          domain clients will use
-#   --mode conformant_single|path_multi   account mode
+#   --mode single|multi   account mode
 #   --tag T                               release tag (default: latest release)
 #   --yes                                 non-interactive: flags or defaults only
 #
@@ -37,7 +37,7 @@ answer=""
 usage() {
   cat <<'USAGE'
 usage: install.sh [--backend docker|systemd] [--hostname H]
-                  [--mode conformant_single|path_multi] [--tag T] [--yes]
+                  [--mode single|multi] [--tag T] [--yes]
 
 Turns a fresh host into a working Pesque (ATProto PDS): installs the
 host-side `pesque` CLI plus one backend, then prints the handoff steps.
@@ -49,7 +49,7 @@ host-side `pesque` CLI plus one backend, then prints the handoff steps.
   --hostname  domain clients will use (pds.example.com). Written into a
               pesque.conf in the current directory (docker) or into
               /etc/pesque/pesque.env (systemd).
-  --mode      conformant_single (default) or path_multi.
+  --mode      single (default) or multi.
   --tag       release tag (default: the latest release).
   --yes       non-interactive: take flags and defaults, error when a required
               value is missing (--hostname for --backend systemd).
@@ -415,7 +415,7 @@ connect (docs/guides/installation.md, "Behind a TLS proxy").
   [ "$healthy" = yes ] || die "the server did not come up; check 'journalctl -u pesque -n 100'" 1
 
   handle="$hostname_val"
-  [ "$mode" = path_multi ] && handle="alice.$hostname_val"
+  [ "$mode" = multi ] && handle="alice.$hostname_val"
   printf '
 The service is up and enabled (pesque.service, release %s at %s/opt/pesque).
 
@@ -454,7 +454,7 @@ parse_args() {
         shift
         ;;
       --mode)
-        [ $# -ge 2 ] || die "--mode needs a value: conformant_single or path_multi" 2
+        [ $# -ge 2 ] || die "--mode needs a value: single or multi" 2
         mode=$2
         shift 2
         ;;
@@ -494,8 +494,8 @@ main() {
     *) die "--backend must be docker or systemd, got '$backend'" 2 ;;
   esac
   case $mode in
-    "" | conformant_single | path_multi) ;;
-    *) die "--mode must be conformant_single or path_multi, got '$mode'" 2 ;;
+    "" | single | multi) ;;
+    *) die "--mode must be single or multi, got '$mode'" 2 ;;
   esac
   if [ -n "$tag" ] && printf '%s' "$tag" | grep -q '[^A-Za-z0-9._-]'; then
     die "--tag must look like v1.2.3, got '$tag'" 2
@@ -546,7 +546,7 @@ main() {
           {
             printf '# pesque configuration. Every key is in pesque.conf.example.\n'
             printf 'hostname = %s\n' "$hostname_val"
-            printf 'mode = %s\n' "${mode:-conformant_single}"
+            printf 'mode = %s\n' "${mode:-single}"
           } >"$PWD/pesque.conf"
           log "wrote $PWD/pesque.conf (hostname=$hostname_val)"
         fi

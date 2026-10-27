@@ -7,7 +7,6 @@ defmodule Pesque.MultiAccountTest do
   alias Pesque.Accounts.User
   alias Pesque.Base58
   alias Pesque.CBOR
-  alias Pesque.Did
   alias Pesque.Keys
   alias Pesque.Repo
   alias Pesque.RepoServer
@@ -18,7 +17,9 @@ defmodule Pesque.MultiAccountTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
+    put_client(Pesque.Plc.TestClient)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
   end
 
   test "two accounts get their own did, handle, key, and document" do
@@ -29,8 +30,10 @@ defmodule Pesque.MultiAccountTest do
     refute alice.handle == bob.handle
     refute alice.pubkey_multibase == bob.pubkey_multibase
 
-    assert alice.did == Did.did_for_username(:path_multi, host(), alice.username)
-    assert Did.path_for_did(alice.did) == "/user/#{alice.username}/did.json"
+    # Multi accounts are did:plc, minted by the directory, never derived from
+    # the hostname. Each is unique and resolves through the directory.
+    assert String.starts_with?(alice.did, "did:plc:")
+    assert String.starts_with?(bob.did, "did:plc:")
 
     assert {:ok, alice_doc} = Accounts.did_document_for(alice.username)
     assert {:ok, bob_doc} = Accounts.did_document_for(bob.username)
@@ -97,17 +100,16 @@ defmodule Pesque.MultiAccountTest do
   end
 
   # An orphan key file makes the next attempt at the handle fail on the
-  # exclusive create, so the retry is the thing that has to work.
+  # exclusive create, so the retry is the thing that has to work. Under did:plc
+  # the email_taken check fires before the mint, so a failed attempt writes no
+  # key file at all and the retry mints fresh.
   test "a failed insert removes the key file and leaves the handle retryable" do
     username = unique("alice")
-    did = Did.did_for_username(:path_multi, host(), username)
 
     other = insert_user()
 
     assert {:error, :email_taken} =
              Accounts.create_account(username <> ".localhost", other.email, @password)
-
-    refute File.exists?(Keys.path(did)), "key file left behind by the failed insert"
 
     assert {:ok, user} =
              Accounts.create_account(
@@ -116,8 +118,8 @@ defmodule Pesque.MultiAccountTest do
                @password
              )
 
-    assert user.did == did
-    assert File.exists?(Keys.path(did))
+    assert String.starts_with?(user.did, "did:plc:")
+    assert File.exists?(Keys.path(user.did))
   end
 
   test "two concurrent createAccount calls for one handle yield one account" do
@@ -139,14 +141,16 @@ defmodule Pesque.MultiAccountTest do
 
     assert Repo.aggregate(from(u in User, where: u.handle == ^handle), :count, :id) == 1
 
-    did = Did.did_for_username(:path_multi, host(), username)
-    assert key_files() -- before == [Path.basename(Keys.path(did))]
+    # Exactly one account was minted. A did:plc account has two key files (the
+    # repo signing key and the rotation key), and the loser's pair is cleaned
+    # up, so the winner's two remain.
+    assert length(key_files() -- before) == 2
   end
 
-  # conformant_single is single account by design, and its one account is the
+  # single is single account by design, and its one account is the
   # server, so it signs with the key boot already published for the server DID.
-  test "conformant_single still admits exactly one account" do
-    put_mode(:conformant_single)
+  test "single still admits exactly one account" do
+    put_mode(:single)
 
     assert {:ok, user} =
              Accounts.create_account("localhost", unique("a") <> "@localhost", @password)
@@ -218,11 +222,13 @@ defmodule Pesque.MultiAccountTest do
 
   defp insert_user do
     username = unique("other")
+    # A unique did:plc per inserted user; derived host DIDs would collide.
+    did = "did:plc:" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
 
     user =
       Repo.insert!(
         User.changeset(%{
-          did: Did.did_for_username(:path_multi, host(), username),
+          did: did,
           handle: username <> ".localhost",
           email: unique("taken") <> "@localhost",
           password_hash: "not-a-real-hash"
@@ -252,7 +258,18 @@ defmodule Pesque.MultiAccountTest do
     :ok
   end
 
-  defp host, do: Did.did_host(Pesque.hostname(), Pesque.port())
+  defp put_client(module) do
+    previous = Application.get_env(:pesque, :plc_client)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:pesque, :plc_client, previous),
+        else: Application.delete_env(:pesque, :plc_client)
+    end)
+
+    Application.put_env(:pesque, :plc_client, module)
+    :ok
+  end
 
   defp key_files, do: Pesque.Storage.keys_dir() |> File.ls!() |> Enum.sort()
 

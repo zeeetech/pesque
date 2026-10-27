@@ -32,7 +32,7 @@ defmodule PesqueWeb.PermissionEnforcementTest do
   @request_id "0123456789abcdef0123456789abcdef"
 
   setup do
-    user = create_account("alice")
+    user = create_repo_account("alice")
 
     # The proxy needs a target that resolves and answers, so the resolver and
     # fetcher are injected the way the proxy suite does it.
@@ -214,7 +214,7 @@ defmodule PesqueWeb.PermissionEnforcementTest do
   end
 
   test "deactivate and activate pass to atproto and 403 to the generic transition", ctx do
-    user = create_account("deactivatable")
+    user = create_repo_account("deactivatable")
     sess = oauth_token(user, "atproto")
 
     assert authorized_post(sess, "/xrpc/com.atproto.server.deactivateAccount", %{}).status == 200

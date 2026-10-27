@@ -12,8 +12,7 @@ from the release directory. `mix pesque.<verb>` runs the same code in dev.
 `pesque backup [--out DIR]` writes `pesque-backup-<stamp>.tar.gz` and is safe
 to run while the server is up. The database is snapshotted with `VACUUM INTO`
 first, so the archive holds the committed state at one instant; the keys, the
-blobs, the secret and, when the server has minted one, `server.identity.json`
-are read straight out of the data directory after. That is safe on a running
+blobs and the secret are read straight out of the data directory after. That is safe on a running
 server because an upload writes the file before the row that serves it: the
 worst a race with a running upload can do is put an orphan file in the
 archive, never a row whose bytes are missing. The verb refuses a data
@@ -51,7 +50,6 @@ dies.
 data/
 ├── pesque.db            SQLite: accounts, records, blocks, blobs, events, invites, preferences, OAuth state
 ├── server.secret        HMAC secret for legacy session tokens
-├── server.identity.json the server's minted did:plc, only under identity = plc
 ├── keys/<digest>.key            secp256k1 signing key per DID
 ├── keys/<digest>.rotation.key   did:plc rotation key, the account's only recovery path
 ├── keys/oauth.p256.key          P-256 key OAuth tokens and the JWKS are signed with
@@ -192,7 +190,7 @@ the server cannot read a single account; the reason is logged, never returned.
 At boot:
 
 ```
-[info] pesque up data_dir=/var/lib/pesque hostname=pds.example.com mode=conformant_single registration=closed
+[info] pesque up data_dir=/var/lib/pesque hostname=pds.example.com mode=single registration=closed
 ```
 
 Log metadata is an allowlist (`did`, `handle`, `route`, `reason`, `path`,
@@ -246,7 +244,7 @@ nothing**. Counters are fixed-window, so a window seam can double the limit.
 - Blobs ship with `content-disposition: attachment`, `nosniff` and a restrictive
   CSP, so a `text/html` blob does not render from your origin.
 - Registration is closed by default: invite codes, one per account, spent
-  atomically. `createInviteCodes` is operator-only; under `path_multi` name
+  atomically. `createInviteCodes` is operator-only; under `multi` name
   yourself in `PDS_ADMIN_DIDS`.
 
 ## Data exposure
@@ -270,7 +268,7 @@ existence is public**: `listRepos` enumerates every hosted DID.
   `PDS_TAG`.
 - **A `did:web` with a port does not resolve.** The port is only encoded for
   loopback and private hosts; fix the proxy.
-- **The AppView shows nothing.** `path_multi` DIDs are ignored by ATProto
+- **The AppView shows nothing.** `multi` DIDs are ignored by ATProto
   resolvers, or the certificate is invalid.
 - **Reads answer `RepoNotFound` for an account that exists.** The stored DID was
   minted under a different hostname or port. See

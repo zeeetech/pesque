@@ -118,7 +118,7 @@ defmodule PesqueWeb.SignupTest do
   end
 
   test "a taken name comes back with what was typed still in the form" do
-    alice = create_account("alice")
+    alice = insert_account("alice")
     label = alice.handle |> String.split(".") |> hd()
 
     conn = post_form(attrs(invite_code(), label, "new@example.com"))
@@ -130,7 +130,7 @@ defmodule PesqueWeb.SignupTest do
   end
 
   test "an email another account already holds is refused with a way out" do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     conn = post_form(attrs(invite_code(), "bob", alice.email))
 
@@ -165,7 +165,7 @@ defmodule PesqueWeb.SignupTest do
   end
 
   test "the path is not served where the server is its single account" do
-    put_mode(:conformant_single)
+    put_mode(:single)
 
     assert get_page("/signup").status == 404
     assert post_form(%{"handle" => "x"}).status == 404

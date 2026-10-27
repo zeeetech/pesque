@@ -67,7 +67,6 @@ let
       "port = ${toString cfg.port}"
       "data_dir = ${cfg.dataDir}"
     ]
-    ++ optional (cfg.identity != null) "identity = ${cfg.identity}"
     ++ optional (cfg.handleDomain != null) "handle_domain = ${cfg.handleDomain}"
     ++ optional (cfg.handle != null) "handle = ${cfg.handle}"
     ++ optional (cfg.crawler != [ ]) "crawler = ${concatStringsSep "," cfg.crawler}"
@@ -135,27 +134,13 @@ in
 
     mode = mkOption {
       type = types.enum [
-        "conformant_single"
-        "path_multi"
+        "single"
+        "multi"
       ];
-      default = "conformant_single";
+      default = "single";
       description = ''
-        conformant_single serves one account as the server itself. path_multi
-        gives every account its own handle and DID.
-      '';
-    };
-
-    identity = mkOption {
-      type = types.nullOr (
-        types.enum [
-          "web"
-          "plc"
-        ]
-      );
-      default = null;
-      description = ''
-        The DID method. Derived from the mode when unset: plc under path_multi,
-        web under conformant_single.
+        single serves one account as the server itself. multi gives every
+        account its own handle and DID.
       '';
     };
 
@@ -169,7 +154,7 @@ in
     handle = mkOption {
       type = types.nullOr types.str;
       default = null;
-      description = "The handle the server publishes under conformant_single. Defaults to the hostname.";
+      description = "The handle the server publishes under single. Defaults to the hostname.";
     };
 
     registration = mkOption {
@@ -215,7 +200,7 @@ in
       type = types.nullOr types.str;
       default = null;
       example = "https://plc.directory";
-      description = "PLC directory, read only when identity = plc.";
+      description = "PLC directory used when an account is minted as did:plc.";
     };
 
     blobUploadLimit = mkOption {
@@ -233,7 +218,7 @@ in
     adminDids = mkOption {
       type = types.listOf types.str;
       default = [ ];
-      description = "Extra DIDs allowed to call createInviteCodes under path_multi.";
+      description = "Extra DIDs allowed to call createInviteCodes under multi.";
     };
 
     privacyPolicyUrl = mkOption {

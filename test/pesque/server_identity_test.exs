@@ -1,15 +1,14 @@
 defmodule Pesque.ServerIdentityTest do
   @moduledoc """
-  The server's own identity under `mode = conformant_single, identity = plc`.
+  The server's own identity, and how a single account's DID method is chosen.
 
-  The single account is the server, so its DID is the server's own: a did:plc
-  minted once through the PLC directory and persisted to a file, because the
-  Repo is not running yet when `Identity.load!/0` runs.
+  The server's own DID is always `did:web:<hostname>`: derived, never minted,
+  never persisted to a file, and always served. `Identity.load!/0` loads the
+  host signing key and touches neither the network nor the database.
 
-  The application boots with the test config (conformant_single + web), so
-  these tests drive `Identity.load!/0` in-process with the environment swapped
-  to plc, and restore the environment, the persistent terms it writes, and the
-  identity file on exit so later tests are unaffected.
+  A single account's DID method is chosen at creation time (`--identity
+  web|plc`), not by a server-wide config knob. A web account shares the host
+  DID; a plc account is minted through the directory at creation.
   """
 
   use ExUnit.Case, async: false
@@ -18,94 +17,117 @@ defmodule Pesque.ServerIdentityTest do
 
   alias Pesque.Accounts
   alias Pesque.Identity
-  alias Pesque.Storage
 
   @password "hunter2hunter2"
 
-  @persistent_keys [
-    {Pesque.Identity, :pub_multibase},
-    {Pesque.Identity, :server_did},
-    {Pesque.Identity, :server_operation}
-  ]
-
   setup do
     Pesque.DataCase.setup()
-    remove_identity_file()
     restore_env()
-    restore_persistent_terms()
     :ok
   end
 
-  test "the first boot mints a did:plc and persists it" do
-    configure_plc()
+  test "the host did is always did:web of the hostname, in both modes" do
+    expected = Identity.did()
+    assert String.starts_with?(expected, "did:web:")
 
+    for mode <- [:single, :multi] do
+      Application.put_env(:pesque, :mode, mode)
+      assert Identity.did() == expected
+    end
+  end
+
+  test "load!/0 loads the host key and touches no network and no file" do
     assert :ok = Identity.load!()
-    assert String.starts_with?(Identity.did(), "did:plc:")
-    assert is_binary(Identity.server_operation())
-    assert File.exists?(Storage.server_identity_path())
+    assert is_binary(Identity.public_key_multibase())
+    refute File.exists?(Path.join(Pesque.data_dir(), "server.identity.json"))
   end
 
-  test "a later boot reuses the persisted identity and does not mint again" do
-    configure_plc()
-
-    :ok = Identity.load!()
-    did = Identity.did()
-    Pesque.FakeStore.put(:plc_last_submit, nil)
-
-    :ok = Identity.load!()
-
-    assert Identity.did() == did
-    assert Pesque.FakeStore.get(:plc_last_submit) == nil
-  end
-
-  test "the single account is created with the server's did:plc and mints no second one" do
-    configure_plc()
-    :ok = Identity.load!()
+  test "a single web account shares the host did and mints nothing" do
+    Application.put_env(:pesque, :mode, :single)
+    Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
     Pesque.FakeStore.put(:plc_last_submit, nil)
 
     assert {:ok, user} =
-             Accounts.create_account(Identity.handle(), "server@localhost", @password)
+             Accounts.create_account(Identity.handle(), "server@localhost", @password,
+               identity: :web
+             )
 
     assert user.did == Identity.did()
-    assert String.starts_with?(user.did, "did:plc:")
-    assert user.plc_operation == Identity.server_operation()
+    assert String.starts_with?(user.did, "did:web:")
+    assert is_nil(user.plc_operation)
     assert Pesque.FakeStore.get(:plc_last_submit) == nil
   end
 
-  # A did:plc resolves through plc.directory, so this route must not publish a
-  # did:web-shaped document for it.
-  test "the well-known did document is a 404 under plc" do
-    Application.put_env(:pesque, :identity, :plc)
+  test "a single plc account is minted at creation, not at boot" do
+    Application.put_env(:pesque, :mode, :single)
+    Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
+    Pesque.FakeStore.put(:plc_last_submit, nil)
 
-    conn = dispatch(build_conn(), PesqueWeb.Endpoint, :get, "/.well-known/did.json", nil)
+    # Boot itself mints nothing: the host identity is did:web.
+    assert :ok = Identity.load!()
+    assert Pesque.FakeStore.get(:plc_last_submit) == nil
 
-    assert conn.status == 404
-    assert conn.resp_body == ""
-  end
+    assert {:ok, user} =
+             Accounts.create_account(Identity.handle(), "server@localhost", @password,
+               identity: :plc
+             )
 
-  # Under path_multi accounts are did:plc but the server's own DID is a
-  # host-level did:web, which resolves at this route. The account method must
-  # not turn it into a 404, or the server's own DID resolves to nothing.
-  test "under path_multi the server's own did:web document is served" do
-    Application.put_env(:pesque, :mode, :path_multi)
-    Application.put_env(:pesque, :identity, :plc)
+    assert String.starts_with?(user.did, "did:plc:")
+    assert is_binary(user.plc_operation)
+    # The DID was minted once, at creation, through the directory.
+    did = user.did
+    assert {^did, _op} = Pesque.FakeStore.get(:plc_last_submit)
+    # No server identity file is written; the account row carries the operation.
+    refute File.exists?(Path.join(Pesque.data_dir(), "server.identity.json"))
 
-    refute Identity.plc?()
-
-    conn = dispatch(build_conn(), PesqueWeb.Endpoint, :get, "/.well-known/did.json", nil)
-
+    conn = %Plug.Conn{build_conn() | host: Pesque.hostname()}
+    conn = dispatch(conn, PesqueWeb.Endpoint, :get, "/.well-known/atproto-did", nil)
     assert conn.status == 200
-    assert JSON.decode!(conn.resp_body)["id"] == Identity.did()
+    assert conn.resp_body == user.did
   end
 
-  # Under plc the doctor must follow the DID to the directory, not fetch the
-  # local route that now 404s.
-  test "the doctor checks the plc directory document under plc" do
-    configure_plc()
-    :ok = Identity.load!()
+  test "a multi account defaults to did:plc" do
+    Application.put_env(:pesque, :mode, :multi)
+    Application.put_env(:pesque, :handle_domain, "example.com")
+    Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
+
+    assert {:ok, user} =
+             Accounts.create_account("alice.example.com", "a@example.com", @password)
+
+    assert String.starts_with?(user.did, "did:plc:")
+  end
+
+  test "did:web under multi is refused" do
+    Application.put_env(:pesque, :mode, :multi)
+    Application.put_env(:pesque, :handle_domain, "example.com")
+
+    assert {:error, :web_not_supported_under_multi} =
+             Accounts.create_account("alice.example.com", "a@example.com", @password,
+               identity: :web
+             )
+  end
+
+  # The host document is served in every mode and for every account method:
+  # the server's own did:web document is the host identity, independent of any
+  # account's method.
+  test "the well-known did document is served in both modes" do
+    for mode <- [:single, :multi] do
+      Application.put_env(:pesque, :mode, mode)
+
+      conn = dispatch(build_conn(), PesqueWeb.Endpoint, :get, "/.well-known/did.json", nil)
+
+      assert conn.status == 200
+      assert JSON.decode!(conn.resp_body)["id"] == Identity.did()
+    end
+  end
+
+  test "the doctor checks the local host document, never a plc one" do
+    Application.put_env(:pesque, :mode, :single)
 
     http = fn url ->
-      if String.ends_with?(url, Identity.did()) do
+      if String.ends_with?(url, "/.well-known/did.json") do
         document = %{
           "verificationMethod" => [
             %{
@@ -128,39 +150,18 @@ defmodule Pesque.ServerIdentityTest do
         resolves: fn _handle, _did -> true end
       )
 
-    assert {:ok, "plc document", _detail} =
-             Enum.find(results, &(elem(&1, 1) == "plc document"))
-  end
+    assert {:ok, "did document", _detail} =
+             Enum.find(results, &(elem(&1, 1) == "did document"))
 
-  defp configure_plc do
-    Application.put_env(:pesque, :mode, :conformant_single)
-    Application.put_env(:pesque, :identity, :plc)
-    Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
-    Pesque.FakeStore.put(:plc_submit_result, :ok)
-  end
-
-  defp remove_identity_file do
-    File.rm(Storage.server_identity_path())
-    on_exit(fn -> File.rm(Storage.server_identity_path()) end)
+    refute Enum.any?(results, &(elem(&1, 1) == "plc document"))
   end
 
   defp restore_env do
     previous = Application.get_all_env(:pesque)
 
     on_exit(fn ->
-      Enum.each([:mode, :identity, :plc_client], &Application.delete_env(:pesque, &1))
+      Enum.each([:mode, :handle_domain, :plc_client], &Application.delete_env(:pesque, &1))
       Enum.each(previous, fn {key, value} -> Application.put_env(:pesque, key, value) end)
-    end)
-  end
-
-  defp restore_persistent_terms do
-    previous = Map.new(@persistent_keys, fn key -> {key, :persistent_term.get(key, :unset)} end)
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :unset} -> :persistent_term.erase(key)
-        {key, value} -> :persistent_term.put(key, value)
-      end)
     end)
   end
 end

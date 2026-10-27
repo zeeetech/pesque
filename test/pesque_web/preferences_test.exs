@@ -11,7 +11,7 @@ defmodule PesqueWeb.PreferencesTest do
   @put "/xrpc/app.bsky.actor.putPreferences"
 
   setup do
-    %{user: create_account("prefs")}
+    %{user: insert_account("prefs")}
   end
 
   test "get with nothing stored answers an empty array", %{user: user} do

@@ -20,7 +20,7 @@ defmodule PesqueWeb.EmailTokenTest do
   @reset "/xrpc/com.atproto.server.resetPassword"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

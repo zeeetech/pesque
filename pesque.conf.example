@@ -14,13 +14,9 @@
 # The host this server is reached at.
 hostname = pds.example.com
 
-# conformant_single serves one account as the server itself. path_multi
-# gives every account its own handle and DID.
-mode = path_multi
-
-# web mints did:web accounts from the hostname. plc mints did:plc through
-# the PLC directory, and requires mode = path_multi.
-identity = plc
+# single serves one account as the server itself. multi gives every account
+# its own handle and DID.
+mode = multi
 
 # The domain accounts get handles under.
 handle_domain = example.com
@@ -36,8 +32,8 @@ registration = closed
 # relative to the working directory.
 # data_dir = data
 
-# What conformant_single publishes as the account's handle. Defaults to
-# the hostname; path_multi ignores it.
+# What single publishes as the account's handle. Defaults to
+# the hostname; multi ignores it.
 # handle = pds.example.com
 
 # The port this process listens on.
@@ -51,7 +47,7 @@ registration = closed
 # The advertised port. Defaults to 443 under https, and to port otherwise.
 # url_port = 443
 
-# The PLC directory. Only read when identity = plc.
+# The PLC directory. Only read when an account is minted as did:plc.
 # plc_directory = https://plc.directory
 
 # The https base URL permission sets are fetched from when they are not
@@ -73,8 +69,8 @@ registration = closed
 # proxy_response_limit = 10485760
 
 # The operators, comma separated: the callers the admin endpoints answer.
-# Empty means the server identity under conformant_single, and nobody
-# under path_multi.
+# Empty means the server identity under single, and nobody
+# under multi.
 # admin_dids = did:plc:...,did:web:...
 
 # Your own privacy policy, published by describeServer. Unset means the

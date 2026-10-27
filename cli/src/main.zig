@@ -35,7 +35,7 @@ const usage_text =
     \\  version                    print the CLI and release versions
     \\
     \\Accounts and domain tasks (run inside the release):
-    \\  account create --handle H --email E
+    \\  account create --handle H --email E [--identity web|plc]
     \\  account list [--status active|deactivated] [--grep PATTERN]
     \\  account show --did D | --handle H
     \\  account delete --did D | --handle H [--dry-run]
@@ -378,6 +378,7 @@ fn account(host: *proc.Host, args: []const []const u8) Error!u8 {
 const AccountCreate = struct {
     handle: ?[]const u8 = null,
     email: ?[]const u8 = null,
+    identity: ?[]const u8 = null,
     public_ip: ?[]const u8 = null,
 };
 
@@ -389,8 +390,15 @@ fn parseAccountCreate(host: *proc.Host, args: []const []const u8) Error!AccountC
             f.handle = try valueFlag(host, args, &i, "--handle");
         } else if (std.mem.eql(u8, args[i], "--email")) {
             f.email = try valueFlag(host, args, &i, "--email");
+        } else if (std.mem.eql(u8, args[i], "--identity")) {
+            f.identity = try valueFlag(host, args, &i, "--identity");
         } else {
             return failUsage(host, "unknown option '{s}' for 'account create'", .{args[i]});
+        }
+    }
+    if (f.identity) |identity| {
+        if (!std.mem.eql(u8, identity, "web") and !std.mem.eql(u8, identity, "plc")) {
+            return failUsage(host, "--identity must be web or plc, got '{s}'", .{identity});
         }
     }
     if (f.handle == null and host.get("ACCOUNT_HANDLE") == null) {
@@ -415,6 +423,7 @@ fn runAccountCreate(host: *proc.Host, f: AccountCreate) Error!u8 {
     try argv.appendSlice(host.gpa, &.{"create"});
     if (f.handle) |h| try argv.appendSlice(host.gpa, &.{ "--handle", h });
     if (f.email) |e| try argv.appendSlice(host.gpa, &.{ "--email", e });
+    if (f.identity) |identity| try argv.appendSlice(host.gpa, &.{ "--identity", identity });
     // The password is the release's to read: it prompts, or takes stdin.
     return d.runOnce(host, .{ .verb = "account", .argv = argv.items, .env = env.items, .interactive = true });
 }

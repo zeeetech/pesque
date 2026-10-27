@@ -56,7 +56,7 @@ defmodule PesqueWeb.ProxyTest do
       Application.delete_env(:pesque, :entryway_fetch)
     end)
 
-    %{user: create_account("proxy")}
+    %{user: insert_account("proxy")}
   end
 
   test "an authenticated call with no proxy header is 501", %{user: user} do

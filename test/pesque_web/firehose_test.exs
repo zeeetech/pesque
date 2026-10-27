@@ -105,7 +105,7 @@ defmodule PesqueWeb.FirehoseTest do
   # that window is dispatched to this socket as well as written to the log. It
   # has to go out once, not twice, and not never.
   test "a frame the replay already carried is not pushed a second time" do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
     cursor = RepoStore.max_seq()
     Events.emit_identity(alice.did, alice.handle)
 

@@ -9,7 +9,7 @@ defmodule PesqueWeb.RecordVersionTest do
   use PesqueWeb.ConnCase, async: false
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -54,7 +54,7 @@ defmodule PesqueWeb.RecordVersionTest do
   end
 
   test "a cid stored under another account is not served out of this one", ctx do
-    bob = create_account("bob")
+    bob = insert_repo_account("bob")
     bobs = write(bob, token(bob), "bob's post")
 
     write(ctx.alice, ctx.token, "mine")

@@ -27,7 +27,7 @@ defmodule Pesque.Migrate.JobsTest do
   setup do
     Pesque.DataCase.setup()
     restore_env()
-    Application.put_env(:pesque, :mode, :path_multi)
+    Application.put_env(:pesque, :mode, :multi)
     Application.put_env(:pesque, :identity, :plc)
     Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
     Pesque.FakeStore.put(:plc_submit_result, :ok)

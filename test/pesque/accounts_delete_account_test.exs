@@ -18,9 +18,9 @@ defmodule Pesque.Accounts.DeleteAccountTest do
 
   setup do
     Pesque.DataCase.setup()
-    # path_multi so the account gets a handle: under conformant_single the
+    # multi so the account gets a handle: under single the
     # seeded server row has no handle and every account compares as taken.
-    put_mode(:path_multi)
+    put_mode(:multi)
 
     handle = "delete" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"
     {:ok, user} = Accounts.create_account(handle, "alice@localhost", @password)

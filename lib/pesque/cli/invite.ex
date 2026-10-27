@@ -36,8 +36,8 @@ defmodule Pesque.Cli.Invite do
 
   def run(_argv), do: {:usage, @usage}
 
-  # /signup exists only under path_multi (the SignupController is gated on the
-  # mode), so the ready link is printed only there. Under conformant_single the
+  # /signup exists only under multi (the SignupController is gated on the
+  # mode), so the ready link is printed only there. Under single the
   # codes print bare, with the one line that says how accounts get made instead.
   defp print_groups(groups, uses) do
     for %{account: account, codes: codes} <- groups do
@@ -49,10 +49,10 @@ defmodule Pesque.Cli.Invite do
       Enum.each(codes, &IO.puts(code_line(&1)))
     end
 
-    unless Pesque.mode() == :path_multi do
+    unless Pesque.mode() == :multi do
       IO.puts(
         gettext(
-          "under conformant_single there is no signup page; accounts are made with pesque account create"
+          "under single there is no signup page; accounts are made with pesque account create"
         )
       )
     end
@@ -61,7 +61,7 @@ defmodule Pesque.Cli.Invite do
   end
 
   defp code_line(code) do
-    if Pesque.mode() == :path_multi do
+    if Pesque.mode() == :multi do
       "  #{Pesque.base_url()}/signup?code=#{code}"
     else
       "  #{code}"

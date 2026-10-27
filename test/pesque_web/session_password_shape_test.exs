@@ -23,7 +23,7 @@ defmodule PesqueWeb.SessionPasswordShapeTest do
   @not_strings [[], %{"a" => 1}, 123, 1.5, true, nil]
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

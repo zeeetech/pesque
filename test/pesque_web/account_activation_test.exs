@@ -15,7 +15,7 @@ defmodule PesqueWeb.AccountActivationTest do
   @activate_path "/xrpc/com.atproto.server.activateAccount"
 
   setup do
-    alice = create_account("alice")
+    alice = create_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end

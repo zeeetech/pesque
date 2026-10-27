@@ -72,22 +72,26 @@ test "dispatch: domain verbs forward to bin/pesque with the verb tail" {
     try testutil.Ctx.expectTail(try ctx.lastInvocation(), &.{ image, "/app/bin/pesque", "crawl", "request" });
 }
 
-test "dispatch: account create forwards the flags and injects no password" {
+test "dispatch: account create forwards flags and identity without a password" {
     var ctx = try testutil.Ctx.init();
     defer ctx.deinit();
 
     // The password is the release's to read (prompt or stdin): the CLI
     // forwards only the flags and never a password env var.
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{
-        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c",
+        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--identity", "plc",
     }));
     const inv = try ctx.lastInvocation();
-    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "account", "create", "--handle", "alice.example.com", "--email", "a@b.c" });
+    try testutil.Ctx.expectTail(inv, &.{ image, "/app/bin/pesque", "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--identity", "plc" });
     try testutil.Ctx.expectNoArg(inv, "ACCOUNT_PASSWORD");
 
     // The old flag is gone: naming it is usage, not a silent no-op.
     try testing.expectError(error.Usage, main.run(ctx.host, &.{
         "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--password-env", "MY_PW",
+    }));
+
+    try testing.expectError(error.Usage, main.run(ctx.host, &.{
+        "account", "create", "--handle", "alice.example.com", "--email", "a@b.c", "--identity", "did:web",
     }));
 
     // Missing --handle and no ACCOUNT_HANDLE: usage refusal.

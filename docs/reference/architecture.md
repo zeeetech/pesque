@@ -255,12 +255,12 @@ consumer to re-fetch the repo. `#identity` and `#account` are the other frames.
 
 ### Account creation
 
-`Pesque.Accounts.create_account/4`: derive the DID and handle with
-`identity_for/1` (through `Pesque.Plc` under `PDS_IDENTITY=plc`); check the
-password, email, and availability before anything is written; `claim_key/1`
-creates the signing key file with `O_EXCL`, so two concurrent calls produce one
-account and one `:eexist`; one transaction consumes the invite code and inserts
-the user row; any failure removes the key files. Then
+`Pesque.Accounts.create_account/4`: derive the handle and select the DID method
+with `identity_for/2`; `did:web` uses the host DID in single mode, while
+`did:plc` is minted through `Pesque.Plc` at account creation. It checks the
+password, email, and handle availability before minting; a transaction consumes
+the invite code and inserts the user row; any failed insert removes the key
+files. Then
 `Pesque.Events.emit_account/2` writes an `#account` frame and pushes it.
 
 ## The primitives

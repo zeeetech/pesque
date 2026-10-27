@@ -25,7 +25,7 @@ defmodule Pesque.Accounts.RefreshTokenSubjectTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
 
     alice = insert_account("alice")
     bob = insert_account("bob")

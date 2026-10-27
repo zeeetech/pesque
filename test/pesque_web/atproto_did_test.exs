@@ -11,7 +11,7 @@ defmodule PesqueWeb.AtprotoDidTest do
   use PesqueWeb.ConnCase, async: false
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice}
   end
@@ -35,7 +35,7 @@ defmodule PesqueWeb.AtprotoDidTest do
   end
 
   test "each hosted handle answers with its own did", ctx do
-    bob = create_account("bob")
+    bob = insert_account("bob")
 
     refute ctx.alice.did == bob.did
     assert atproto_did(ctx.alice.handle).resp_body == ctx.alice.did
@@ -51,8 +51,8 @@ defmodule PesqueWeb.AtprotoDidTest do
     assert atproto_did("nobody.localhost").status == 404
   end
 
-  test "the bare handle domain answers for the single account under conformant_single" do
-    put_mode(:conformant_single)
+  test "the bare handle domain answers for the single account under single" do
+    put_mode(:single)
 
     conn = atproto_did(Pesque.handle_domain())
 
@@ -60,10 +60,10 @@ defmodule PesqueWeb.AtprotoDidTest do
     assert conn.resp_body == Pesque.Identity.did()
   end
 
-  # Under path_multi the handle domain is the prefix accounts are minted under,
+  # Under multi the handle domain is the prefix accounts are minted under,
   # not a name the server holds: the server's own handle is its hostname, which
   # leaves the apex of the handle domain for an account.
-  test "under path_multi the server's name is its hostname, not the handle domain" do
+  test "under multi the server's name is its hostname, not the handle domain" do
     put_env(:handle_domain, "zeetech.io")
 
     assert Pesque.handle_domain() == "zeetech.io"
@@ -93,7 +93,7 @@ defmodule PesqueWeb.AtprotoDidTest do
   # move it. Answering with a re-derived DID here would resolve the handle to
   # an account that has no row, so the stored one is what has to come back.
   test "a handle that moves answers with the did it was created with" do
-    account = create_account("mover")
+    account = create_repo_account("mover")
     original = account.handle
     fresh = unique("fresh") <> ".localhost"
 

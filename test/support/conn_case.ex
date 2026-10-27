@@ -3,9 +3,17 @@ defmodule PesqueWeb.ConnCase do
   Isolation for tests that go through the endpoint.
 
   `Pesque.DataCase` owns the database, the key files, the blobs and the live
-  RepoServers. What is left is everything a request needs before a controller
-  ever sees it: an account to write as, a token to write with, and the two
-  request shapes the XRPC endpoints answer.
+  RepoServers. Account fixtures are deliberately split by what a test needs:
+  `create_account/1` exercises the real creation path without starting a repo,
+  `insert_account/2` inserts background state without PLC or Argon2, and
+  `start_repo/1` adds a signing key and genesis commit. `create_repo_account/1`
+  composes real creation with a running repo; `insert_repo_account/1` composes
+  a persisted row with a running repo.
+
+  Use the lightest fixture that proves the behavior. The direct fixture's
+  password hash and public key are test-only constants; request-flow tests that
+  exercise creation, password hashing, PLC, or key placement must use the real
+  creation path instead.
 
   The helpers stop at `dispatch/4` and hand back the conn, so a test that needs
   a header these do not set puts it in its own pipe.
@@ -22,6 +30,10 @@ defmodule PesqueWeb.ConnCase do
   import Plug.Conn
 
   alias Pesque.Accounts
+  alias Pesque.Accounts.User
+  alias Pesque.Base32
+  alias Pesque.Keys
+  alias Pesque.Repo
   alias Pesque.RepoServer
   alias PesqueWeb.Endpoint
 
@@ -39,20 +51,61 @@ defmodule PesqueWeb.ConnCase do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
     :ok
   end
 
   @password "hunter2hunter2"
+  @password_hash "$argon2id$v=19$m=256,t=1,p=4$ZXUef5WOzZuMy8jxlKMpfg$11wxlt7DLrzD/6DIIqrNycHiZtRyY/Dzg5BlYDCeFY8"
+  @fixture_pubkey "zQ3shYkUJ2lPvBNGaJmZJXGPFYqQCnEBWcVGY7DKZqFmVKZ"
   @collection "app.bsky.feed.post"
   @request_id "0123456789abcdef0123456789abcdef"
 
-  @doc "An account, its repo running, and its handle."
+  @doc "Creates an account through Accounts.create_account/4 without starting its repo."
   def create_account(name) do
     username = unique(name)
 
     {:ok, user} =
       Accounts.create_account(username <> ".localhost", username <> "@localhost", @password)
+
+    user
+  end
+
+  @doc "Creates and persists an account row directly, without PLC or password hashing."
+  def insert_account(name, opts \\ []) do
+    username = unique(name)
+    did = "did:plc:" <> String.downcase(Base32.encode(:crypto.strong_rand_bytes(15)))
+
+    key =
+      if Keyword.get(opts, :key, false) do
+        {:ok, key} = Keys.create_exclusive(did)
+        key
+      end
+
+    Repo.insert!(
+      User.changeset(%{
+        did: did,
+        handle: username <> ".localhost",
+        username: username,
+        email: username <> "@localhost",
+        password_hash: @password_hash,
+        pubkey_multibase: if(key, do: key.pub_multibase, else: @fixture_pubkey)
+      })
+    )
+  end
+
+  @doc "Starts a repo for an account, ensuring it has a signing key first."
+  def start_repo(user) do
+    {:ok, key} = Keys.ensure(user.did)
+
+    user =
+      if user.pubkey_multibase == key.pub_multibase do
+        user
+      else
+        user
+        |> Ecto.Changeset.change(pubkey_multibase: key.pub_multibase)
+        |> Repo.update!()
+      end
 
     # A call round trip, not the pid, guarantees the genesis commit in
     # handle_continue/2 has already run.
@@ -61,6 +114,12 @@ defmodule PesqueWeb.ConnCase do
 
     user
   end
+
+  @doc "Creates an account through the domain, then starts its repo."
+  def create_repo_account(name), do: name |> create_account() |> start_repo()
+
+  @doc "Inserts a persisted account fixture with a key and starts its repo."
+  def insert_repo_account(name), do: name |> insert_account(key: true) |> start_repo()
 
   @doc "An access token for an account."
   def token(user) do

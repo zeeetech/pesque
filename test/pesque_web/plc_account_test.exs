@@ -1,6 +1,6 @@
 defmodule PesqueWeb.PlcAccountTest do
   @moduledoc """
-  Accounts minted under PDS_IDENTITY=plc, driven through the same ConnCase
+  Accounts minted as did:plc at creation, driven through the same ConnCase
   helpers as every other account. The directory is Pesque.Plc.TestClient, so
   nothing here reaches plc.directory.
   """
@@ -11,7 +11,6 @@ defmodule PesqueWeb.PlcAccountTest do
 
   alias Pesque.Accounts
   alias Pesque.Keys
-  alias Pesque.Plc
   alias Pesque.Plc.Keys, as: PlcKeys
   alias Pesque.Plc.Operation
   alias Pesque.Storage
@@ -19,7 +18,6 @@ defmodule PesqueWeb.PlcAccountTest do
   @password "hunter2hunter2"
 
   setup do
-    put_identity(:plc)
     put_client(Pesque.Plc.TestClient)
     :ok
   end
@@ -109,7 +107,7 @@ defmodule PesqueWeb.PlcAccountTest do
   end
 
   test "checkAccountStatus and getRepoStatus answer for a did:plc account" do
-    user = create_account("alice")
+    user = create_repo_account("alice")
 
     status =
       xrpc_get("/xrpc/com.atproto.server.checkAccountStatus?did=#{enc(user.did)}")
@@ -126,12 +124,13 @@ defmodule PesqueWeb.PlcAccountTest do
     assert repo["active"]
   end
 
-  test "web identity is unchanged: did:web and no plc operation" do
-    put_identity(:web)
+  test "a did:web account is unchanged: did:web and no plc operation" do
+    put_env(:mode, :single)
 
-    refute Plc.enabled?()
-
-    user = create_account("webuser")
+    {:ok, user} =
+      Accounts.create_account(Pesque.Identity.handle(), "web@localhost", @password,
+        identity: :web
+      )
 
     assert String.starts_with?(user.did, "did:web:")
     assert user.plc_operation == nil
@@ -161,12 +160,16 @@ defmodule PesqueWeb.PlcAccountTest do
     JSON.decode!(conn.resp_body)
   end
 
-  defp put_identity(identity) do
-    previous = Application.get_env(:pesque, :identity)
+  defp put_env(key, value) do
+    previous = Application.get_env(:pesque, key)
 
-    on_exit(fn -> Application.put_env(:pesque, :identity, previous) end)
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:pesque, key, previous),
+        else: Application.delete_env(:pesque, key)
+    end)
 
-    Application.put_env(:pesque, :identity, identity)
+    Application.put_env(:pesque, key, value)
     :ok
   end
 

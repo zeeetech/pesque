@@ -7,8 +7,8 @@ defmodule PesqueWeb.SyncStatusTest do
   use PesqueWeb.ConnCase, async: false
 
   setup do
-    alice = create_account("alice")
-    bob = create_account("bob")
+    alice = insert_repo_account("alice")
+    bob = insert_repo_account("bob")
 
     %{alice: alice, bob: bob, token: token(alice)}
   end

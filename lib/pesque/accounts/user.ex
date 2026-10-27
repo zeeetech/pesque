@@ -2,7 +2,7 @@ defmodule Pesque.Accounts.User do
   @moduledoc """
   A local account: DID, handle, and the key it signs commits with.
 
-  username and pubkey_multibase are NULL under conformant_single, which has
+  username and pubkey_multibase are NULL under single, which has
   no path to resolve and whose single account signs with the server key.
   """
 

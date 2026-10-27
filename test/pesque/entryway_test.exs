@@ -52,7 +52,7 @@ defmodule Pesque.EntrywayTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
 
     :persistent_term.put(:entryway_test_pid, self())
     :persistent_term.put(:entryway_test_document, {:ok, document(@target)})

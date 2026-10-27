@@ -24,7 +24,6 @@ defmodule PesqueWeb.PageHTML do
       [
         {gettext("hostname"), assigns.hostname},
         {gettext("accounts"), accounts(assigns.mode)},
-        {gettext("identity"), identity(assigns.identity)},
         {gettext("handles"), assigns.handle_domain},
         {gettext("registration"), registration(assigns.registration)},
         {gettext("version"), "pesque v" <> assigns.version}
@@ -109,7 +108,7 @@ defmodule PesqueWeb.PageHTML do
   # A server with many accounts takes accounts that live elsewhere, so the
   # landing offers the way over. A server that is its single account has no
   # move page, and the link would be a dead end.
-  defp migrate_link(:path_multi),
+  defp migrate_link(:multi),
     do: ~s(<a class="btn primary" href="/migrate">#{gettext("move my account")}</a>)
 
   defp migrate_link(_mode), do: ""
@@ -117,7 +116,7 @@ defmodule PesqueWeb.PageHTML do
   # A server with many accounts takes them by invite, so the landing offers the
   # way in. A server that is its single account has no signup page, and the
   # link would be a dead end.
-  defp signup_link(:path_multi),
+  defp signup_link(:multi),
     do: ~s(<a class="btn" href="/signup">#{gettext("create account")}</a>)
 
   defp signup_link(_mode), do: ""
@@ -128,11 +127,8 @@ defmodule PesqueWeb.PageHTML do
     [{gettext("handle"), handle}, {gettext("did"), did}]
   end
 
-  defp accounts(:conformant_single), do: gettext("single account")
-  defp accounts(:path_multi), do: gettext("community server")
-
-  defp identity(:web), do: "did:web"
-  defp identity(:plc), do: "did:plc"
+  defp accounts(:single), do: gettext("single account")
+  defp accounts(:multi), do: gettext("community server")
 
   defp registration(:open), do: gettext("open")
   defp registration(:closed), do: gettext("invite only")

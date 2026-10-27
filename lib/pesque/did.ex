@@ -34,19 +34,23 @@ defmodule Pesque.Did do
     end
   end
 
-  @doc "The DID for a username, or for the server itself when the username is nil."
-  def did_for_username(:conformant_single, host, _username), do: "did:web:" <> host
-  def did_for_username(:path_multi, host, nil), do: "did:web:" <> host
+  @doc """
+  The DID for the server itself, or for a single-mode account (username nil).
 
-  def did_for_username(:path_multi, host, username) do
-    "did:web:" <> host <> ":user:" <> normalize_username!(username)
-  end
+  Under single the one account's DID is the server's own host DID. Under multi
+  the server's own DID is also the host form; a multi *account* has no derived
+  DID here because multi accounts are always did:plc, minted by the directory
+  (see `Pesque.Plc.mint/1`), never derived from the hostname. The old path-based
+  `did:web:<host>:user:<name>` form is not a valid ATProto DID and is not built.
+  """
+  def did_for_username(:single, host, _username), do: "did:web:" <> host
+  def did_for_username(:multi, host, nil), do: "did:web:" <> host
 
   @doc "The handle for a username, or the bare handle domain when the username is nil."
-  def handle_for_username(:conformant_single, handle_domain, _username), do: handle_domain
-  def handle_for_username(:path_multi, handle_domain, nil), do: handle_domain
+  def handle_for_username(:single, handle_domain, _username), do: handle_domain
+  def handle_for_username(:multi, handle_domain, nil), do: handle_domain
 
-  def handle_for_username(:path_multi, handle_domain, username) do
+  def handle_for_username(:multi, handle_domain, username) do
     normalize_username!(username) <> "." <> handle_domain
   end
 
@@ -107,7 +111,7 @@ defmodule Pesque.Did do
   `identity` carries the username (nil for the server itself), the hostname,
   the port, the handle domain, and the multibase public key. An optional
   `:handle` names the handle outright, which the server's own document uses:
-  under path_multi it is the hostname rather than anything derived from the
+  under multi it is the hostname rather than anything derived from the
   handle domain, so the apex there stays free for an account.
   """
   def did_document(

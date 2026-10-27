@@ -17,7 +17,7 @@ defmodule PesqueWeb.ServiceAuthTest do
   @lxm "com.atproto.sync.subscribeRepos"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice", key: true)
 
     %{alice: alice, token: token(alice)}
   end
@@ -128,7 +128,7 @@ defmodule PesqueWeb.ServiceAuthTest do
   end
 
   test "another account's token mints a token for that account", ctx do
-    bob = create_account("bob")
+    bob = insert_account("bob", key: true)
 
     claims = claims(service_auth(ctx, token(bob)))
 

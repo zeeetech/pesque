@@ -20,7 +20,7 @@ defmodule Pesque.Accounts.Argon2Test do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
   end
 
   # A timing assertion is the obvious test and the wrong one: it is a

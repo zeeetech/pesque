@@ -15,7 +15,7 @@ defmodule Pesque.RepoStore.ListUsersTest do
 
   setup do
     Pesque.DataCase.setup()
-    put_mode(:path_multi)
+    put_mode(:multi)
 
     handle = "list" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"
     {:ok, user} = Accounts.create_account(handle, "alice@localhost", @password)

@@ -16,7 +16,7 @@ defmodule PesqueWeb.HandleAvailabilityTest do
   end
 
   test "a taken handle is unavailable and suggests free ones" do
-    alice = create_account("alice")
+    alice = insert_account("alice")
     body = read(alice.handle)
 
     assert body["result"]["$type"] ==
@@ -26,7 +26,7 @@ defmodule PesqueWeb.HandleAvailabilityTest do
   end
 
   test "the email's local part is used to build a suggestion" do
-    alice = create_account("alice")
+    alice = insert_account("alice")
     body = read(alice.handle, "&email=coolname@example.com")
 
     suggestions = body["result"]["suggestions"]

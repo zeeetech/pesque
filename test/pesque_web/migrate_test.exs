@@ -75,7 +75,7 @@ defmodule PesqueWeb.MigrateTest do
   end
 
   test "the path is not served where the server is its single account" do
-    put_mode(:conformant_single)
+    put_mode(:single)
 
     assert get_page("/migrate").status == 404
     assert post_form(%{"old_pds" => "https://old.example.com"}).status == 404

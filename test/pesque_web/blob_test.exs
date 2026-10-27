@@ -9,13 +9,11 @@ defmodule PesqueWeb.BlobTest do
 
   alias Pesque.Blob
   alias Pesque.CID
-  alias Pesque.Did
-
   @upload "/xrpc/com.atproto.repo.uploadBlob"
   @download "/xrpc/com.atproto.sync.getBlob"
 
   setup do
-    alice = create_account("alice")
+    alice = insert_repo_account("alice")
 
     %{alice: alice, token: token(alice)}
   end
@@ -201,7 +199,7 @@ defmodule PesqueWeb.BlobTest do
   end
 
   test "uploadBlob stores under the authenticated did and nothing else", ctx do
-    bob = create_account("bob")
+    bob = insert_repo_account("bob")
 
     cid = ctx.token |> upload("hello", "image/jpeg") |> blob() |> get_in(["ref", "$link"])
 
@@ -283,5 +281,6 @@ defmodule PesqueWeb.BlobTest do
 
   defp request(path), do: xrpc_get(path)
 
-  defp ghost_did, do: Did.did_for_username(:path_multi, Pesque.hostname(), unique("ghost"))
+  defp ghost_did,
+    do: "did:plc:" <> String.downcase(Pesque.Base32.encode(:crypto.strong_rand_bytes(15)))
 end

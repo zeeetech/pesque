@@ -116,8 +116,7 @@ no container runtime:
 services.pesque = {
   enable = true;
   hostname = "pds.example.com";
-  mode = "path_multi";
-  identity = "plc";
+  mode = "multi";
   handleDomain = "example.com";
   crawler = [ "https://bsky.network" ];
 };
@@ -195,7 +194,7 @@ Required for federation, and required for the rate limits to mean anything
 proxy and no certificates: everything in this section is something the
 operator runs in front of the server.
 
-The name coverage is the interesting part under `mode = path_multi`, where
+The name coverage is the interesting part under `mode = multi`, where
 handles look like `alice.<hostname>`: the proxy has to answer for names that
 do not exist at deploy time. Caddy with on-demand TLS, the example below,
 mints a per-name certificate the first time a client handshakes for that
@@ -238,7 +237,7 @@ nginx needs the same proxy, plus `proxy_http_version 1.1`, the `Upgrade` and
 because the firehose stays open indefinitely. `Connection` needs a
 `map $http_upgrade $connection_upgrade { default upgrade; '' close; }` at the
 `http` level. nginx has no on-demand issuance of its own, so for
-`path_multi` handles point a wildcard DNS record at it and terminate TLS for
+`multi` handles point a wildcard DNS record at it and terminate TLS for
 the wildcard name with a certificate covering `*.<hostname>`.
 
 ## Configuration
@@ -264,22 +263,21 @@ the environment and the defaults.
 | --- | --- | --- | --- |
 | `PDS_DATA_DIR` | `data_dir` | `data` | Directory holding the entire server state |
 | `PDS_HOSTNAME` | `hostname` | `localhost` | Public hostname. Drives the DID, the DID document and every advertised URL |
-| `PDS_MODE` | `mode` | `conformant_single` | `conformant_single` or `path_multi`. See [Identity](identity.md) |
-| `PDS_IDENTITY` | `identity` | derived from mode | `web` or `plc`. `plc` under `path_multi`, `web` under `conformant_single` |
+| `PDS_MODE` | `mode` | `single` | `single` or `multi`. See [Identity](identity.md) |
 | `PDS_HANDLE_DOMAIN` | `handle_domain` | hostname | The domain accounts get handles under |
-| `PDS_HANDLE` | `handle` | hostname | The handle the server publishes under `conformant_single` |
+| `PDS_HANDLE` | `handle` | hostname | The handle the server publishes under `single` |
 | `PDS_PORT` | `port` | `4000` | Port the process binds |
 | `PDS_URL_SCHEME` | `url_scheme` | `https` | What the server tells the world to fetch |
 | `PDS_URL_PORT` | `url_port` | `443` (`port` for http) | The advertised port |
 | `PDS_REGISTRATION` | `registration` | `closed` | `open`, or invite codes |
-| `PDS_PLC_DIRECTORY` | `plc_directory` | `https://plc.directory` | PLC directory, read only when `identity = plc` |
+| `PDS_PLC_DIRECTORY` | `plc_directory` | `https://plc.directory` | PLC directory used when an account is minted as `did:plc` |
 | `PDS_LEXICON_AGGREGATOR` | `lexicon_aggregator` | empty | https base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored. Unset resolves only the vendored sets |
 | `PDS_CRAWLER` | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
 | `PDS_BLOB_UPLOAD_LIMIT` | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `PDS_REPO_IMPORT_LIMIT` | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
 | `PDS_PROXY_TIMEOUT` | `proxy_timeout` | `15000` | How long a proxied call may take before it is answered 504, in milliseconds |
 | `PDS_PROXY_RESPONSE_LIMIT` | `proxy_response_limit` | `10485760` (10 MiB) | Largest body a proxied call may return |
-| `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `path_multi` |
+| `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `multi` |
 | `PDS_PRIVACY_POLICY_URL` | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
 | `PDS_TERMS_OF_SERVICE_URL` | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
 
@@ -304,7 +302,7 @@ The password is read from a no-echo prompt, or from stdin so it can be piped
 an environment variable. Later accounts need an invite code,
 minted through `com.atproto.server.createInviteCodes` and spent once, in the same
 transaction that inserts the account. `PDS_REGISTRATION=open` drops the
-requirement. On a `path_multi` server, minting codes also needs `PDS_ADMIN_DIDS`
+requirement. On a `multi` server, minting codes also needs `PDS_ADMIN_DIDS`
 (see [Operations](operations.md#security-notes)).
 
 ## Verify

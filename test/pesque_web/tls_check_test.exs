@@ -15,7 +15,7 @@ defmodule PesqueWeb.TlsCheckTest do
   @endpoint Endpoint
 
   setup do
-    alice = create_account("alice")
+    alice = insert_account("alice")
 
     %{alice: alice}
   end

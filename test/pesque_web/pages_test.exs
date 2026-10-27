@@ -10,7 +10,7 @@ defmodule PesqueWeb.PagesTest do
   use PesqueWeb.ConnCase, async: false
 
   setup do
-    %{alice: create_account("alice")}
+    %{alice: insert_account("alice")}
   end
 
   defp request(path, host) do
@@ -124,7 +124,7 @@ defmodule PesqueWeb.PagesTest do
   end
 
   test "the landing offers no signup and no move where the server is its single account" do
-    put_mode(:conformant_single)
+    put_mode(:single)
 
     conn = request("/", Pesque.hostname())
 

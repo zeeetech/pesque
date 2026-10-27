@@ -22,7 +22,8 @@ defmodule PesqueWeb.Plugs.AdminTest do
   alias PesqueWeb.Plugs.Admin
 
   setup do
-    put_mode(:conformant_single)
+    Pesque.DataCase.setup()
+    put_mode(:single)
   end
 
   test "the server's own account passes" do
@@ -30,6 +31,25 @@ defmodule PesqueWeb.Plugs.AdminTest do
 
     refute conn.halted
     assert conn.status == nil
+  end
+
+  test "single mode with a PLC account admits the account DID, not the host DID" do
+    Application.put_env(:pesque, :plc_client, Pesque.Plc.TestClient)
+    Pesque.FakeStore.put(:plc_submit_result, :ok)
+
+    assert {:ok, account} =
+             Pesque.Accounts.create_account(
+               Identity.handle(),
+               "server@localhost",
+               "hunter2hunter2",
+               identity: :plc
+             )
+
+    refute conn_for(account.did).halted
+
+    host_conn = conn_for(Identity.did())
+    assert host_conn.halted
+    assert host_conn.status == 403
   end
 
   test "any other account is refused with a 403" do

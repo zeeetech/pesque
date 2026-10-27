@@ -24,7 +24,7 @@ defmodule PesqueWeb.OAuthResourceTest do
   @create_path "/xrpc/com.atproto.repo.createRecord"
 
   setup do
-    user = create_account("alice")
+    user = insert_account("alice")
 
     # Several tests here use createInviteCodes as the vehicle for an :account
     # route, because it is the one that transition:generic deliberately does
@@ -59,6 +59,7 @@ defmodule PesqueWeb.OAuthResourceTest do
     end
 
     test "on a write route", ctx do
+      start_repo(ctx.user)
       conn = authorized(ctx, :post, @create_path, create_record(ctx.user, "from an oauth client"))
 
       assert conn.status == 200

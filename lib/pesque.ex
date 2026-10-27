@@ -33,13 +33,10 @@ defmodule Pesque do
   @doc "Where the repo store, keys and database live. A relative path is relative to the cwd."
   def data_dir, do: Application.get_env(:pesque, :data_dir, "data")
 
-  @doc "The DID mode: :conformant_single or :path_multi."
-  def mode, do: Application.get_env(:pesque, :mode, :conformant_single)
+  @doc "The DID mode: :single (one account, the server itself) or :multi (many accounts)."
+  def mode, do: Application.get_env(:pesque, :mode, :single)
 
-  @doc "The DID method accounts are minted with: :web (the default) or :plc."
-  def identity, do: Application.get_env(:pesque, :identity, :web)
-
-  @doc "The PLC directory base URL. Only read under PDS_IDENTITY=plc."
+  @doc "The PLC directory base URL. Only read when an account is minted as did:plc."
   def plc_directory, do: Application.get_env(:pesque, :plc_directory, "https://plc.directory")
 
   @doc "Relay base URLs to ask for a crawl at boot. Empty means ask nobody."
