@@ -102,7 +102,7 @@ jobs:
         id: zig-toolchain
         uses: actions/cache@v4
         with:
-          path: /opt/zig
+          path: ~/zig-toolchain
           key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
 
       - name: Install Zig
@@ -110,11 +110,11 @@ jobs:
         run: |
           version="${{ steps.zig-version.outputs.version }}"
           curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
-          sudo mkdir -p /opt/zig
-          sudo tar -xf /tmp/zig.tar.xz --strip-components=1 -C /opt/zig
+          mkdir -p "$HOME/zig-toolchain"
+          tar -xf /tmp/zig.tar.xz --strip-components=1 -C "$HOME/zig-toolchain"
 
       - name: Add Zig to PATH
-        run: echo "/opt/zig" >> "$GITHUB_PATH"
+        run: echo "$HOME/zig-toolchain" >> "$GITHUB_PATH"
 
       - name: Cache the build artifacts
         uses: actions/cache@v4
@@ -156,11 +156,11 @@ jobs:
         id: zig-version
         run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the Zig toolchain
+      - name: Restore the Zig toolchain
         id: zig-toolchain
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: /opt/zig
+          path: ~/zig-toolchain
           key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
 
       - name: Install Zig
@@ -168,11 +168,11 @@ jobs:
         run: |
           version="${{ steps.zig-version.outputs.version }}"
           curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
-          sudo mkdir -p /opt/zig
-          sudo tar -xf /tmp/zig.tar.xz --strip-components=1 -C /opt/zig
+          mkdir -p "$HOME/zig-toolchain"
+          tar -xf /tmp/zig.tar.xz --strip-components=1 -C "$HOME/zig-toolchain"
 
       - name: Add Zig to PATH
-        run: echo "/opt/zig" >> "$GITHUB_PATH"
+        run: echo "$HOME/zig-toolchain" >> "$GITHUB_PATH"
 
       - name: Cache the build artifacts
         uses: actions/cache@v4
