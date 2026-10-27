@@ -41,7 +41,7 @@ defmodule Pesque.MixProject do
     [
       {:phoenix, "~> 1.8"},
       {:phoenix_html, "~> 4.3"},
-      {:bandit, "~> 1.13"},
+      {:bandit, "~> 1.14"},
       {:ecto_sql, "~> 3.14"},
       {:ecto_sqlite3, "~> 0.26"},
       {:argon2_elixir, "~> 4.1"},
