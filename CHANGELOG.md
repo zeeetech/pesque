@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/zeeetech/pesque/compare/pesque-v1.14.0...pesque-v1.14.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **identity:** choose DID method per account ([#29](https://github.com/zeeetech/pesque/issues/29)) ([b181847](https://github.com/zeeetech/pesque/commit/b181847872b7bc54530f029a13f549bed68fb6e0))
+
 ## [1.14.0](https://github.com/zeeetech/pesque/compare/pesque-v1.13.3...pesque-v1.14.0) (2026-10-23)
 
 
