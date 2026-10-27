@@ -2,18 +2,52 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      elixir: ${{ steps.filter.outputs.elixir }}
+      zig: ${{ steps.filter.outputs.zig }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            elixir:
+              - 'lib/**'
+              - 'test/**'
+              - 'config/**'
+              - 'priv/**'
+              - 'mix.exs'
+              - 'mix.lock'
+              - '.formatter.exs'
+              - 'flake.nix'
+              - 'flake.lock'
+              - 'nix/**'
+              - '.github/workflows/ci.yml'
+            zig:
+              - 'cli/**'
+              - '.github/workflows/ci.yml'
+
   precommit:
     name: Elixir 1.20.4 / OTP 29.1.1
+    needs: changes
+    if: needs.changes.outputs.elixir == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +85,8 @@ jobs:
 
   zig:
     name: Zig CLI
+    needs: changes
+    if: needs.changes.outputs.zig == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -62,14 +98,33 @@ jobs:
         id: zig-version
         run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
 
+      - name: Cache the Zig toolchain
+        id: zig-toolchain
+        uses: actions/cache@v4
+        with:
+          path: /opt/zig
+          key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
+
       - name: Install Zig
+        if: steps.zig-toolchain.outputs.cache-hit != 'true'
         run: |
           version="${{ steps.zig-version.outputs.version }}"
-          cd /tmp
-          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o zig.tar.xz
-          tar -xf zig.tar.xz
-          dir="$(tar -tf zig.tar.xz | head -1 | cut -d/ -f1)"
-          echo "$PWD/$dir" >> "$GITHUB_PATH"
+          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
+          sudo mkdir -p /opt/zig
+          sudo tar -xf /tmp/zig.tar.xz --strip-components=1 -C /opt/zig
+
+      - name: Add Zig to PATH
+        run: echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Cache the build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            zig-out
+          key: zig-build-${{ runner.os }}-${{ steps.zig-version.outputs.version }}-${{ hashFiles('cli/build.zig', 'cli/build.zig.zon', 'cli/root.zig', 'cli/src/**/*.zig') }}
+          restore-keys: |
+            zig-build-${{ runner.os }}-${{ steps.zig-version.outputs.version }}-
 
       - name: Check formatting
         run: zig fmt --check .
@@ -77,16 +132,57 @@ jobs:
       - name: Run tests
         run: zig build test
 
-      # Windows keeps the docker backend only; systemd needs a Linux host.
-      - name: Cross-build the release targets
+  zig-cross:
+    name: Zig cross-build (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.zig == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows-gnu
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pinned Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Zig toolchain
+        id: zig-toolchain
+        uses: actions/cache@v4
+        with:
+          path: /opt/zig
+          key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
+
+      - name: Install Zig
+        if: steps.zig-toolchain.outputs.cache-hit != 'true'
         run: |
-          set -eu
-          for target in \
-            x86_64-linux-musl \
-            aarch64-linux-musl \
-            x86_64-macos \
-            aarch64-macos \
-            x86_64-windows-gnu
-          do
-            zig build -Dtarget="$target" -Doptimize=ReleaseSafe
-          done
+          version="${{ steps.zig-version.outputs.version }}"
+          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
+          sudo mkdir -p /opt/zig
+          sudo tar -xf /tmp/zig.tar.xz --strip-components=1 -C /opt/zig
+
+      - name: Add Zig to PATH
+        run: echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Cache the build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            zig-out
+          key: zig-build-${{ runner.os }}-${{ matrix.target }}-${{ steps.zig-version.outputs.version }}-${{ hashFiles('cli/build.zig', 'cli/build.zig.zon', 'cli/root.zig', 'cli/src/**/*.zig') }}
+          restore-keys: |
+            zig-build-${{ runner.os }}-${{ matrix.target }}-${{ steps.zig-version.outputs.version }}-
+
+      - name: Build
+        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
