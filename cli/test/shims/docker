@@ -3,6 +3,7 @@
 # line, invocation terminated by an empty line) to $PESQUE_FAKE_LOG, then
 # answers the subcommands the CLI probes.
 log="${PESQUE_FAKE_LOG:?PESQUE_FAKE_LOG must be set}"
+stopped_marker="${PESQUE_FAKE_STOP_MARKER:-${PESQUE_FAKE_LOG}.stopped}"
 {
   for a in "$@"; do printf '%s\n' "$a"; done
   printf '\n'
@@ -14,11 +15,30 @@ if [ "$1" = "inspect" ]; then
   case "$*" in
     *Config.Env*) printf 'PDS_HOSTNAME=pds.example.com\nPDS_DATA_DIR=/data\nPDS_PORT=4000\n' ;;
     *Config.Image*) printf 'ghcr.io/zeeetech/pesque:latest\n' ;;
-    *State.Health*) printf '%s\n' "${PESQUE_FAKE_HEALTH:-healthy}" ;;
+    *State.Running*)
+      if [ -f "$stopped_marker" ]; then
+        printf '%s\n' "${PESQUE_FAKE_RUNNING_AFTER_STOP:-false}"
+      else
+        printf '%s\n' "${PESQUE_FAKE_RUNNING:-true}"
+      fi
+      ;;
+    *State.Health*)
+      if [ -f "$stopped_marker" ]; then
+        printf '%s\n' "${PESQUE_FAKE_HEALTH_AFTER_STOP:-none}"
+      else
+        printf '%s\n' "${PESQUE_FAKE_HEALTH:-healthy}"
+      fi
+      ;;
     *Mounts*) printf 'volume pesque-data /var/lib/docker/volumes/pesque-data/_data /data\n' ;;
     *Id*) printf 'a1b2c3d4e5f6\n' ;;
   esac
   exit 0
+fi
+
+# The restore lifecycle tests can fail only the one-off container, without
+# making the preceding stop or following start fail too.
+if [ "$1" = "run" ] && [ -n "${PESQUE_FAKE_RUN_EXIT:-}" ]; then
+  exit "$PESQUE_FAKE_RUN_EXIT"
 fi
 
 # run / start / stop / restart / rm / pull / logs: exit-code knobs.
@@ -26,4 +46,12 @@ if [ -n "${PESQUE_FAKE_SIGNAL:-}" ]; then
   kill -s USR1 "$$"
   sleep 5
 fi
+
+if [ "$1" = "stop" ]; then
+  : >"$stopped_marker"
+fi
+if [ "$1" = "start" ]; then
+  rm -f "$stopped_marker"
+fi
+
 exit "${PESQUE_FAKE_EXIT:-0}"

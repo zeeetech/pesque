@@ -231,6 +231,27 @@ pub fn pollStatus(self: driver.Systemd, host: *proc.Host) Error!driver.Poll {
     return if (http.ok()) .healthy else .starting; // starting maps to degraded
 }
 
+/// Read systemd's unit state rather than the HTTP health check. A unit can be
+/// active while its endpoint is unhealthy, and restore must not replace data
+/// until the process is confirmed inactive.
+pub fn running(self: driver.Systemd, host: *proc.Host) Error!bool {
+    const argv = [_][]const u8{ host.progs.systemctl, "is-active", self.unit };
+    const cap = host.capture(&argv) catch |e| return e;
+    defer host.freeCapture(cap);
+
+    return if (std.mem.eql(u8, cap.line(), "active") or
+        std.mem.eql(u8, cap.line(), "activating") or
+        std.mem.eql(u8, cap.line(), "deactivating") or
+        std.mem.eql(u8, cap.line(), "reloading"))
+        true
+    else if (std.mem.eql(u8, cap.line(), "inactive") or std.mem.eql(u8, cap.line(), "failed"))
+        false
+    else {
+        host.err("could not verify whether systemd unit '{s}' is stopped; restore was not run.", .{self.unit});
+        return error.DriverFailed;
+    };
+}
+
 pub fn health(self: driver.Systemd, host: *proc.Host) Error!driver.Health {
     const poll = try pollStatus(self, host);
     return switch (poll) {

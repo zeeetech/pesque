@@ -10,11 +10,14 @@ defmodule Pesque.Release do
 
   A release `eval` boots the VM but does not start the applications, so a task
   that reads the server identity or touches the database has to ask for them
-  first. The endpoint stays down: a task runs against the data directory the
-  live server already holds, and binding the port would fail.
+  first. The endpoint stays down, and startup-only migrations, recovery,
+  retention and relay announcements are skipped: a task can run against the
+  data directory a live server already holds without applying server-startup
+  work to it.
   """
   def boot! do
     Application.put_env(:pesque, :serve, false)
+    Application.put_env(:pesque, :operator_boot, true)
 
     case Application.ensure_all_started(:pesque) do
       {:ok, _apps} -> :ok

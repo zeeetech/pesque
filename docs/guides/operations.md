@@ -24,16 +24,21 @@ refused backup.
 pesque backup --out /backups
 ```
 
-Restore is cold. The host CLI stops the service before the verb runs and
-starts it again after; running `bin/pesque restore` directly means stopping
-the service yourself, and either way the verb refuses while another process
-holds the database's write lock. The archive is extracted into a staging
-directory inside the data directory and verified against its manifest before
-anything moves, then swapped in one entry at a time: every current file moves
-to `<name>.old` before its replacement takes its name, and the old database's
-WAL sidecars move with it. A crash mid-swap leaves the previous state next to
-the new one: rename the `.old` files back, or run restore again. A completed
-swap removes them; the archive itself is the way back.
+Restore is cold. On Docker, the host CLI checks the container's process state,
+stops and verifies a running container before the verb runs, then starts it
+again only after a successful restore. If the container was already stopped, it
+stays stopped. A failed restore leaves it stopped with recovery instructions.
+With systemd, stop the unit yourself first; the CLI refuses to restore while
+that unit is active and does not start it afterward. Running `bin/pesque restore`
+directly also means stopping the service yourself. In every case the verb's
+database lock check is an additional safeguard, not process coordination. The
+archive is extracted into a staging directory inside the data directory and
+verified against its manifest before anything moves, then swapped in one entry
+at a time: every current file moves to `<name>.old` before its replacement
+takes its name, and the old database's WAL sidecars move with it. A crash
+mid-swap leaves the previous state next to the new one: rename the `.old` files
+back, or run restore again. A completed swap removes them; the archive itself
+is the way back.
 
 ```bash
 pesque restore /backups/pesque-backup-20261011T123456Z.tar.gz

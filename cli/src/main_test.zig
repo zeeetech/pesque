@@ -423,21 +423,105 @@ test "dispatch: restore --dry-run never stops or starts the service" {
 
     // A plain restore is still cold: it stops the service first and brings
     // it back up after.
+    try ctx.env.put("PESQUE_FAKE_HEALTH", "unhealthy");
     try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", archive }));
     invs = try ctx.invocations();
-    var saw_stop = false;
-    var saw_start = false;
-    for (invs) |inv| {
-        if (anyArg(inv, "stop")) saw_stop = true;
-        if (anyArg(inv, "start")) saw_start = true;
+    var stop_index: ?usize = null;
+    var run_index: ?usize = null;
+    var start_index: ?usize = null;
+    for (invs, 0..) |inv, index| {
+        if (anyArg(inv, "stop")) stop_index = index;
+        if (anyArg(inv, "/app/bin/pesque")) run_index = index;
+        if (anyArg(inv, "start")) start_index = index;
     }
-    try testing.expect(saw_stop);
-    try testing.expect(saw_start);
+    try testing.expect(stop_index != null);
+    try testing.expect(run_index != null);
+    try testing.expect(start_index != null);
+    try testing.expect(stop_index.? < run_index.?);
+    try testing.expect(run_index.? < start_index.?);
 
     // One archive source: --archive with a positional, or --archive twice,
     // is usage, the way the release refuses both of its own forms.
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", "--archive", archive, archive }));
     try testing.expectError(error.Usage, main.run(ctx.host, &.{ "restore", "--archive", archive, "--archive", archive }));
+}
+
+test "dispatch: a failed restore leaves the stopped service down" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+    try ctx.env.put("PESQUE_FAKE_RUN_EXIT", "1");
+
+    try testing.expectEqual(@as(u8, 1), try main.run(ctx.host, &.{ "restore", archive }));
+
+    const invs = try ctx.invocations();
+    var saw_stop = false;
+    var saw_run = false;
+    for (invs) |inv| {
+        if (anyArg(inv, "stop")) saw_stop = true;
+        if (anyArg(inv, "/app/bin/pesque")) saw_run = true;
+        try testutil.Ctx.expectNoArg(inv, "start");
+    }
+    try testing.expect(saw_stop);
+    try testing.expect(saw_run);
+}
+
+test "dispatch: restore refuses when the container remains active after stop" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+    try ctx.env.put("PESQUE_FAKE_RUNNING_AFTER_STOP", "true");
+
+    try testing.expectError(error.DriverFailed, main.run(ctx.host, &.{ "restore", archive }));
+
+    const invs = try ctx.invocations();
+    var saw_stop = false;
+    for (invs) |inv| {
+        if (anyArg(inv, "stop")) saw_stop = true;
+        try testutil.Ctx.expectNoArg(inv, "/app/bin/pesque");
+        try testutil.Ctx.expectNoArg(inv, "start");
+    }
+    try testing.expect(saw_stop);
+}
+
+test "dispatch: restore does not start a container that was already stopped" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    try ctx.env.put("PESQUE_FAKE_RUNNING", "false");
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+
+    try testing.expectEqual(@as(u8, 0), try main.run(ctx.host, &.{ "restore", archive }));
+
+    var saw_run = false;
+    for (try ctx.invocations()) |inv| {
+        try testutil.Ctx.expectNoArg(inv, "stop");
+        try testutil.Ctx.expectNoArg(inv, "start");
+        if (anyArg(inv, "/app/bin/pesque")) saw_run = true;
+    }
+    try testing.expect(saw_run);
+}
+
+test "dispatch: restore refuses to run against an active externally managed service" {
+    var ctx = try testutil.Ctx.init();
+    defer ctx.deinit();
+    try ctx.env.put("PESQUE_BACKEND", "systemd");
+
+    const archive = try std.fs.path.join(ctx.arena_state.allocator(), &.{ ctx.tmp_path, "archive.tar.gz" });
+    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = archive, .data = "bytes" });
+
+    try testing.expectError(error.DriverFailed, main.run(ctx.host, &.{ "restore", archive }));
+
+    const invs = try ctx.invocations();
+    for (invs) |inv| {
+        try testutil.Ctx.expectNoArg(inv, "stop");
+        try testutil.Ctx.expectNoArg(inv, "/app/bin/pesque");
+    }
 }
 
 /// The invocation that ran the release, whatever driver chatter (an image

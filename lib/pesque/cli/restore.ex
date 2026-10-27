@@ -26,17 +26,13 @@ defmodule Pesque.Cli.Restore do
     with {:ok, opts, args} <-
            Input.options(argv, [archive: :string, dry_run: :boolean], @usage, true),
          {:ok, archive} <- archive(opts[:archive], args),
-         :ok <- Release.boot!(),
-         # Both paths read the archive first, so the before-picture is
-         # printed from the same inspection whatever the run does next, and
-         # an archive the restore would refuse stops the dry run too.
          {:ok, inspection} <- Backup.inspect_archive(archive) do
       print_inspection(Pesque.data_dir(), inspection, opts[:dry_run])
 
       if opts[:dry_run] do
         :ok
       else
-        restore(archive)
+        with :ok <- Release.boot!(), do: restore(archive)
       end
     end
   end
@@ -44,7 +40,10 @@ defmodule Pesque.Cli.Restore do
   defp restore(archive) do
     case Backup.restore(Pesque.data_dir(), archive) do
       :ok ->
-        IO.puts("restored #{archive} into #{Pesque.data_dir()}; start the server again")
+        IO.puts(
+          "restored #{archive} into #{Pesque.data_dir()}; verify the service is healthy before use"
+        )
+
         :ok
 
       {:error, reason} ->

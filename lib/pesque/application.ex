@@ -6,12 +6,17 @@ defmodule Pesque.Application do
 
   @impl true
   def start(_type, _args) do
+    operator_boot? = Application.get_env(:pesque, :operator_boot, false)
+
     Pesque.Storage.init!()
     Pesque.Secret.load!()
     Pesque.Identity.load!()
     Pesque.OAuth.Keys.load!()
     Pesque.Lexicon.Registry.reload()
-    Pesque.Release.migrate()
+
+    # Release tasks may share the data directory with a live server. Its
+    # migrations and interrupted-job recovery belong to server startup only.
+    unless operator_boot?, do: Pesque.Release.migrate()
 
     # Resolving the secret reads (or creates) data/server.secret. Doing it
     # here rather than in config/runtime.exs keeps everyday mix tasks from
@@ -33,15 +38,24 @@ defmodule Pesque.Application do
         {Registry, keys: :unique, name: Pesque.RepoRegistry},
         {Registry, keys: :unique, name: Pesque.Migrate.Registry},
         {Task.Supervisor, name: Pesque.Migrate.Supervisor},
-        Pesque.RepoSupervisor,
-        Pesque.EventReaper
-      ] ++ endpoint()
+        Pesque.RepoSupervisor
+      ]
+
+    children =
+      if operator_boot? do
+        children ++ endpoint()
+      else
+        children ++ [Pesque.EventReaper] ++ endpoint()
+      end
 
     with {:ok, pid} <-
            Supervisor.start_link(children, strategy: :one_for_one, name: Pesque.Supervisor) do
-      reap_interrupted_moves()
-      log_boot()
-      announce_to_relays()
+      unless operator_boot? do
+        reap_interrupted_moves()
+        log_boot()
+        announce_to_relays()
+      end
+
       {:ok, pid}
     end
   end

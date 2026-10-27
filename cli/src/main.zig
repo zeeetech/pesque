@@ -679,16 +679,21 @@ fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
         return usage(host, "restore takes the archive path: pesque restore (--archive PATH | PATH)", .{}));
     const d = try detectBackend(host);
     // Restore is cold: stop the service first when the CLI owns the
-    // lifecycle; the verb refuses a locked db as a second line of defense.
-    // A dry run reads the archive and changes nothing, so it skips the
-    // dance entirely: no stop, and no bring-up after.
-    var stopped = false;
+    // lifecycle, then verify it is down. A dry run reads the archive and
+    // changes nothing, so it skips the lifecycle checks entirely.
+    var restart_after_restore = false;
     if (!dry_run) {
-        if (d.ownsLifecycle()) {
+        const running = try d.running(host);
+        if (running and d.ownsLifecycle()) {
             _ = try d.down(host);
-            stopped = true;
-        } else {
-            host.note("the service is managed outside this CLI: if the archive restore refuses a locked database, stop the service and run this again.", .{});
+            if (try d.running(host)) {
+                host.err("the service did not stop; restore was not run. Stop it and try again.", .{});
+                return error.DriverFailed;
+            }
+            restart_after_restore = true;
+        } else if (running) {
+            host.err("the service is running and is managed outside this CLI. Stop it, verify it is inactive, then run restore again.", .{});
+            return error.DriverFailed;
         }
     }
     const outcome = d.runOnce(host, .{
@@ -696,18 +701,22 @@ fn restore(host: *proc.Host, args: []const []const u8) Error!u8 {
         .argv = if (dry_run) &.{ "--dry-run", abs } else &.{abs},
         .mounts = &.{.{ .source = abs, .target = abs }},
         .interactive = true,
-    });
-    // The server comes back even when the restore itself failed, and a
-    // failed bring-up must not be swallowed: exiting 0 with the service
-    // down is exactly the state the operator cannot see.
-    if (stopped) {
+    }) catch |err| {
+        if (restart_after_restore) {
+            host.err("restore could not run; the service remains stopped. Inspect the recovery files before starting it again.", .{});
+        }
+        return err;
+    };
+    // A failed restore leaves the service stopped so it cannot open partially
+    // replaced state. Only a successful restore is followed by bring-up.
+    if (restart_after_restore and outcome == 0) {
         const up_code: u8 = d.up(host) catch 3;
         if (up_code != 0) {
             host.err("the service did not come back up after the restore; run 'pesque up' and check 'pesque logs'.", .{});
-            if (outcome) |c| {
-                if (c == 0) return up_code;
-            } else |_| {}
+            return up_code;
         }
+    } else if (restart_after_restore) {
+        host.err("restore failed; the service remains stopped. Inspect the recovery files before starting it again.", .{});
     }
     return outcome;
 }

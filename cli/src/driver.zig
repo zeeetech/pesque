@@ -130,6 +130,15 @@ pub const Driver = union(Kind) {
         };
     }
 
+    /// Whether the managed server process is active, independent of its
+    /// health endpoint. Restore uses this to prove the writer is stopped.
+    pub fn running(self: Driver, host: *proc.Host) proc.Error!bool {
+        return switch (self) {
+            .docker => |d| docker.running(d, host),
+            .systemd => |d| systemd.running(d, host),
+        };
+    }
+
     pub fn dataDir(self: Driver, host: *proc.Host) proc.Error!DataDir {
         return switch (self) {
             .docker => |d| docker.dataDir(d, host),

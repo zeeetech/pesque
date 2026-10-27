@@ -194,6 +194,31 @@ pub fn health(self: driver.Docker, host: *proc.Host) Error!driver.Health {
     return healthFromPoll(host, try pollStatus(host, self.container));
 }
 
+/// Read the container process state, not its health status. An unhealthy
+/// container can still be writing to its data directory and is not safe to
+/// restore over.
+pub fn running(self: driver.Docker, host: *proc.Host) Error!bool {
+    const inspect = [_][]const u8{
+        host.progs.docker, "inspect", self.container, "--format", "{{.State.Running}}",
+    };
+    const cap = host.capture(&inspect) catch |e| return e;
+    defer host.freeCapture(cap);
+
+    if (!cap.ok()) {
+        host.err("could not verify whether container '{s}' is stopped; restore was not run.", .{self.container});
+        return error.DriverFailed;
+    }
+
+    return if (std.mem.eql(u8, cap.line(), "true"))
+        true
+    else if (std.mem.eql(u8, cap.line(), "false"))
+        false
+    else {
+        host.err("container '{s}' returned an unknown running state; restore was not run.", .{self.container});
+        return error.DriverFailed;
+    };
+}
+
 pub fn healthFromPoll(host: *proc.Host, poll: driver.Poll) Error!driver.Health {
     return switch (poll) {
         .healthy => .healthy,

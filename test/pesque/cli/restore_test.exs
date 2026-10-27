@@ -85,6 +85,16 @@ defmodule Pesque.Cli.RestoreTest do
     assert {:error, {:bad_archive, _reason}} = Restore.run(["--dry-run", "--archive", path])
   end
 
+  test "the dry run does not request an operator application boot" do
+    archive = valid_archive()
+    previous = Application.get_env(:pesque, :operator_boot)
+    Application.delete_env(:pesque, :operator_boot)
+    on_exit(fn -> restore_operator_boot(previous) end)
+
+    assert :ok = Restore.run(["--dry-run", "--archive", archive])
+    assert Application.get_env(:pesque, :operator_boot) == nil
+  end
+
   # An archive the real writer made, so the entries the dry run lists are the
   # ones a real restore installs. The source is a throwaway data directory of
   # its own: the verb points at Pesque.data_dir() and the dry run must never
@@ -123,4 +133,7 @@ defmodule Pesque.Cli.RestoreTest do
     on_exit(fn -> File.rm_rf(dir) end)
     dir
   end
+
+  defp restore_operator_boot(nil), do: Application.delete_env(:pesque, :operator_boot)
+  defp restore_operator_boot(value), do: Application.put_env(:pesque, :operator_boot, value)
 end
