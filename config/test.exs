@@ -5,7 +5,7 @@ test_dir = Path.join(System.tmp_dir!(), "pesque-test")
 config :pesque, Pesque.Repo,
   database: Path.join(test_dir, "pesque.db"),
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: 12
 
 config :pesque, PesqueWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
