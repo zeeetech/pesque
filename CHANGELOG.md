@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.4](https://github.com/zeeetech/pesque/compare/pesque-v1.15.3...pesque-v1.15.4) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ci:** correct version tag on published image ([9455792](https://github.com/zeeetech/pesque/commit/945579220db1a9c6c37e73ada740b5842f670137))
+
 ## [1.15.3](https://github.com/zeeetech/pesque/compare/pesque-v1.15.2...pesque-v1.15.3) (2026-10-28)
 
 
