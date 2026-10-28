@@ -147,6 +147,19 @@ jobs:
           mix deps.get --only prod
           MIX_ENV=prod mix release
 
+      - name: Build the Compose deployment bundle
+        run: |
+          set -eu
+          version="${{ needs.release-please.outputs.tag_name }}"
+          version="${version#v}"
+          mkdir -p dist/pesque
+          cp deploy/compose/pesque dist/pesque/pesque
+          chmod 755 dist/pesque/pesque
+          sed "s/@VERSION@/$version/g" deploy/compose/compose.yaml > dist/pesque/compose.yaml
+          MIX_ENV=prod mix run --no-compile --no-start \
+            -e 'IO.write(Pesque.Config.template())' > dist/pesque/pesque.conf.example
+          tar -czf "pesque-compose-$version.tar.gz" -C dist pesque
+
       - name: Tar the release
         run: tar -czf pesque-server-x86_64-linux.tar.gz -C _build/prod/rel pesque
 
@@ -155,12 +168,17 @@ jobs:
           name: server-tarball
           path: pesque-server-x86_64-linux.tar.gz
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compose-bundle
+          path: pesque-compose-*.tar.gz
+
   # Assemble everything onto the GitHub release, with one SHA256SUMS covering
   # the CLI binaries, the server tarball, and install.sh. install.sh rides on
   # the release itself so that releases/latest/download/install.sh resolves.
   release-assets:
     name: Upload release assets
-    needs: [release-please, cli, tarball]
+    needs: [release-please, image, cli, tarball]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:

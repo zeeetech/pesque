@@ -1,0 +1,40 @@
+name: pesque
+
+services:
+  pesque:
+    image: ghcr.io/zeeetech/pesque:@VERSION@
+    restart: unless-stopped
+    working_dir: /data
+    entrypoint: ["/app/bin/pesque"]
+    command: ["start"]
+    environment:
+      PDS_DATA_DIR: /data
+      PDS_CONFIG: /data/pesque.conf
+    volumes:
+      - type: volume
+        source: data
+        target: /data
+      - type: bind
+        source: ./pesque.conf
+        target: /data/pesque.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./backups
+        target: /backups
+        bind:
+          create_host_path: false
+    ports:
+      # The container port must match `port` in pesque.conf.
+      - "127.0.0.1:4000:4000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "4"
+
+volumes:
+  data:
+    # This stable name reuses the volume created by the previous Docker CLI.
+    name: pesque-data

@@ -22,6 +22,7 @@ jobs:
     outputs:
       elixir: ${{ steps.filter.outputs.elixir }}
       zig: ${{ steps.filter.outputs.zig }}
+      distribution: ${{ steps.filter.outputs.distribution }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -43,6 +44,13 @@ jobs:
             zig:
               - 'cli/**'
               - '.github/workflows/ci.yml'
+            distribution:
+              - 'deploy/compose/**'
+              - 'docker/**'
+              - 'Dockerfile'
+              - 'pesque.conf.example'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/release.yml'
 
   precommit:
     name: Elixir 1.20.4 / OTP 29.1.1
@@ -186,3 +194,35 @@ jobs:
 
       - name: Build
         run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
+
+  compose-bundle:
+    name: Compose deployment bundle
+    needs: changes
+    if: needs.changes.outputs.distribution == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: |
+          for script in deploy/compose/pesque deploy/compose/smoke.sh docker/healthcheck.sh; do
+            sh -n "$script"
+          done
+
+      - name: Validate Compose definition
+        run: |
+          set -eu
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          version=1.0.0
+          sed "s/@VERSION@/$version/g" deploy/compose/compose.yaml > "$work/compose.yaml"
+          cp pesque.conf.example "$work/pesque.conf"
+          mkdir "$work/backups"
+          docker compose --project-directory "$work" \
+            --file "$work/compose.yaml" config --quiet
+
+      # The runner UID differs from the image's non-root pesque UID, so a
+      # correctly private ./backups cannot be read or removed by the runner.
+      # Only this host-side harness is elevated; the application stays non-root.
+      - name: Build and exercise the real image
+        run: sudo --preserve-env=GITHUB_RUN_ID deploy/compose/smoke.sh

@@ -32,9 +32,10 @@ USER pesque
 
 COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque ./
 COPY --chown=pesque:pesque pesque.conf.example /app/pesque.conf.example
+COPY --chown=pesque:pesque docker/healthcheck.sh /app/healthcheck.sh
+RUN chmod 755 /app/healthcheck.sh
 
 ENV PDS_DATA_DIR=/data
-ENV PDS_PORT=4000
 # The config file lives on the volume, so mounting one file configures the
 # container. Missing is fine: everything can come from the environment.
 ENV PDS_CONFIG=/data/pesque.conf
@@ -43,7 +44,7 @@ VOLUME /data
 
 EXPOSE 4000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -q -O /dev/null "http://localhost:${PDS_PORT:-4000}/xrpc/_health" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD ["/app/healthcheck.sh"]
 
 CMD ["/app/bin/pesque", "start"]

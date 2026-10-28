@@ -34,6 +34,8 @@ pesque-*.tar
 
 # Local configuration; the example beside it is what gets committed
 /pesque.conf
+/deploy/compose/pesque.conf
+/deploy/compose/backups/
 
 # Scratch notes and ideas, not published
 /docs/ideas/
