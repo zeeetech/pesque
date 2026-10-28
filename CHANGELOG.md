@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.2](https://github.com/zeeetech/pesque/compare/pesque-v1.15.1...pesque-v1.15.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **docker:** correct path copied from builder stage ([2ee43f6](https://github.com/zeeetech/pesque/commit/2ee43f6f69021015e5dd08fc2b89c5d9eaa9c0b0))
+
 ## [1.15.1](https://github.com/zeeetech/pesque/compare/pesque-v1.15.0...pesque-v1.15.1) (2026-10-28)
 
 
