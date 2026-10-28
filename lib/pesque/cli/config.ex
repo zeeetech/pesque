@@ -1,9 +1,8 @@
 defmodule Pesque.Cli.Config do
   @moduledoc """
   Configuration verbs. Neither boots: an invalid config would kill a boot
-  before anything could report it, so validate reads the file and the
-  environment the way the server will at boot, and template prints the
-  example file the settings table generates.
+  before anything could report it, so validate reads the file the way the
+  server will at boot, then prints every effective value with its source.
   """
 
   alias Pesque.Cli.Input
@@ -54,19 +53,22 @@ defmodule Pesque.Cli.Config do
     end
   end
 
-  # One line per key with the layer that decided it: the answer to "why is
-  # the server ignoring the file I edited" (the environment was winning).
-  defp print_entry({key, {:env, name, value}}) do
-    IO.puts(row(key, inspect(value), "env #{name}"))
+  # One line per effective setting with the layer that decided it: the file,
+  # a built-in default, the development default, or public_url for a derived
+  # value.
+  defp print_entry({key, value, source}) do
+    IO.puts(row(key, format(value), source_text(source)))
   end
 
-  defp print_entry({key, {:file, line, value}}) do
-    IO.puts(row(key, inspect(value), "#{Config.path()}:#{line}"))
-  end
+  defp source_text({:file, line}), do: "#{Config.path()}:#{line}"
+  defp source_text(:default), do: "(default)"
+  defp source_text(:development_default), do: "(development default)"
+  defp source_text({:derived, key}), do: "(derived from #{key})"
 
-  defp print_entry({key, :default}) do
-    IO.puts(row(key, "", "(default)"))
-  end
+  defp format(nil), do: ""
+  defp format(values) when is_list(values), do: Enum.join(values, ",")
+  defp format(value) when is_atom(value), do: Atom.to_string(value)
+  defp format(value), do: to_string(value)
 
   defp row(key, value, source) do
     String.pad_trailing(key, 24) <> String.pad_trailing(value, 44) <> source

@@ -100,11 +100,7 @@ run_domain() {
       fi
       ;;
     account)
-      if [ "${PDS_PUBLIC_IP+x}" = x ]; then
-        run_with_env PDS_PUBLIC_IP eval 'Pesque.Cli.main()' account "$@"
-      else
-        run_once eval 'Pesque.Cli.main()' account "$@"
-      fi
+      run_once eval 'Pesque.Cli.main()' account "$@"
       ;;
     *)
       run_once eval 'Pesque.Cli.main()' "$verb" "$@"

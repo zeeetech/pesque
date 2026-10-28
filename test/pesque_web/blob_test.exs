@@ -137,7 +137,7 @@ defmodule PesqueWeb.BlobTest do
   # A blob that large is slow to build and slow to write, so the limit is
   # lowered for the size arithmetic rather than the request running at 5 MiB.
   # The cap is read per request, not at compile time, so this is the same code
-  # path an operator gets from PDS_BLOB_UPLOAD_LIMIT.
+  # path an operator gets from blob_upload_limit.
   test "the advertised limit is the enforced limit", ctx do
     put_blob_limit(1024)
 

@@ -39,7 +39,7 @@ defmodule Pesque.Release do
   account verbs share. The steps after the account exist render through the
   shared next-steps block (`Pesque.Cli.Report`).
   """
-  def print_account(account) do
+  def print_account(account, opts \\ []) do
     IO.puts("")
 
     [
@@ -47,7 +47,7 @@ defmodule Pesque.Release do
       gettext(
         "Point this domain at the server, then add the handle record, and give DNS a few minutes to catch up:"
       ) <>
-        "\n\n" <> Enum.join(dns_lines(account), "\n"),
+        "\n\n" <> Enum.join(dns_lines(account, opts[:public_ip]), "\n"),
       gettext("Check that everything is reachable from outside:") <> "\n\n  pesque doctor"
     ]
     |> Report.next_steps()
@@ -58,18 +58,17 @@ defmodule Pesque.Release do
   # only the host record is needed. A multi account is resolved at
   # _atproto.<handle>, which nothing else publishes, so the TXT carries the
   # DID the directory minted.
-  defp dns_lines(%{did: "did:plc:" <> _} = account) do
-    [host_line(), "  _atproto.#{account.handle}   TXT    \"did=#{account.did}\""]
+  defp dns_lines(%{did: "did:plc:" <> _} = account, public_ip) do
+    [host_line(public_ip), "  _atproto.#{account.handle}   TXT    \"did=#{account.did}\""]
   end
 
-  defp dns_lines(_account), do: [host_line()]
+  defp dns_lines(_account, public_ip), do: [host_line(public_ip)]
 
-  defp host_line do
+  defp host_line(public_ip) do
     ip =
-      case System.get_env("PDS_PUBLIC_IP") do
-        nil -> "<this server's public IP>"
-        "" -> "<this server's public IP>"
-        value -> value
+      case public_ip do
+        value when is_binary(value) and value != "" -> value
+        _unset -> "<this server's public IP>"
       end
 
     "  #{Pesque.hostname()}   A      #{ip}"

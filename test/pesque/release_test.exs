@@ -41,4 +41,15 @@ defmodule Pesque.ReleaseTest do
 
     assert output =~ ~s(_atproto.zoey.localhost   TXT    "did=did:plc:abc234def567")
   end
+
+  test "a supplied public IP replaces the A record placeholder" do
+    account = %{handle: "zoey.localhost", did: "did:web:zoey.localhost"}
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Pesque.Release.print_account(account, public_ip: "203.0.113.7")
+      end)
+
+    assert output =~ "  localhost   A      203.0.113.7"
+  end
 end

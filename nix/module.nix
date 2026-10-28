@@ -19,30 +19,28 @@ let
 
   confLines =
     [
-      "hostname = ${cfg.hostname}"
+      "public_url = ${cfg.publicUrl}"
       "mode = ${cfg.mode}"
       "registration = ${cfg.registration}"
-      "data_dir = /data"
       "port = ${toString cfg.port}"
+      "data_dir = /data"
     ]
     ++ optional (cfg.handleDomain != null) "handle_domain = ${cfg.handleDomain}"
-    ++ optional (cfg.handle != null) "handle = ${cfg.handle}"
     ++ optional (cfg.crawler != [ ]) "crawler = ${concatStringsSep "," cfg.crawler}"
-    ++ optional (cfg.urlScheme != null) "url_scheme = ${cfg.urlScheme}"
-    ++ optional (cfg.urlPort != null) "url_port = ${toString cfg.urlPort}"
-    ++ optional (cfg.plcDirectory != null) "plc_directory = ${cfg.plcDirectory}"
-    ++ optional (cfg.lexiconAggregator != null) "lexicon_aggregator = ${cfg.lexiconAggregator}"
-    ++ optional (cfg.blobUploadLimit != null) "blob_upload_limit = ${toString cfg.blobUploadLimit}"
-    ++ optional (cfg.repoImportLimit != null) "repo_import_limit = ${toString cfg.repoImportLimit}"
-    ++ optional (cfg.proxyTimeout != null) "proxy_timeout = ${toString cfg.proxyTimeout}"
-    ++ optional (cfg.proxyResponseLimit != null)
-      "proxy_response_limit = ${toString cfg.proxyResponseLimit}"
-    ++ optional (cfg.adminDids != [ ]) "admin_dids = ${concatStringsSep "," cfg.adminDids}"
-    ++ optional (cfg.privacyPolicyUrl != null) "privacy_policy_url = ${cfg.privacyPolicyUrl}"
-    ++ optional (cfg.termsOfServiceUrl != null) "terms_of_service_url = ${cfg.termsOfServiceUrl}"
     ++ mapAttrsToList (key: value: "${key} = ${value}") cfg.settings;
 
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
+
+  deploymentKeys = [
+    "public_url"
+    "port"
+    "data_dir"
+    "mode"
+    "handle_domain"
+    "registration"
+    "crawler"
+  ];
+  collisions = builtins.filter (key: builtins.hasAttr key cfg.settings) deploymentKeys;
 
   userSpec = "${toString config.users.users.pesque.uid}:${toString config.users.groups.pesque.gid}";
   imageName = lib.last (lib.splitString "/" cfg.image);
@@ -108,12 +106,13 @@ in
       '';
     };
 
-    hostname = mkOption {
+    publicUrl = mkOption {
       type = types.str;
-      example = "pds.example.com";
+      example = "https://pds.example.com";
       description = ''
-        Public hostname. Drives the DID, the DID document and every advertised
-        URL, so it must be the name clients reach the server at, TLS included.
+        Public origin clients reach this server at: scheme, hostname and the
+        advertised port. Drives the DID, DID document and every advertised URL.
+        TLS terminates at your proxy; this is the name it answers for.
       '';
     };
 
@@ -133,13 +132,7 @@ in
       type = types.nullOr types.str;
       default = null;
       example = "example.com";
-      description = "The domain accounts get handles under. Defaults to the hostname.";
-    };
-
-    handle = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "The handle the server publishes under single. Defaults to the hostname.";
+      description = "The domain accounts get handles under. Defaults to the public hostname.";
     };
 
     registration = mkOption {
@@ -161,7 +154,11 @@ in
     port = mkOption {
       type = types.port;
       default = 4000;
-      description = "Port the process binds. Behind a proxy, this is the internal port.";
+      description = ''
+        Port the process binds and the container port published on the host.
+        Behind a proxy this is the internal port; the advertised port is in
+        publicUrl.
+      '';
     };
 
     listenAddress = mkOption {
@@ -174,86 +171,18 @@ in
       '';
     };
 
-    urlScheme = mkOption {
-      type = types.nullOr (
-        types.enum [
-          "http"
-          "https"
-        ]
-      );
-      default = null;
-      description = "What the server tells the world to fetch. Defaults to https.";
-    };
-
-    urlPort = mkOption {
-      type = types.nullOr types.port;
-      default = null;
-      description = "The advertised port. Defaults to 443 for https.";
-    };
-
-    plcDirectory = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      example = "https://plc.directory";
-      description = "PLC directory used when an account is minted as did:plc.";
-    };
-
-    lexiconAggregator = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      example = "https://lexicon.example.com";
-      description = "HTTPS base URL used to fetch permission sets not vendored with the server.";
-    };
-
-    blobUploadLimit = mkOption {
-      type = types.nullOr types.int;
-      default = null;
-      description = "Largest blob uploadBlob accepts, in bytes.";
-    };
-
-    repoImportLimit = mkOption {
-      type = types.nullOr types.int;
-      default = null;
-      description = "Largest importRepo body, in bytes.";
-    };
-
-    proxyTimeout = mkOption {
-      type = types.nullOr types.int;
-      default = null;
-      description = "How long a proxied call may take before it is answered 504, in milliseconds.";
-    };
-
-    proxyResponseLimit = mkOption {
-      type = types.nullOr types.int;
-      default = null;
-      description = "Largest body a proxied call may return, in bytes.";
-    };
-
-    adminDids = mkOption {
-      type = types.listOf types.str;
-      default = [ ];
-      description = "Extra DIDs allowed to call createInviteCodes under multi.";
-    };
-
-    privacyPolicyUrl = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "Advertised by describeServer as the privacy policy.";
-    };
-
-    termsOfServiceUrl = mkOption {
-      type = types.nullOr types.str;
-      default = null;
-      description = "Advertised by describeServer as the terms of service.";
-    };
-
     settings = mkOption {
       type = types.attrsOf types.str;
       default = { };
-      example = { proxy_response_limit = "10485760"; };
+      example = {
+        blob_upload_limit = "104857600";
+        admin_dids = "did:plc:...,did:plc:...";
+      };
       description = ''
-        Extra pesque.conf keys, written verbatim. The key is the variable
-        without the PDS_ prefix, lowercased; an unknown key fails boot.
+        Uncommon application settings, written verbatim to the generated
+        pesque.conf. The keys the module owns (public_url, mode,
+        handle_domain, registration, crawler, port and data_dir) are refused
+        here. See the configuration reference in docs/installation.md.
       '';
     };
 
@@ -291,7 +220,10 @@ in
     dataDir = mkOption {
       type = types.path;
       default = "/var/lib/pesque";
-      description = "Host directory holding the entire server state, mounted at /data.";
+      description = ''
+        Host directory holding the entire server state, mounted at /data. This
+        is the host storage path; the container's own data_dir is always /data.
+      '';
     };
 
     backupDir = mkOption {
@@ -307,6 +239,14 @@ in
       {
         assertion = imagePinned;
         message = "services.pesque.image must select an explicit release tag or digest, not latest.";
+      }
+      {
+        assertion = cfg.publicUrl != "";
+        message = "services.pesque.publicUrl is required.";
+      }
+      {
+        assertion = collisions == [ ];
+        message = "services.pesque.settings must not set module-owned keys: ${concatStringsSep ", " collisions}.";
       }
     ];
 
@@ -335,7 +275,6 @@ in
       workdir = "/data";
       environment = {
         PDS_CONFIG = "/data/pesque.conf";
-        PDS_DATA_DIR = "/data";
         HOME = "/data";
       };
       volumes = [

@@ -8,7 +8,6 @@ services:
     entrypoint: ["/app/bin/pesque"]
     command: ["start"]
     environment:
-      PDS_DATA_DIR: /data
       PDS_CONFIG: /data/pesque.conf
     volumes:
       - type: volume

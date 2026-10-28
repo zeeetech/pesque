@@ -4,7 +4,7 @@ defmodule PesqueWeb.Plugs.Admin do
 
   createInviteCodes mints the only way in on a server whose registration is
   closed, so any account that can reach it can hand out more accounts, and
-  PDS_REGISTRATION=closed stops meaning anything after the first account it
+  registration = closed stops meaning anything after the first account it
   admits. describeServer advertises inviteCodeRequired to every client that
   asks, so this is the difference between a control a server advertises and
   one it only appears to have.

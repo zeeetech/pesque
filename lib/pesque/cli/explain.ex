@@ -240,10 +240,44 @@ defmodule Pesque.Cli.Explain do
         ),
       next:
         gettext(
-          "a variable the server reads is a config key uppercased with a PDS_ prefix " <>
-            "(pesque.conf.example lists them all); the internal ones the tooling sets are " <>
-            "PDS_CONFIG, PDS_PUBLIC_IP and PDS_TAG"
+          "server settings live in pesque.conf, and PDS_CONFIG only selects the file; " <>
+            "PDS_PLC_LOCAL is development-only"
         ),
+      detail: nil
+    }
+  end
+
+  def for_reason({:retired_key, key, line, advice}) do
+    %{
+      problem:
+        gettext("the config file uses the retired key %{key} on line %{line}",
+          key: inspect(key),
+          line: line
+        ),
+      next: advice,
+      detail: nil
+    }
+  end
+
+  def for_reason({:missing_setting, key, advice}) do
+    %{
+      problem: gettext("%{key} is required", key: key),
+      next: advice,
+      detail: nil
+    }
+  end
+
+  def for_reason({:invalid_setting, key, value, expectation, line}) do
+    where = if line, do: gettext(" on line %{line}", line: line), else: ""
+
+    %{
+      problem:
+        gettext("%{key} %{expectation}, got %{value}",
+          key: key,
+          expectation: expectation,
+          value: inspect(value)
+        ) <> where,
+      next: nil,
       detail: nil
     }
   end

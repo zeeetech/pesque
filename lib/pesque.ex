@@ -12,20 +12,10 @@ defmodule Pesque do
   @doc """
   The public base URL clients are told to reach this server at.
 
-  Taken from the endpoint's url config rather than from hostname and port,
-  because the advertised scheme and port are the proxied ones and not the
-  ones this process listens on.
+  This is the normalized `public_url` from the config file: the advertised
+  scheme and port are the proxied ones, not the ones this process listens on.
   """
-  def base_url do
-    url = Application.get_env(:pesque, PesqueWeb.Endpoint, []) |> Keyword.get(:url, [])
-    scheme = Keyword.get(url, :scheme, "https")
-    host = Keyword.get(url, :host, hostname())
-    default_port = if scheme == "https", do: 443, else: 80
-    port = Keyword.get(url, :port, default_port)
-    authority = if port == default_port, do: host, else: "#{host}:#{port}"
-
-    "#{scheme}://#{authority}"
-  end
+  def base_url, do: Application.get_env(:pesque, :public_url, "http://localhost:4000")
 
   @doc "The PDS endpoint published in DID documents and PLC operations."
   def service_endpoint, do: base_url()
@@ -42,7 +32,7 @@ defmodule Pesque do
   @doc "Relay base URLs to ask for a crawl at boot. Empty means ask nobody."
   def crawlers, do: Application.get_env(:pesque, :crawlers, [])
 
-  @doc "The host this server is reached at, without scheme or port."
+  @doc "The host this server is reached at, derived from public_url, without scheme or port."
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
 
   # Handles are case-insensitive and stored lowercase, so the domain they are

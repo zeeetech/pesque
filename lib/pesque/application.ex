@@ -105,11 +105,7 @@ defmodule Pesque.Application do
   # The failures a self-hoster actually hits are silent ones: the process
   # comes up and nothing can resolve it. Name them at boot.
   defp boot_warnings do
-    if Application.get_env(:pesque, :boot_warnings, true) do
-      hostname_warning() ++ scheme_warning() ++ registration_warning()
-    else
-      []
-    end
+    hostname_warning() ++ scheme_warning() ++ registration_warning()
   end
 
   defp hostname_warning do
@@ -117,7 +113,7 @@ defmodule Pesque.Application do
       [
         "hostname #{Pesque.hostname()} is an IP literal: ATProto handles and did:web " <>
           "resolve through DNS, so this server is reachable but not resolvable. Point a " <>
-          "domain at it and set hostname to that domain to federate."
+          "domain at it and set public_url to that domain to federate."
       ]
     else
       []
@@ -128,7 +124,7 @@ defmodule Pesque.Application do
     if String.starts_with?(Pesque.base_url(), "http://") and Pesque.hostname() != "localhost" do
       [
         "the advertised base URL is #{Pesque.base_url()}, not HTTPS: the spec requires TLS " <>
-          "for federation. Put a proxy in front and set url_scheme = https."
+          "for federation. Put a proxy in front and set public_url to an https origin."
       ]
     else
       []
@@ -139,7 +135,7 @@ defmodule Pesque.Application do
     if Pesque.registration() == :closed and Pesque.Accounts.empty?() do
       [
         "registration is closed and no account exists yet. Create the first one with:\n" <>
-          "  mix pesque.create_account --handle <handle> --email <email>"
+          "  pesque account create --handle <handle> --email <email>"
       ]
     else
       []

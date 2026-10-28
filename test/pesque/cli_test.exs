@@ -61,7 +61,8 @@ defmodule Pesque.CliTest do
         end)
 
       assert output =~ "config file:"
-      assert output =~ "hostname"
+      assert output =~ "public_url"
+      assert output =~ "(derived from public_url)"
       assert output =~ "(default)"
     end
 

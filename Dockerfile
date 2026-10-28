@@ -35,10 +35,9 @@ COPY --chown=pesque:pesque pesque.conf.example /app/pesque.conf.example
 COPY --chown=pesque:pesque docker/healthcheck.sh /app/healthcheck.sh
 RUN chmod 755 /app/healthcheck.sh
 
-ENV PDS_DATA_DIR=/data
-# The config file lives on the volume, so mounting one file configures the
-# container. Missing is fine: everything can come from the environment.
 ENV PDS_CONFIG=/data/pesque.conf
+# The config file lives on the volume. A release refuses to boot without
+# public_url, so mount one (the bundle's `init` writes the example).
 
 VOLUME /data
 

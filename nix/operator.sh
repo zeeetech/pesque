@@ -64,8 +64,6 @@ run_container() {
     --user "$user_spec" \
     --workdir /data \
     --env PDS_CONFIG=/data/pesque.conf \
-    --env PDS_DATA_DIR=/data \
-    --env PDS_SERVE=false \
     --env HOME=/data \
     --mount "type=bind,source=$data_dir,target=/data" \
     --mount "type=bind,source=$config_file,target=/data/pesque.conf,readonly" \
@@ -87,11 +85,7 @@ run_domain() {
       fi
       ;;
     account)
-      if [ "${PDS_PUBLIC_IP+x}" = x ]; then
-        run_container --env PDS_PUBLIC_IP "$image" eval 'Pesque.Cli.main()' account "$@"
-      else
-        run_container "$image" eval 'Pesque.Cli.main()' account "$@"
-      fi
+      run_container "$image" eval 'Pesque.Cli.main()' account "$@"
       ;;
     *)
       run_container "$image" eval 'Pesque.Cli.main()' "$verb" "$@"

@@ -67,7 +67,7 @@ script you can read before you run it) and `pesque.conf.example`. First run:
 
 ```bash
 ./pesque init                        # writes pesque.conf, creates backups/
-$EDITOR pesque.conf                  # hostname, handle domain, mode
+$EDITOR pesque.conf                  # public URL; mode if you need it
 docker compose up --detach --wait
 ./pesque account create --handle alice.example.com --email alice@example.com
 ```
@@ -127,28 +127,37 @@ configuration, and puts a configured `pesque` command on PATH:
   services.pesque = {
     enable = true;
     image = "ghcr.io/zeeetech/pesque:1.14.2";  # explicit tag or digest; latest is refused
-    hostname = "pds.example.com";
+    publicUrl = "https://pds.example.com";
     mode = "multi";
     handleDomain = "example.com";
     crawler = [ "https://bsky.network" ];
     uid = 33333;                               # no defaults; the container runs as these
     gid = 33333;
+
+    settings = {
+      blob_upload_limit = "104857600";
+    };
   };
 }
 ```
 
-The module options are the whole configuration: they are written to a
-`pesque.conf` in the store and mounted read-only, and
-`services.pesque.settings` takes any extra conf key verbatim.
-`services.pesque.dataDir` (default `/var/lib/pesque`) holds the entire
-server; `backupDir` (default `dataDir/backups`) holds the archives. `uid`
-and `gid` have no defaults: set them to the current data owner when adopting
-an existing installation, because the module never changes ownership of
-existing state. `services.pesque.requiredMounts` names paths that must
-already be mountpoints, for datasets that could otherwise be hidden by an
-empty directory (a ZFS dataset is the case it exists for); the service and
-every one-off command check them before touching data, and nothing is
-mounted or chowned automatically.
+`publicUrl`, `mode`, `handleDomain`, `registration` and `crawler` are the
+common application settings and are translated into the generated
+`pesque.conf`. `services.pesque.settings` takes the rest verbatim
+(`blob_upload_limit`, legal links, `admin_dids` and so on). `port` is both
+the container's listening port and the host port published on
+`listenAddress`; `publicUrl` carries the advertised port behind your proxy.
+
+`services.pesque.dataDir` (default `/var/lib/pesque`) is the **host** storage
+path mounted at `/data`; the container's own `data_dir` is always `/data`.
+`backupDir` (default `dataDir/backups`) holds the archives. `uid` and `gid`
+have no defaults: set them to the current data owner when adopting an existing
+installation, because the module never changes ownership of existing state.
+`services.pesque.requiredMounts` names paths that must already be mountpoints,
+for datasets that could otherwise be hidden by an empty directory (a ZFS
+dataset is the case it exists for); the service and every one-off command
+check them before touching data, and nothing is mounted or chowned
+automatically.
 
 Docker is required; `virtualisation.docker.enable` is defaulted on.
 Lifecycle belongs to systemd:
@@ -188,15 +197,18 @@ mix phx.server
 
 Migrations run on boot and the data directory is created if missing. There
 is no `mix ecto.create`, no seed step and no secret to invent: Pesque
-generates `data/server.secret` on first boot. The one setting to decide
-before starting is `PDS_HOSTNAME`; with no proxy in front, say so:
+generates `data/server.secret` on first boot. A checkout has one development
+default, `public_url = http://localhost:4000`; put a different `public_url`
+in `pesque.conf` when the browser needs to reach another origin:
 
 ```bash
-PDS_HOSTNAME=localhost PDS_URL_SCHEME=http mix phx.server
+cat > pesque.conf <<'EOF'
+public_url = http://localhost:4000
+EOF
+mix phx.server
 ```
 
-There are no `mix pesque.*` tasks any more (`mix pesque.sync_lexicons`
-aside). Operator verbs run through the CLI module directly:
+Operator verbs run through the CLI module directly:
 
 ```bash
 mix run -e 'Pesque.Cli.main()' account create \
@@ -209,8 +221,9 @@ done.
 
 The browser signup and migration pages are `multi` flows, and both mint real
 `did:plc` identities at the public PLC directory. To develop without that,
-add `PDS_PLC_LOCAL=true`: the operations are kept under `data_dir` instead.
-The setting is refused outside the dev and test environments.
+set `PDS_PLC_LOCAL=true`: the operations are kept under `data_dir` instead.
+It is the only per-setting environment variable, it is refused outside the
+dev and test environments, and it is not a production configuration key.
 
 ## Behind a TLS proxy
 
@@ -266,60 +279,69 @@ name with a certificate covering `*.<hostname>`.
 
 ## Configuration
 
-Every knob can be set as an environment variable or in a `pesque.conf` file.
-The environment wins, then the file, then the default; an invalid value fails
-at boot instead of falling back silently. `config/runtime.exs` is the
-reference for names, defaults and validation.
+The server reads one file. `PDS_CONFIG` selects it, and inside the container
+the path is `/data/pesque.conf`; with no variable the working directory's
+`pesque.conf` is used. There are no per-setting environment variables. A
+retired or unknown `PDS_*` variable, and an unknown or retired conf key,
+fails boot instead of being ignored. `PDS_PLC_LOCAL` is the one exception:
+it is development-only and refused in a release.
 
-The file is plain `key = value`, one per line, `#` for comments. The key is
-the variable without the `PDS_` prefix, lowercased: `hostname =
-pds.example.com` is `PDS_HOSTNAME`. A key the server does not know is an
-error, so a typo fails boot instead of being ignored.
+The file is plain `key = value`, one per line, `#` for comments. `public_url`
+is the one required setting: an HTTP(S) origin with a host and optional port,
+no credentials, path, query or fragment. The advertised hostname, scheme and
+port come from it:
 
-Who reads what: the Compose bundle binds your `pesque.conf` into the
-container; the NixOS module generates the file from its options; a bare
-container or a source checkout reads `PDS_CONFIG`, or `pesque.conf` in the
-working directory, or the environment. Inside the container the path is
-`/data/pesque.conf`.
+```ini
+public_url = https://pds.example.com
+```
 
-| Variable | Key in the file | Default | Purpose |
-| --- | --- | --- | --- |
-| `PDS_DATA_DIR` | `data_dir` | `data` | Directory holding the entire server state |
-| `PDS_HOSTNAME` | `hostname` | `localhost` | Public hostname. Drives the DID, the DID document and every advertised URL |
-| `PDS_MODE` | `mode` | `single` | `single` or `multi`. See [Choose your shape](#choose-your-shape) |
-| `PDS_HANDLE_DOMAIN` | `handle_domain` | hostname | The domain accounts get handles under |
-| `PDS_HANDLE` | `handle` | hostname | The handle the server publishes under `single` |
-| `PDS_PORT` | `port` | `4000` | Port the process binds |
-| `PDS_URL_SCHEME` | `url_scheme` | `https` | What the server tells the world to fetch |
-| `PDS_URL_PORT` | `url_port` | `443` (`port` for http) | The advertised port |
-| `PDS_REGISTRATION` | `registration` | `closed` | `open`, or invite codes |
-| `PDS_PLC_DIRECTORY` | `plc_directory` | `https://plc.directory` | PLC directory used when an account is minted as `did:plc` |
-| `PDS_LEXICON_AGGREGATOR` | `lexicon_aggregator` | empty | https base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored. Unset resolves only the vendored sets |
-| `PDS_CRAWLER` | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
-| `PDS_BLOB_UPLOAD_LIMIT` | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
-| `PDS_REPO_IMPORT_LIMIT` | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
-| `PDS_PROXY_TIMEOUT` | `proxy_timeout` | `15000` | How long a proxied call may take before it is answered 504, in milliseconds |
-| `PDS_PROXY_RESPONSE_LIMIT` | `proxy_response_limit` | `10485760` (10 MiB) | Largest body a proxied call may return |
-| `PDS_ADMIN_DIDS` | `admin_dids` | empty | Extra DIDs allowed to call `createInviteCodes` under `multi` |
-| `PDS_PRIVACY_POLICY_URL` | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
-| `PDS_TERMS_OF_SERVICE_URL` | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
+`port` is where the process binds and defaults to `4000`. It is separate from
+the advertised port because a proxy often terminates TLS on 443 while the
+server listens on 4000. For local development with no proxy:
 
-`port` is where the process binds; `url_scheme` and `url_port` are what it
-advertises. Behind a proxy, listening on 4000 and advertising 443 is correct.
-`hostname` and `handle_domain` are often the same and rarely should be: a
-server at `pds.example.com` can hand out `alice.example.com` handles.
+```ini
+public_url = http://localhost:4000
+```
 
-Do not change `hostname` on a server with accounts: a `did:web` account is
-bound to it, and a `did:plc` account keeps its DID but its published PDS
-endpoint must still match the server configuration. Changing `handle_domain`
-does not rewrite stored handles, so existing handles stop resolving.
+When `handle_domain` is unset it defaults to the public hostname, so a server
+at `pds.example.com` mints handles under `pds.example.com`. Set it apart when
+accounts should live elsewhere (`handle_domain = example.com` gives
+`alice.example.com`); under `single` it is also the one account's handle.
 
-`pesque config validate` boots nothing: it reads the environment and the
-conf the way the server will at boot, then prints every resolved setting
-with the layer that decided it (environment, `pesque.conf:LINE`, or
-`(default)`). Run it after any configuration change or release swap: an
-unknown `PDS_*` variable or conf key fails boot, and this names it without a
-failed boot.
+The file supports these settings:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `public_url` | required in a deployment | Public origin: scheme, hostname and advertised port. Drives the DID, the DID document and every advertised URL |
+| `port` | `4000` | Port the process binds. Behind a proxy this is the internal port |
+| `data_dir` | `/data` in the image, `data` from source | Directory holding the database, keys, blobs and secret |
+| `mode` | `single` | `single` or `multi`. See [Choose your shape](#choose-your-shape) |
+| `handle_domain` | public hostname | Domain accounts get handles under; under `single`, the account handle |
+| `registration` | `closed` | `open` lets anyone create an account; `closed` needs an invite code |
+| `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
+| `plc_directory` | `https://plc.directory` | PLC directory used when an account is minted as `did:plc` |
+| `lexicon_aggregator` | empty | HTTPS base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored |
+| `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
+| `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
+| `proxy_timeout` | `15000` | How long a proxied call may take before it is answered 504, in milliseconds |
+| `proxy_response_limit` | `10485760` (10 MiB) | Largest body a proxied call may return |
+| `admin_dids` | empty | Comma-separated DIDs allowed to call `createInviteCodes` under `multi` |
+| `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
+| `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
+
+A source checkout defaults `public_url` to `http://localhost:4000` and
+`data_dir` to `data`. The image defaults `data_dir` to `/data`; a release has
+no `public_url` default and refuses to boot without one.
+
+Do not change the public hostname on a server with accounts: a `did:web`
+account is bound to it. Changing `handle_domain` does not rewrite stored
+handles, so existing handles stop resolving.
+
+`pesque config validate` boots nothing: it reads the file the way the server
+will at boot, runs the same validation, then prints every effective value
+with its source (`pesque.conf:LINE`, `(default)`, `(development default)` or
+`(derived from public_url)`). Run it after any configuration change or
+release swap; it names the offending key without a failed boot.
 
 ## Create an account
 
@@ -368,7 +390,7 @@ curl -s https://pds.example.com/.well-known/did.json
 curl -s "https://pds.example.com/xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com"
 ```
 
-If `did` says `localhost`, `hostname` was not set for this process. The
+If `did` says `localhost`, `public_url` was not set for this process. The
 `links` the server advertises ship as placeholders, so set
 `privacy_policy_url` and `terms_of_service_url` before pointing a real
 domain at the server

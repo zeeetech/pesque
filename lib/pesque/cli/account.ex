@@ -21,7 +21,7 @@ defmodule Pesque.Cli.Account do
   @usage """
   usage: pesque account <subcommand> [flags]
 
-    create --handle H --email E [--identity web|plc]
+    create --handle H --email E [--identity web|plc] [--public-ip IP]
     list [--status active|deactivated] [--grep PATTERN]
     show (--did D | --handle H)
     delete --did D | --handle H [--dry-run]
@@ -46,7 +46,7 @@ defmodule Pesque.Cli.Account do
   # catch-all.
   @sub_usage %{
     "create" => """
-    usage: pesque account create --handle H --email E [--identity web|plc]
+    usage: pesque account create --handle H --email E [--identity web|plc] [--public-ip IP]
 
     The handle and email come from the flag, then the conventional
     environment (ACCOUNT_HANDLE, ACCOUNT_EMAIL), then a prompt. The password
@@ -55,6 +55,8 @@ defmodule Pesque.Cli.Account do
     --identity picks the DID method. Under single it defaults to web (the
     account is the server's own did:web); plc mints a fresh did:plc instead.
     Under multi accounts are always did:plc and web is refused.
+
+    --public-ip only changes the A record example printed after creation.
     """,
     "list" => """
     usage: pesque account list [--status active|deactivated] [--grep PATTERN]
@@ -98,7 +100,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(
              argv,
-             [handle: :string, email: :string, identity: :string],
+             [handle: :string, email: :string, identity: :string, public_ip: :string],
              @sub_usage["create"]
            ),
          {:ok, handle} <- Input.text(opts, :handle, "ACCOUNT_HANDLE", "handle: "),
@@ -109,7 +111,7 @@ defmodule Pesque.Cli.Account do
          :ok <- Release.boot!() do
       case Accounts.create_account(handle, email, password, identity: method) do
         {:ok, account} ->
-          Release.print_account(account)
+          Release.print_account(account, public_ip: opts[:public_ip])
           :ok
 
         {:error, reason} ->

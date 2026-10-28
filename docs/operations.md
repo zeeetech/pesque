@@ -264,8 +264,8 @@ firehose promptly.
 
 | What | Default | Where |
 | --- | --- | --- |
-| Blob upload | 5 MiB (`PDS_BLOB_UPLOAD_LIMIT`), in `describeServer.blobUploadLimit` | `Pesque.Blob` |
-| Repo import | 100 MiB (`PDS_REPO_IMPORT_LIMIT`) | `PesqueWeb.Xrpc.RepoController` |
+| Blob upload | 5 MiB (`blob_upload_limit`), in `describeServer.blobUploadLimit` | `Pesque.Blob` |
+| Repo import | 100 MiB (`repo_import_limit`) | `PesqueWeb.Xrpc.RepoController` |
 | Request body | 8 MB | `Plug.Parsers` |
 | Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
 | Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
@@ -299,7 +299,7 @@ nothing**. Counters are fixed-window, so a window seam can double the limit.
   restrictive CSP, so a `text/html` blob does not render from your origin.
 - Registration is closed by default: invite codes, one per account, spent
   atomically. `createInviteCodes` is operator-only; under `multi` name
-  yourself in `PDS_ADMIN_DIDS`.
+  yourself in `admin_dids`.
 
 ## Data exposure
 
@@ -317,8 +317,9 @@ existence is public**: `listRepos` enumerates every hosted DID.
 - **`_health` returns 503.** Check the data mount, write permission,
   migrations.
 - **Boot dies on `unknown PDS_ variables` or `unknown key`.** The
-  environment and the config file are both strict: a name the server does
-  not read is refused, not ignored. `pesque config validate` names the
+  environment and the config file are both strict: a name the server does not
+  read is refused, not ignored. Server settings live in `pesque.conf`;
+  `PDS_CONFIG` only selects the file. `pesque config validate` names the
   offenders.
 - **A `did:web` with a port does not resolve.** The port is only encoded for
   loopback and private hosts; fix the proxy.

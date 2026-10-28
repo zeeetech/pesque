@@ -13,12 +13,13 @@ let
         services.pesque = {
           enable = true;
           image = "ghcr.io/zeeetech/pesque:1.14.2";
-          hostname = "pds.example.com";
+          publicUrl = "https://pds.example.com";
           mode = "multi";
           handleDomain = "example.com";
           uid = 33333;
           gid = 33333;
           requiredMounts = [ "/var/lib/pesque" ];
+          settings.blob_upload_limit = "104857600";
         };
       }
     ];
@@ -37,9 +38,12 @@ in
     assert container.serviceName == "pesque";
     assert container.entrypoint == "/app/bin/pesque";
     assert container.user == "33333:33333";
+    assert container.environment.PDS_CONFIG == "/data/pesque.conf";
     assert container.ports == [ "127.0.0.1:4000:4000" ];
     assert builtins.elem "/var/lib/pesque:/data" container.volumes;
     assert builtins.elem "/var/lib/pesque/backups:/backups" container.volumes;
+    assert !(container.environment ? PDS_DATA_DIR);
+    assert !(container.environment ? PDS_SERVE);
     assert config.users.users.pesque.uid == 33333;
     assert config.users.groups.pesque.gid == 33333;
     assert config.systemd.services.pesque-backup.serviceConfig.Type == "oneshot";

@@ -5,7 +5,7 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
   SQLite has one writer. insert/5 opens a transaction, and an argon2 hash is
   tens of milliseconds holding tens of megabytes resident, so hashing inside it
   means every unrelated write on the server queues behind a registration. Under
-  PDS_REGISTRATION=open that is an unauthenticated endpoint serialising the
+  registration = open that is an unauthenticated endpoint serialising the
   whole database.
 
   The second half is the cheaper one to state: a rejected invite code should not

@@ -33,7 +33,7 @@ Em qualquer host Docker, pega o bundle Compose do
 ```bash
 tar -xzf pesque-compose-<version>.tar.gz && cd pesque
 ./pesque init                        # escreve o pesque.conf, cria o backups/
-$EDITOR pesque.conf                  # o domínio que os clientes vão usar
+$EDITOR pesque.conf                  # a URL pública que os clientes vão usar
 docker compose up --detach --wait
 ./pesque account create --handle alice.example.com --email alice@example.com
 ```

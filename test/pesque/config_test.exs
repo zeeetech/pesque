@@ -1,19 +1,20 @@
 defmodule Pesque.ConfigTest do
   @moduledoc """
-  The config file is a small grammar, and the two ways it can be wrong are a
-  typo and a line the parser cannot read. Both have to fail boot rather than be
-  ignored, so they are tested as errors with a line number.
+  The config file is a small grammar, and the ways it can be wrong are a typo,
+  a retired key and a value the server cannot use. All of them fail boot
+  rather than being ignored, so they are tested as errors with a line number.
   """
 
   use ExUnit.Case, async: false
 
   alias Pesque.Config
+  alias Pesque.Did
 
   describe "parse/1" do
     test "reads keys, values, comments and blank lines" do
       text = """
       # a comment
-      hostname = pds.example.com
+      public_url = https://pds.example.com
 
       mode = multi # trailing comment
       port=4000
@@ -22,19 +23,27 @@ defmodule Pesque.ConfigTest do
       assert {:ok, values} = Config.parse(text)
 
       assert values == %{
-               "hostname" => "pds.example.com",
-               "mode" => "multi",
-               "port" => "4000"
+               "public_url" => {"https://pds.example.com", 2},
+               "mode" => {"multi", 4},
+               "port" => {"4000", 5}
              }
     end
 
     test "keeps a value that contains an equals sign" do
-      assert {:ok, %{"plc_directory" => "https://x/?a=b"}} =
+      assert {:ok, %{"plc_directory" => {"https://x/?a=b", 1}}} =
                Config.parse("plc_directory = https://x/?a=b")
     end
 
     test "names the line of an unknown key" do
-      assert {:error, {:unknown_key, "hostnmae", 2}} = Config.parse("port = 1\nhostnmae = x")
+      assert {:error, {:unknown_key, "hostnmae", 2}} =
+               Config.parse("port = 1\nhostnmae = x")
+    end
+
+    test "names the replacement of a retired key" do
+      assert {:error, {:retired_key, "hostname", 2, advice}} =
+               Config.parse("port = 1\nhostname = pds.example.com")
+
+      assert advice =~ "public_url"
     end
 
     test "names the line of a repeated key" do
@@ -42,39 +51,11 @@ defmodule Pesque.ConfigTest do
     end
 
     test "refuses a line with no equals sign" do
-      assert {:error, {:invalid_line, 1}} = Config.parse("hostname pds.example.com")
+      assert {:error, {:invalid_line, 1}} = Config.parse("public_url https://pds.example.com")
     end
 
     test "refuses a key with no value" do
-      assert {:error, {:missing_value, 1}} = Config.parse("hostname =")
-    end
-  end
-
-  describe "get/3" do
-    test "the environment wins over the file, which wins over the default" do
-      System.put_env("PDS_PORT", "9000")
-      on_exit(fn -> System.delete_env("PDS_PORT") end)
-
-      assert Config.get(%{"port" => "8000"}, "port", "4000") == "9000"
-    end
-
-    test "the file wins over the default" do
-      assert Config.get(%{"port" => "8000"}, "port", "4000") == "8000"
-    end
-
-    test "the default is the last word" do
-      assert Config.get(%{}, "port", "4000") == "4000"
-    end
-
-    # resolution/0 reports an empty environment value as unset, and get/3
-    # decides what boot does, so both have to read "" the same way or
-    # `config validate` would lie about the server.
-    test "an empty environment value reads as unset" do
-      System.put_env("PDS_PORT", "")
-      on_exit(fn -> System.delete_env("PDS_PORT") end)
-
-      assert Config.get(%{}, "port", "4000") == "4000"
-      assert Config.get(%{"port" => "8000"}, "port", "4000") == "8000"
+      assert {:error, {:missing_value, 1}} = Config.parse("public_url =")
     end
   end
 
@@ -99,26 +80,183 @@ defmodule Pesque.ConfigTest do
     end
   end
 
+  describe "resolve/2" do
+    test "derives the address, the defaults and the handle domain from public_url" do
+      assert {:ok, settings} = Config.resolve(%{"public_url" => "https://pds.example.com"})
+
+      assert settings.public_url == "https://pds.example.com"
+      assert settings.hostname == "pds.example.com"
+      assert settings.url_scheme == "https"
+      assert settings.url_port == 443
+      assert settings.port == 4000
+      assert settings.mode == :single
+      assert settings.registration == :closed
+      assert settings.handle_domain == "pds.example.com"
+      assert settings.crawler == []
+      assert settings.lexicon_aggregator == nil
+      assert settings.admin_dids == []
+      assert settings.privacy_policy_url == ""
+      assert settings.terms_of_service_url == ""
+    end
+
+    test "keeps the listening port separate from an advertised http port" do
+      assert {:ok, settings} =
+               Config.resolve(%{"public_url" => "http://localhost:4000", "port" => "4000"})
+
+      assert settings.public_url == "http://localhost:4000"
+      assert settings.hostname == "localhost"
+      assert settings.url_scheme == "http"
+      assert settings.url_port == 4000
+      assert settings.port == 4000
+    end
+
+    test "accepts a nonstandard advertised port without moving the listener" do
+      assert {:ok, settings} =
+               Config.resolve(%{
+                 "public_url" => "https://pds.example.com:8443",
+                 "port" => "4000"
+               })
+
+      assert settings.url_port == 8443
+      assert settings.port == 4000
+    end
+
+    test "derives an explicit handle domain and the remaining knobs" do
+      assert {:ok, settings} =
+               Config.resolve(%{
+                 "public_url" => "https://pds.example.com",
+                 "mode" => "multi",
+                 "handle_domain" => "Example.COM",
+                 "registration" => "open",
+                 "crawler" => "https://bsky.network, https://relay.example.com",
+                 "admin_dids" => "did:plc:one, did:plc:two",
+                 "blob_upload_limit" => "1048576",
+                 "repo_import_limit" => "2097152",
+                 "proxy_timeout" => "1000",
+                 "proxy_response_limit" => "2048",
+                 "privacy_policy_url" => "https://example.com/privacy",
+                 "terms_of_service_url" => "https://example.com/terms"
+               })
+
+      assert settings.mode == :multi
+      assert settings.handle_domain == "example.com"
+      assert settings.registration == :open
+      assert settings.crawler == ["https://bsky.network", "https://relay.example.com"]
+      assert settings.admin_dids == ["did:plc:one", "did:plc:two"]
+      assert settings.blob_upload_limit == 1_048_576
+      assert settings.repo_import_limit == 2_097_152
+      assert settings.proxy_timeout == 1000
+      assert settings.proxy_response_limit == 2048
+      assert settings.privacy_policy_url == "https://example.com/privacy"
+      assert settings.terms_of_service_url == "https://example.com/terms"
+    end
+
+    test "uses the development public URL when the file has none" do
+      assert Config.development?()
+      assert {:ok, settings} = Config.resolve(%{})
+      assert settings.public_url == "http://localhost:4000"
+    end
+
+    test "requires public_url in a deployment" do
+      defaults = Map.put(Config.defaults(), "public_url", nil)
+
+      assert {:error, {:missing_setting, "public_url", advice}} =
+               Config.resolve(%{}, defaults)
+
+      assert advice =~ "public_url"
+    end
+
+    test "refuses an origin with a path, query, fragment or credentials" do
+      for public_url <- [
+            "https://pds.example.com/path",
+            "https://pds.example.com?x=1",
+            "https://pds.example.com#fragment",
+            "https://user:pass@pds.example.com",
+            "ftp://pds.example.com",
+            "https:///path"
+          ] do
+        assert {:error, {:invalid_setting, "public_url", ^public_url, _expectation, nil}} =
+                 Config.resolve(%{"public_url" => public_url})
+      end
+    end
+
+    test "refuses invalid port, mode, registration and limits" do
+      assert {:error, {:invalid_setting, "port", "0", _expectation, nil}} =
+               Config.resolve(%{"public_url" => "https://x.test", "port" => "0"})
+
+      assert {:error, {:invalid_setting, "mode", "path_multi", _expectation, nil}} =
+               Config.resolve(%{"public_url" => "https://x.test", "mode" => "path_multi"})
+
+      assert {:error, {:invalid_setting, "registration", "first", _expectation, nil}} =
+               Config.resolve(%{
+                 "public_url" => "https://x.test",
+                 "registration" => "first"
+               })
+
+      assert {:error, {:invalid_setting, "blob_upload_limit", "-1", _expectation, nil}} =
+               Config.resolve(%{"public_url" => "https://x.test", "blob_upload_limit" => "-1"})
+    end
+
+    test "refuses a non-https lexicon aggregator" do
+      assert {:error,
+              {:invalid_setting, "lexicon_aggregator", "http://x.test", _expectation, nil}} =
+               Config.resolve(%{
+                 "public_url" => "https://pds.example.com",
+                 "lexicon_aggregator" => "http://x.test"
+               })
+    end
+
+    # public_url replaces hostname, url_scheme and url_port, but the identity
+    # rules did not move: did:web still derives from the listening port, so a
+    # proxy's nonstandard advertised port does not rewrite the host DID.
+    test "does not change how did:web derives from the host and listening port" do
+      assert {:ok, settings} =
+               Config.resolve(%{
+                 "public_url" => "https://pds.example.com:8443",
+                 "port" => "4000"
+               })
+
+      assert Did.did_for_username(:single, Did.did_host(settings.hostname, settings.port), nil) ==
+               "did:web:pds.example.com"
+
+      assert {:ok, local} =
+               Config.resolve(%{"public_url" => "http://localhost:8080", "port" => "4000"})
+
+      assert Did.did_for_username(:single, Did.did_host(local.hostname, local.port), nil) ==
+               "did:web:localhost%3A4000"
+    end
+  end
+
   describe "validate_env/0" do
-    test "a known config key and the internal variables pass" do
-      System.put_env("PDS_PORT", "9000")
+    test "PDS_CONFIG and the development PLC switch pass" do
       System.put_env("PDS_CONFIG", "somewhere.conf")
-      System.put_env("PDS_PUBLIC_IP", "203.0.113.7")
+      System.put_env("PDS_PLC_LOCAL", "true")
 
       on_exit(fn ->
-        System.delete_env("PDS_PORT")
         System.delete_env("PDS_CONFIG")
-        System.delete_env("PDS_PUBLIC_IP")
+        System.delete_env("PDS_PLC_LOCAL")
       end)
 
       assert Config.validate_env() == :ok
     end
 
-    test "an unknown PDS_ variable fails, naming it" do
-      System.put_env("PDS_HOSTNMAE", "typo.example.com")
-      on_exit(fn -> System.delete_env("PDS_HOSTNMAE") end)
+    test "a per-setting environment variable is refused, naming it" do
+      System.put_env("PDS_HOSTNAME", "pds.example.com")
+      on_exit(fn -> System.delete_env("PDS_HOSTNAME") end)
 
-      assert {:error, {:unknown_env, ["PDS_HOSTNMAE"]}} = Config.validate_env()
+      assert {:error, {:unknown_env, ["PDS_HOSTNAME"]}} = Config.validate_env()
+    end
+
+    test "the retired internal variables are refused too" do
+      System.put_env("PDS_TAG", "1.14.2")
+      System.put_env("PDS_PUBLIC_IP", "203.0.113.7")
+
+      on_exit(fn ->
+        System.delete_env("PDS_TAG")
+        System.delete_env("PDS_PUBLIC_IP")
+      end)
+
+      assert {:error, {:unknown_env, ["PDS_PUBLIC_IP", "PDS_TAG"]}} = Config.validate_env()
     end
 
     test "a typo the file layer would refuse is refused here too" do
@@ -126,13 +264,6 @@ defmodule Pesque.ConfigTest do
       on_exit(fn -> System.delete_env("PDS_NOT_A_REAL_KEY") end)
 
       assert {:error, {:unknown_env, ["PDS_NOT_A_REAL_KEY"]}} = Config.validate_env()
-    end
-
-    test "the retired identity setting is refused rather than read" do
-      System.put_env("PDS_IDENTITY", "plc")
-      on_exit(fn -> System.delete_env("PDS_IDENTITY") end)
-
-      assert {:error, {:unknown_env, ["PDS_IDENTITY"]}} = Config.validate_env()
     end
 
     test "variables of other namespaces are none of this layer's business" do
@@ -144,14 +275,11 @@ defmodule Pesque.ConfigTest do
   end
 
   describe "resolution/0" do
-    test "every key answers with the layer that decided it" do
-      System.put_env("PDS_PORT", "9000")
-      on_exit(fn -> System.delete_env("PDS_PORT") end)
-
+    test "reports effective values with their source, derived values included" do
       path =
         Path.join(System.tmp_dir!(), "pesque-where-#{System.unique_integer([:positive])}.conf")
 
-      File.write!(path, "hostname = file.example.com\n")
+      File.write!(path, "public_url = https://file.example.com\nport = 9000\n")
       on_exit(fn -> File.rm(path) end)
 
       previous = System.get_env("PDS_CONFIG")
@@ -159,9 +287,32 @@ defmodule Pesque.ConfigTest do
       on_exit(fn -> restore_config(previous) end)
 
       assert {:ok, entries} = Config.resolution()
-      assert {"port", {:env, "PDS_PORT", "9000"}} in entries
-      assert {"hostname", {:file, 1, "file.example.com"}} in entries
-      assert {"mode", :default} in entries
+
+      assert {"public_url", "https://file.example.com", {:file, 1}} in entries
+      assert {"port", 9000, {:file, 2}} in entries
+      assert {"hostname", "file.example.com", {:derived, "public_url"}} in entries
+      assert {"url_scheme", "https", {:derived, "public_url"}} in entries
+      assert {"url_port", 443, {:derived, "public_url"}} in entries
+      assert {"mode", :single, :default} in entries
+      assert {"handle_domain", "file.example.com", {:derived, "public_url"}} in entries
+    end
+
+    test "reports a value the runtime would refuse instead of only provenance" do
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "pesque-where-bad-#{System.unique_integer([:positive])}.conf"
+        )
+
+      File.write!(path, "public_url = https://file.example.com\nport = 99999\n")
+      on_exit(fn -> File.rm(path) end)
+
+      previous = System.get_env("PDS_CONFIG")
+      System.put_env("PDS_CONFIG", path)
+      on_exit(fn -> restore_config(previous) end)
+
+      assert {:error, {:invalid_setting, "port", "99999", _expectation, 2}} =
+               Config.resolution()
     end
   end
 
@@ -170,15 +321,9 @@ defmodule Pesque.ConfigTest do
       assert File.read!("pesque.conf.example") == Config.template()
     end
 
-    test "the template's live lines parse as the config they document" do
+    test "the template has one live setting and parses as that setting" do
       assert {:ok, values} = Config.parse(Config.template())
-
-      assert values == %{
-               "hostname" => "pds.example.com",
-               "mode" => "multi",
-               "handle_domain" => "example.com",
-               "registration" => "closed"
-             }
+      assert values == %{"public_url" => {"https://pds.example.com", 4}}
     end
   end
 

@@ -78,10 +78,10 @@ defmodule Pesque.Doctor do
   defp hint(:warn, "dns"), do: "add an A record before going live"
 
   defp hint(:fail, "describeServer"),
-    do: "check the proxy forwards to the server and that PDS_HOSTNAME is the domain clients use"
+    do: "check the proxy forwards to the server and that public_url is the origin clients use"
 
   defp hint(:fail, "did document"),
-    do: "the domain publishes a different key; restart the server and check PDS_HOSTNAME"
+    do: "the domain publishes a different key; restart the server and check public_url"
 
   defp hint(:fail, "handle"),
     do:
@@ -89,7 +89,7 @@ defmodule Pesque.Doctor do
 
   defp hint(:warn, "relay"),
     do:
-      "check that a relay can reach this server (proxy, firewall) and that PDS_CRAWLER is set, " <>
+      "check that a relay can reach this server (proxy, firewall) and that crawler is set, " <>
         "then restart to ask it to crawl again"
 
   defp hint(_status, _title), do: nil
@@ -119,11 +119,10 @@ defmodule Pesque.Doctor do
 
     case File.read(path) do
       {:ok, _text} ->
-        {:ok, "config file", "#{path} is read; settings there win over the defaults"}
+        {:ok, "config file", "#{path} is read; settings there are the server configuration"}
 
       {:error, :enoent} ->
-        {:ok, "config file",
-         "no file at #{path}; settings come from the environment and defaults"}
+        {:ok, "config file", "no file at #{path}; only the built-in defaults apply"}
 
       {:error, reason} ->
         {:warn, "config file", "cannot read #{path}: #{inspect(reason)}"}
