@@ -64,7 +64,7 @@ pesque logs -f         # acompanhar os logs do servidor
 `account create` e `migrate` perguntam a senha com echo desligado, ou leem do
 stdin (`echo secret | pesque ...`), então ela nunca cai no histórico do shell
 nem no ambiente. Docker cru, release, TLS e todas as opções de configuração
-estão no [guia de instalação](docs/guides/installation.md).
+estão no [guia de instalação](docs/installation.md).
 
 ## Rodando da fonte
 
@@ -98,11 +98,8 @@ assina a mudança) e consentimento granular no OAuth.
 
 ## Guias
 
-- [Instalação](docs/guides/installation.md) - local, Docker, release, TLS, primeira conta
-- [Identidade](docs/guides/identity.md) - DIDs, handles, os dois modos, quando a federação quebra
-- [Operação](docs/guides/operations.md) - backup, upgrade, limites, o que seus dados expõem
-- [Migração](docs/guides/migration.md) - mover uma conta existente pra este servidor
-- [Arquitetura](docs/reference/architecture.md) - mapa dos módulos, caminho da escrita, layout de storage
+- [Instalação](docs/installation.md) - local, Docker, release, TLS, primeira conta
+- [Operação](docs/operations.md) - backup, upgrade, limites, o que seus dados expõem
 
 Os guias são só em inglês. Este README tem espelho em
 [English](README.md).
@@ -117,13 +114,13 @@ Os guias são só em inglês. Este README tem espelho em
   pede a senha com echo desligado.
 - **Como faço backup e restauro?** `pesque backup [--out DIR]` roda com o
   servidor no ar; `pesque restore ARQUIVO.tar.gz` pede o servidor parado.
-  [Operação](docs/guides/operations.md) tem o cronograma e os riscos.
+  [Operação](docs/operations.md) tem o cronograma e os riscos.
 - **Como atualizo?** `pesque update` puxa uma imagem nova e recria o container
   (backend docker, só manual); no systemd tu atualiza a release por conta
   própria.
 - **Como movo uma conta pra cá?** `pesque migrate --old-pds https://bsky.social
   --handle alice.example.com --email alice@example.com`; a mudança é uma via.
-  [Migração](docs/guides/migration.md) tem a dança completa.
+  [Operação](docs/operations.md) tem a dança completa.
 - **Como movo uma conta pra fora?** Ainda não dá: este PDS não assina a
   mudança (`signPlcOperation`).
 - **Como aceito registros de coleção de outro app?** Já aceita. Uma coleção pra
@@ -135,8 +132,8 @@ Os guias são só em inglês. Este README tem espelho em
   namespaces, e um permission set do OAuth que o servidor não embarca é buscado
   pelo agregador (`PDS_LEXICON_AGGREGATOR`).
 - **Onde fica o código?** Aqui. As primitivas de protocolo moram em
-  `lib/pesque` de propósito; [Arquitetura](docs/reference/architecture.md) é o
-  mapa.
+  `lib/pesque` de propósito; o [CONTRIBUTING.md](CONTRIBUTING.md) mapeia as
+  camadas.
 
 ## Contribuindo
 

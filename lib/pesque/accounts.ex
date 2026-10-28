@@ -1536,7 +1536,7 @@ defmodule Pesque.Accounts do
   # Multi accounts are always did:plc, so the DID is nil until the mint fills
   # it in. A request for did:web under multi is refused: multi-user did:web
   # needs a subdomain DID per account, a distinct topology this server does not
-  # serve (see docs/reference/identity-refactor.md, "Deferred").
+  # serve.
   defp multi_account(handle, :web), do: multi_web_refusal(handle)
 
   defp multi_account(handle, :plc) do

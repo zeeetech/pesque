@@ -2,17 +2,17 @@ defmodule Pesque.Migrate do
   @moduledoc """
   Moving an existing ATProto account onto this server.
 
-  This automates the scriptable half of `docs/guides/migration.md`. The task
-  runs on the new server, so the new-server half goes through the domain
-  modules directly: the account row, the repo, the blobs, the keys and the PLC
-  submission all happen here. Only the old PDS is spoken to over HTTP, through
-  the `Pesque.Migrate.OldPds` client.
+  This automates the scriptable half of the move in `docs/operations.md`
+  ("Moving an account in"). The task runs on the new server, so the new-server
+  half goes through the domain modules directly: the account row, the repo,
+  the blobs, the keys and the PLC submission all happen here. Only the old
+  PDS is spoken to over HTTP, through the `Pesque.Migrate.OldPds` client.
 
   The signing stays with the old PDS: it holds the rotation key, so it signs
   the operation that carries the recommended credentials, and this side
   submits it. On `bsky.social` the old PDS emails a code to the account
   holder; on a pesque old PDS the code is surfaced to that server's operator
-  instead (see `docs/guides/operations.md`).
+  instead (see `docs/operations.md`).
   """
 
   alias Pesque.Accounts

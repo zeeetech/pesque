@@ -64,7 +64,7 @@ pesque logs -f         # follow the server logs
 `account create` and `migrate` prompt for the password with echo off, or read
 it from stdin (`echo secret | pesque ...`), so it never lands in your shell
 history or the environment. Raw Docker, releases, TLS and every configuration
-knob are in the [installation guide](docs/guides/installation.md).
+knob are in the [installation guide](docs/installation.md).
 
 ## Run it from source
 
@@ -102,11 +102,8 @@ old PDS signs the move), and granular OAuth consent.
 
 ## Guides
 
-- [Installation](docs/guides/installation.md) - local, Docker, release, TLS, first account
-- [Identity](docs/guides/identity.md) - DIDs, handles, the two modes, when federation breaks
-- [Operations](docs/guides/operations.md) - backup, upgrades, limits, what your data exposes
-- [Migration](docs/guides/migration.md) - moving an existing account onto this server
-- [Architecture](docs/reference/architecture.md) - module map, the write path, storage layout
+- [Installation](docs/installation.md) - local, Docker, release, TLS, first account
+- [Operations](docs/operations.md) - backup, upgrades, limits, what your data exposes
 
 The guides are English only. This README is mirrored in
 [Português (BR)](README.pt-BR.md).
@@ -121,13 +118,13 @@ The guides are English only. This README is mirrored in
   it prompts for the password with echo off.
 - **How do I back up and restore?** `pesque backup [--out DIR]` runs with the
   server up; `pesque restore ARCHIVE.tar.gz` is cold, stop the server first.
-  [Operations](docs/guides/operations.md) has the schedule and the hazards.
+  [Operations](docs/operations.md) has the schedule and the hazards.
 - **How do I update?** `pesque update` pulls a new image and recreates the
   container (docker backend, manual only); on systemd you upgrade the release
   yourself.
 - **How do I move an account in?**
   `pesque migrate --old-pds https://bsky.social --handle alice.example.com
-  --email alice@example.com`; the move is one-way. [Migration](docs/guides/migration.md)
+  --email alice@example.com`; the move is one-way. [Operations](docs/operations.md)
   has the full dance.
 - **How do I move an account out?** Not implemented yet: this PDS can't sign
   the move (`signPlcOperation`).
@@ -140,7 +137,7 @@ The guides are English only. This README is mirrored in
   permission set this server does not ship is fetched through the aggregator
   (`PDS_LEXICON_AGGREGATOR`).
 - **Where is the code?** Here. The protocol primitives live in `lib/pesque` on
-  purpose; [Architecture](docs/reference/architecture.md) is the map.
+  purpose; [CONTRIBUTING.md](CONTRIBUTING.md) maps the layers.
 
 ## Contributing
 
