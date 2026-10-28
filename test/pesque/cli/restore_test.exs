@@ -91,7 +91,10 @@ defmodule Pesque.Cli.RestoreTest do
     Application.delete_env(:pesque, :operator_boot)
     on_exit(fn -> restore_operator_boot(previous) end)
 
-    assert :ok = Restore.run(["--dry-run", "--archive", archive])
+    ExUnit.CaptureIO.capture_io(fn ->
+      assert :ok = Restore.run(["--dry-run", "--archive", archive])
+    end)
+
     assert Application.get_env(:pesque, :operator_boot) == nil
   end
 
