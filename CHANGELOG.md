@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.1](https://github.com/zeeetech/pesque/compare/pesque-v1.15.0...pesque-v1.15.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **release:** copy the config example into the compose bundle ([2d4f33d](https://github.com/zeeetech/pesque/commit/2d4f33dd441ec2d53333181d142bc86730109c10))
+
 ## [1.15.0](https://github.com/zeeetech/pesque/compare/pesque-v1.14.1...pesque-v1.15.0) (2026-10-28)
 
 
