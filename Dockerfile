@@ -1,5 +1,7 @@
+ARG TARGETPLATFORM
+
 # Build stage: compiles deps and the OTP release.
-FROM hexpm/elixir:1.20.4-erlang-29.1.1-alpine-3.21.8 AS build
+FROM --platform=$TARGETPLATFORM hexpm/elixir:1.20.4-erlang-29.1.1-alpine-3.21.8 AS build
 
 RUN apk add --no-cache build-base git
 
@@ -22,7 +24,7 @@ RUN mix compile
 RUN mix release
 
 # Runtime stage: the release bundles ERTS, so only C libs are needed.
-FROM alpine:3.21.8
+FROM --platform=$TARGETPLATFORM alpine:3.21.8
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs sqlite-libs ca-certificates gcompat
 
