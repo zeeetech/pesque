@@ -27,7 +27,6 @@ usage: ./pesque <command> [arguments]
   init                              copy the config example without overwriting files
   backup [--out /backups]           write an archive under ./backups
   restore ARCHIVE_NAME [--dry-run]  restore a file from ./backups while cold
-  config template [--out PATH]      copy or print the generated application config
   <domain command>                  run a Pesque release command
 
 Lifecycle uses Docker Compose directly:
@@ -69,40 +68,21 @@ init() {
   mkdir -p "$backup_dir" || die 3 "could not create $backup_dir"
 }
 
-config_template() {
-  [ -f "$example_file" ] || die 3 "missing bundled config example: $example_file"
-  if [ "$#" -eq 0 ]; then
-    cat "$example_file"
-    return
+run_compose() {
+  if [ -t 0 ] && [ -t 1 ]; then
+    set -- -it "$@"
+  else
+    set -- -i "$@"
   fi
-  if [ "$#" -eq 1 ] && { [ "$1" = --help ] || [ "$1" = -h ]; }; then
-    printf 'usage: ./pesque config template [--out PATH]\n'
-    return
-  fi
-  if [ "$#" -ne 2 ] || [ "$1" != --out ]; then
-    die 2 "usage: ./pesque config template [--out PATH]"
-  fi
-  [ ! -e "$2" ] || die 1 "refusing to overwrite $2"
-  cp "$example_file" "$2" || die 3 "could not write $2"
-  printf 'wrote %s\n' "$2"
+  compose run --rm --no-deps "$@"
 }
 
-run_once() {
-  if [ -t 0 ] && [ -t 1 ]; then
-    compose run --rm --no-deps -it pesque "$@"
-  else
-    compose run --rm --no-deps -i pesque "$@"
-  fi
-}
+run_once() { run_compose pesque "$@"; }
 
 run_with_env() {
   key=$1
   shift
-  if [ -t 0 ] && [ -t 1 ]; then
-    compose run --rm --no-deps -it -e "$key" pesque "$@"
-  else
-    compose run --rm --no-deps -i -e "$key" pesque "$@"
-  fi
+  run_compose -e "$key" pesque "$@"
 }
 
 run_domain() {
@@ -133,17 +113,22 @@ run_domain() {
 }
 
 prepare_backup_directory() {
-  # The command runs inside the container.
-  # shellcheck disable=SC2016
+  probe=.pesque-write-test.$$
   if compose run --rm --no-deps --entrypoint /bin/sh pesque \
-    -c 'probe=$(mktemp /backups/.pesque-write-test.XXXXXX) && rm "$probe"'; then
+    -c "touch /backups/$probe && rm /backups/$probe"; then
     return
   fi
 
-  # Only this bind mount is changed; the server and release commands stay non-root.
+  host_gid=$(id -g)
+  case "$host_gid" in
+    '' | *[!0-9]*) die 3 "could not determine the host GID for the backup directory" ;;
+  esac
+
+  # Owner stays the container user; the operator's host group can list and
+  # read archives, including files inherited through the setgid bit.
   compose run --rm --no-deps --user 0 --entrypoint /bin/sh pesque \
-    -c 'chown pesque:pesque /backups && chmod 0700 /backups' ||
-    die 3 "could not prepare backup directory ownership for the pesque container user"
+    -c "chown pesque:$host_gid /backups && chmod 2770 /backups" ||
+    die 3 "could not prepare backup directory ownership for container user and host group $host_gid"
 }
 
 backup() {
@@ -188,14 +173,18 @@ restore() {
   need_deployment
   need_docker
 
-  if [ "$dry_run" -eq 0 ] && [ -n "$(compose ps --quiet pesque)" ]; then
-    die 3 "the Compose service is running; stop it with 'docker compose stop pesque' before restore"
-  fi
-
-  if [ "$dry_run" -eq 1 ]; then
-    run_once eval 'Pesque.Cli.main()' restore --dry-run "/backups/$archive"
-  else
+  if [ "$dry_run" -eq 0 ]; then
+    if ! running=$(compose ps --quiet pesque); then
+      die 3 "could not query the Compose service state; restore was not run"
+    fi
+    case "$running" in
+      '') ;;
+      *"$newline"*) die 3 "unexpected Compose service state; restore was not run" ;;
+      *) die 3 "the Compose service is running; stop it with 'docker compose stop pesque' before restore" ;;
+    esac
     run_once eval 'Pesque.Cli.main()' restore "/backups/$archive"
+  else
+    run_once eval 'Pesque.Cli.main()' restore --dry-run "/backups/$archive"
   fi
 }
 
@@ -209,14 +198,6 @@ main() {
     init)
       [ "$#" -eq 0 ] || die 2 "usage: ./pesque init"
       init
-      ;;
-    config)
-      if [ "${1:-}" = template ]; then
-        shift
-        config_template "$@"
-      else
-        run_domain config "$@"
-      fi
       ;;
     backup) backup "$@" ;;
     restore) restore "$@" ;;
