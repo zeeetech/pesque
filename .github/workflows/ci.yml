@@ -21,8 +21,8 @@ jobs:
       pull-requests: read
     outputs:
       elixir: ${{ steps.filter.outputs.elixir }}
-      zig: ${{ steps.filter.outputs.zig }}
       distribution: ${{ steps.filter.outputs.distribution }}
+      nix: ${{ steps.filter.outputs.nix }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -37,12 +37,6 @@ jobs:
               - 'mix.exs'
               - 'mix.lock'
               - '.formatter.exs'
-              - 'flake.nix'
-              - 'flake.lock'
-              - 'nix/**'
-              - '.github/workflows/ci.yml'
-            zig:
-              - 'cli/**'
               - '.github/workflows/ci.yml'
             distribution:
               - 'deploy/compose/**'
@@ -51,6 +45,11 @@ jobs:
               - 'pesque.conf.example'
               - '.github/workflows/ci.yml'
               - '.github/workflows/release.yml'
+            nix:
+              - 'nix/**'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/ci.yml'
 
   precommit:
     name: Elixir 1.20.4 / OTP 29.1.1
@@ -91,110 +90,6 @@ jobs:
       - name: Run precommit
         run: mix precommit
 
-  zig:
-    name: Zig CLI
-    needs: changes
-    if: needs.changes.outputs.zig == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cli
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read the pinned Zig version
-        id: zig-version
-        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache the Zig toolchain
-        id: zig-toolchain
-        uses: actions/cache@v4
-        with:
-          path: ~/zig-toolchain
-          key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
-
-      - name: Install Zig
-        if: steps.zig-toolchain.outputs.cache-hit != 'true'
-        run: |
-          version="${{ steps.zig-version.outputs.version }}"
-          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
-          mkdir -p "$HOME/zig-toolchain"
-          tar -xf /tmp/zig.tar.xz --strip-components=1 -C "$HOME/zig-toolchain"
-
-      - name: Add Zig to PATH
-        run: echo "$HOME/zig-toolchain" >> "$GITHUB_PATH"
-
-      - name: Cache the build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            .zig-cache
-            zig-out
-          key: zig-build-${{ runner.os }}-${{ steps.zig-version.outputs.version }}-${{ hashFiles('cli/build.zig', 'cli/build.zig.zon', 'cli/root.zig', 'cli/src/**/*.zig') }}
-          restore-keys: |
-            zig-build-${{ runner.os }}-${{ steps.zig-version.outputs.version }}-
-
-      - name: Check formatting
-        run: zig fmt --check .
-
-      - name: Run tests
-        run: zig build test
-
-  zig-cross:
-    name: Zig cross-build (${{ matrix.target }})
-    needs: changes
-    if: needs.changes.outputs.zig == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-linux-musl
-          - aarch64-linux-musl
-          - x86_64-macos
-          - aarch64-macos
-          - x86_64-windows-gnu
-    defaults:
-      run:
-        working-directory: cli
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Read the pinned Zig version
-        id: zig-version
-        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore the Zig toolchain
-        id: zig-toolchain
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/zig-toolchain
-          key: zig-${{ runner.os }}-${{ steps.zig-version.outputs.version }}
-
-      - name: Install Zig
-        if: steps.zig-toolchain.outputs.cache-hit != 'true'
-        run: |
-          version="${{ steps.zig-version.outputs.version }}"
-          curl -fsSL "https://ziglang.org/download/${version}/zig-x86_64-linux-${version}.tar.xz" -o /tmp/zig.tar.xz
-          mkdir -p "$HOME/zig-toolchain"
-          tar -xf /tmp/zig.tar.xz --strip-components=1 -C "$HOME/zig-toolchain"
-
-      - name: Add Zig to PATH
-        run: echo "$HOME/zig-toolchain" >> "$GITHUB_PATH"
-
-      - name: Cache the build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            .zig-cache
-            zig-out
-          key: zig-build-${{ runner.os }}-${{ matrix.target }}-${{ steps.zig-version.outputs.version }}-${{ hashFiles('cli/build.zig', 'cli/build.zig.zon', 'cli/root.zig', 'cli/src/**/*.zig') }}
-          restore-keys: |
-            zig-build-${{ runner.os }}-${{ matrix.target }}-${{ steps.zig-version.outputs.version }}-
-
-      - name: Build
-        run: zig build -Dtarget=${{ matrix.target }} -Doptimize=ReleaseSafe
-
   compose-bundle:
     name: Compose deployment bundle
     needs: changes
@@ -226,3 +121,32 @@ jobs:
       # Only this host-side harness is elevated; the application stays non-root.
       - name: Build and exercise the real image
         run: sudo --preserve-env=GITHUB_RUN_ID deploy/compose/smoke.sh
+
+  nix-module:
+    name: NixOS module
+    needs: changes
+    if: needs.changes.outputs.nix == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Evaluate the module and build its wrapper
+        run: |
+          set -eu
+          expr='
+            let
+              flake = builtins.getFlake (toString ./.);
+              check = import ./nix/module-check.nix {
+                nixpkgs = flake.inputs.nixpkgs;
+                module = flake.nixosModules.pesque;
+              };
+            in
+          '
+          nix eval --raw --impure --expr "$expr check.result"
+          wrapper=$(nix build --no-link --print-out-paths --impure --expr "$expr check.wrapper")
+          "$wrapper/bin/pesque" --help >/dev/null
