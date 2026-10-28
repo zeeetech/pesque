@@ -25,8 +25,7 @@ The name sounds like PDS and means "go fish" in Portuguese.
 
 ## Deploy it
 
-Two supported paths, both running the same pinned OCI image. On any Docker
-host, get the Compose bundle from the
+On any Docker host, get the Compose bundle from the
 [latest release](https://github.com/zeeetech/pesque/releases/latest) (verify
 it against `SHA256SUMS`), then:
 
@@ -44,9 +43,7 @@ On NixOS, the flake's module runs the same image under systemd:
 There is no setup wizard and no TLS in the box: the reverse proxy and its
 certificates are the operator's job. Point the proxy at the published port
 (`127.0.0.1:4000` by default) and add the DNS records yourself. Lifecycle is
-Docker Compose (or `systemctl`); the `pesque` command, a short shell script
-on Docker and a configured command on NixOS, runs everything that touches
-the data directly, and updates are manual.
+Docker Compose (or `systemctl`); the `pesque` command, runs everything that touches the data directly, and updates are manual.
 
 After the first account:
 
@@ -81,8 +78,6 @@ mix run -e 'Pesque.Cli.main()' account create --handle alice.example.com --email
 The verb boots the whole application, endpoint included, runs, and exits.
 Migrations run on boot and `_health` reads the users table, so a server
 whose migrations never ran answers `503` instead of a cheerful ok.
-
-Not implemented yet: granular OAuth consent.
 
 ## Guides
 

@@ -16,8 +16,11 @@ The flake ships a devshell with the same toolchain: `nix develop`.
 ## The gate
 
 `mix precommit` before every push. It compiles with `--warnings-as-errors`,
-checks formatting, and runs the tests. CI runs the same `mix precommit` on
-Elixir 1.20 / OTP 29, so a red check means the local gate was skipped.
+checks formatting, checks the gettext catalog against the compiled call
+sites, and runs the tests. CI runs the same `mix precommit` on Elixir
+1.20 / OTP 29; changes under `deploy/`, `docker/` or `nix/` additionally
+smoke the Compose bundle against the real image and evaluate the NixOS
+module. A red check means the local gate was skipped.
 
 ## Conventions before reading the code
 
@@ -31,11 +34,14 @@ Elixir 1.20 / OTP 29, so a red check means the local gate was skipped.
   serialize through it, which is the consistency model a PDS actually needs.
 - Domain reasons are tagged tuples. `PesqueWeb.Xrpc.Errors` is the only place one
   becomes a status and a message.
-- The operator surface is driver over verbs: the host-side CLI (`cli/`, Zig)
-  implements the `Pesque.Ops` contract and owns the lifecycle; the verbs
-  (`Pesque.Cli`) run inside the release through `bin/pesque` and answer tagged
-  tuples. The driver reads exit codes (0 ok, 1 domain failure, 2 usage, 3
-  driver/env), never verb stdout.
+- The operator surface is verbs plus two thin adapters. The verbs
+  (`Pesque.Cli`) run inside the release through `bin/pesque` and answer
+  tagged tuples; the entry halts 0 ok, 1 domain failure, 2 usage. The host
+  adapters (`deploy/compose/pesque`, `nix/operator.sh`) are POSIX shell:
+  they own the backup directory and the cold-restore precondition, forward
+  every domain verb to the release, and never re-implement domain logic or
+  parse verb output. Lifecycle belongs to Docker Compose and systemd, not to
+  Pesque code.
 
 The code is the source of truth. Where these docs disagree with it, the code
 wins.

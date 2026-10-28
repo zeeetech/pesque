@@ -26,8 +26,7 @@ O nome parece PDS e significa "vai pescar" em português.
 
 ## Faz o deploy
 
-Dois caminhos suportados, ambos rodando a mesma imagem OCI pinada. Em
-qualquer host Docker, pega o bundle Compose do
+Em qualquer host Docker, pega o bundle Compose do
 [release mais novo](https://github.com/zeeetech/pesque/releases/latest)
 (verifica contra o `SHA256SUMS`) e:
 
@@ -46,8 +45,7 @@ Não tem wizard de setup nem TLS na caixa: o reverse proxy e os certificados
 são responsabilidade de quem opera. Aponta o proxy pra porta publicada
 (`127.0.0.1:4000` por padrão) e adiciona os registros de DNS por conta
 própria. O ciclo de vida é o Docker Compose (ou `systemctl`); o comando
-`pesque`, um script de shell curto no Docker e um comando configurado no
-NixOS, roda tudo que toca nos dados diretamente, e atualização é manual.
+`pesque`, roda tudo que toca nos dados diretamente, e atualização é manual.
 
 Depois da primeira conta:
 
