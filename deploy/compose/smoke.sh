@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo=$(CDPATH= cd -P "$(dirname "$0")/../.." && pwd)
+repo=$(CDPATH='' cd -P "$(dirname "$0")/../.." && pwd)
 work=$(mktemp -d "$repo/.compose-smoke.XXXXXX")
 cleanup() {
   status=$?
@@ -20,7 +20,7 @@ trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-work=$(CDPATH= cd -P "$work" && pwd)
+work=$(CDPATH='' cd -P "$work" && pwd)
 
 run_id=${GITHUB_RUN_ID:-local}-$$
 image="ghcr.io/zeeetech/pesque:ci-$run_id"
@@ -40,8 +40,7 @@ chmod 755 "$bundle/pesque"
 
 "$bundle/pesque" init
 printf 'port = 4567\n' >>"$bundle/pesque.conf"
-"$bundle/pesque" up
-"$bundle/pesque" health
+compose up --detach --wait --wait-timeout 60
 "$bundle/pesque" config validate
 "$bundle/pesque" backup
 
@@ -51,16 +50,34 @@ tar -tzf "$1" >/dev/null
 archive=${1##*/}
 
 "$bundle/pesque" restore "$archive" --dry-run
-"$bundle/pesque" restore "$archive"
-"$bundle/pesque" health
+if "$bundle/pesque" restore "$archive"; then
+  printf 'error: restore ran while the service was active\n' >&2
+  exit 1
+fi
+[ -n "$(compose ps --quiet pesque)" ] || {
+  printf 'error: refused restore stopped the service\n' >&2
+  exit 1
+}
 
-# This refusal is expected; it must leave the previously running service cold.
+compose stop pesque
+"$bundle/pesque" restore "$archive"
+[ -z "$(compose ps --quiet pesque)" ] || {
+  printf 'error: restore started the service\n' >&2
+  exit 1
+}
+
+compose up --detach --wait --wait-timeout 60
+compose stop pesque
+
+# This refusal is expected; it must leave the stopped service stopped.
 printf 'not a Pesque backup\n' >"$bundle/backups/invalid.tar.gz"
 if "$bundle/pesque" restore invalid.tar.gz; then
   printf 'error: invalid restore unexpectedly succeeded\n' >&2
   exit 1
 fi
-running=$(compose ps --quiet pesque)
-[ -z "$running" ] || { printf 'error: refused restore left the service running\n' >&2; exit 1; }
+[ -z "$(compose ps --quiet pesque)" ] || {
+  printf 'error: refused restore started the service\n' >&2
+  exit 1
+}
 
 printf 'Compose image smoke test passed\n'

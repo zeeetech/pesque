@@ -1,8 +1,9 @@
 #!/bin/sh
-# Local host adapter for the versioned Compose deployment bundle.
+# Host adapter for the versioned Compose deployment bundle. Docker Compose owns
+# lifecycle; this command forwards domain work and enforces cold restore.
 set -eu
 
-root=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+root=$(CDPATH='' cd -P "$(dirname "$0")" && pwd)
 compose_file=$root/compose.yaml
 config_file=$root/pesque.conf
 example_file=$root/pesque.conf.example
@@ -24,16 +25,14 @@ usage() {
 usage: ./pesque <command> [arguments]
 
   init                              copy the config example without overwriting files
-  up | down | restart               manage this Compose service
-  logs [-f] [--tail N]              show service logs
-  health                            wait up to 60 seconds for a healthy service
-  update VERSION                    back up, select a version, and check readiness
   backup [--out /backups]           write an archive under ./backups
   restore ARCHIVE_NAME [--dry-run]  restore a file from ./backups while cold
   config template [--out PATH]      copy or print the generated application config
   <domain command>                  run a Pesque release command
 
-Requires Docker Engine and Docker Compose v2.17 or newer.
+Lifecycle uses Docker Compose directly:
+  docker compose up --detach --wait
+  docker compose stop pesque
 USAGE
 }
 
@@ -43,140 +42,14 @@ compose() {
 
 need_docker() {
   command -v docker >/dev/null 2>&1 || die 3 "docker is required for this deployment"
-  docker compose version >/dev/null 2>&1 || die 3 "Docker Compose v2.17 or newer is required"
+  docker compose version >/dev/null 2>&1 || die 3 "Docker Compose v2 is required"
   docker info >/dev/null 2>&1 || die 3 "the Docker daemon is not running"
 }
 
-need_compose() {
-  [ -f "$compose_file" ] || die 3 "missing Compose definition: $compose_file"
-}
-
 need_deployment() {
-  need_compose
+  [ -f "$compose_file" ] || die 3 "missing Compose definition: $compose_file"
   [ -f "$config_file" ] || die 3 "missing $config_file; run './pesque init' and edit it first"
   [ -d "$backup_dir" ] || die 3 "missing $backup_dir; run './pesque init' first"
-}
-
-configured_image() {
-  if ! images=$(compose config --images); then
-    die 3 "Compose could not resolve the configured image"
-  fi
-  case "$images" in
-    '' | *"$newline"*) die 3 "expected exactly one image from the Compose service" ;;
-  esac
-  image=$images
-  case "$image" in
-    ghcr.io/zeeetech/pesque:*)
-      tag=${image##*:}
-      case "$tag" in '' | *[!A-Za-z0-9._-]*) die 3 "invalid image tag in $compose_file: $tag" ;; esac
-      printf '%s\n' "$image"
-      ;;
-    *) die 3 "unsupported or invalid image entry in $compose_file: $image" ;;
-  esac
-}
-
-service_container() {
-  if ! id=$(compose ps --all --quiet pesque); then
-    die 3 "could not inspect the Compose service"
-  fi
-  case "$id" in
-    *"$newline"*) die 3 "expected one Pesque service container" ;;
-  esac
-  printf '%s\n' "$id"
-}
-
-running_container() {
-  if ! id=$(compose ps --quiet pesque); then
-    die 3 "could not inspect the running Compose service"
-  fi
-  case "$id" in
-    *"$newline"*) die 3 "expected one running Pesque service container" ;;
-  esac
-  printf '%s\n' "$id"
-}
-
-managed_data_mount() {
-  id=$(service_container)
-  if [ -z "$id" ]; then
-    # The bundled definition uses this stable name before a container exists.
-    printf 'pesque-data\n'
-    return
-  fi
-  if ! mount=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{if .Name}}{{.Name}}{{else}}{{.Source}}{{end}}{{end}}{{end}}' "$id"); then
-    die 3 "could not inspect the service data mount"
-  fi
-  case "$mount" in
-    '' | *"$newline"*) die 3 "expected one managed data mount at /data" ;;
-  esac
-  printf '%s\n' "$mount"
-}
-
-assert_image_matches() {
-  id=$(service_container)
-  [ -n "$id" ] || return 0
-  if ! actual=$(docker inspect --format '{{.Config.Image}}' "$id"); then
-    die 3 "could not inspect the Pesque container image"
-  fi
-  expected=$(configured_image)
-  [ "$actual" = "$expected" ] ||
-    die 3 "the selected Compose image differs from the existing container; use './pesque update VERSION'"
-}
-
-assert_no_other_writers() {
-  allowed=${1:-}
-  allowed_short_id=$(printf '%.12s' "$allowed")
-  mount=$(managed_data_mount)
-  if ! ids=$(docker ps --quiet --filter "volume=$mount"); then
-    die 3 "could not check which containers use managed data mount '$mount'"
-  fi
-
-  # This finds containers sharing the mount, not arbitrary native processes.
-  for id in $ids; do
-    short_id=$(printf '%.12s' "$id")
-    if [ -z "$allowed" ] || [ "$short_id" != "$allowed_short_id" ]; then
-      die 3 "another running container uses managed data mount '$mount'; stop it before continuing"
-    fi
-  done
-}
-
-preflight() {
-  need_deployment
-  need_docker
-  compose config --quiet || die 3 "invalid Compose definition"
-  assert_image_matches
-  running=$(running_container)
-  assert_no_other_writers "$running"
-}
-
-wait_healthy() {
-  attempt=0
-  while [ "$attempt" -lt 30 ]; do
-    if ! id=$(running_container); then return 1; fi
-    if [ -n "$id" ]; then
-      if ! state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id"); then
-        return 1
-      fi
-      case "$state" in
-        healthy) return 0 ;;
-        unhealthy | none) return 1 ;;
-        starting) ;;
-        *) return 1 ;;
-      esac
-    fi
-    attempt=$((attempt + 1))
-    sleep 2
-  done
-  return 1
-}
-
-start_service() {
-  compose up --detach --wait --wait-timeout 60 --no-deps "$@" pesque
-}
-
-stop_after_failed_start() {
-  compose stop --timeout 30 pesque >/dev/null 2>&1 || true
-  if ! still_running=$(running_container); then return 1; fi
-  [ -z "$still_running" ]
 }
 
 copy_if_missing() {
@@ -216,41 +89,54 @@ config_template() {
 
 run_once() {
   if [ -t 0 ] && [ -t 1 ]; then
-    compose run --rm --no-deps -it "$@"
+    compose run --rm --no-deps -it pesque "$@"
   else
-    compose run --rm --no-deps -i "$@"
+    compose run --rm --no-deps -i pesque "$@"
+  fi
+}
+
+run_with_env() {
+  key=$1
+  shift
+  if [ -t 0 ] && [ -t 1 ]; then
+    compose run --rm --no-deps -it -e "$key" pesque "$@"
+  else
+    compose run --rm --no-deps -i -e "$key" pesque "$@"
   fi
 }
 
 run_domain() {
   verb=$1
   shift
-  preflight
+  need_deployment
+  need_docker
 
   case "$verb" in
     migrate)
       if [ "${MIGRATE_PLC_TOKEN+x}" = x ]; then
-        run_once -e MIGRATE_PLC_TOKEN pesque migrate "$@"
+        run_with_env MIGRATE_PLC_TOKEN eval 'Pesque.Cli.main()' migrate "$@"
       else
-        run_once pesque migrate "$@"
+        run_once eval 'Pesque.Cli.main()' migrate "$@"
       fi
       ;;
     account)
-      if [ "${1:-}" = create ] && [ "${PDS_PUBLIC_IP+x}" = x ]; then
-        run_once -e PDS_PUBLIC_IP pesque account "$@"
+      if [ "${PDS_PUBLIC_IP+x}" = x ]; then
+        run_with_env PDS_PUBLIC_IP eval 'Pesque.Cli.main()' account "$@"
       else
-        run_once pesque account "$@"
+        run_once eval 'Pesque.Cli.main()' account "$@"
       fi
       ;;
     *)
-      run_once pesque "$verb" "$@"
+      run_once eval 'Pesque.Cli.main()' "$verb" "$@"
       ;;
   esac
 }
 
 prepare_backup_directory() {
+  # The command runs inside the container.
+  # shellcheck disable=SC2016
   if compose run --rm --no-deps --entrypoint /bin/sh pesque \
-    -c 'touch /backups/.pesque-write-test && rm /backups/.pesque-write-test'; then
+    -c 'probe=$(mktemp /backups/.pesque-write-test.XXXXXX) && rm "$probe"'; then
     return
   fi
 
@@ -269,10 +155,11 @@ backup() {
     die 2 "the Compose bundle writes backups only to /backups (host path: $backup_dir)"
   fi
 
-  preflight
+  need_deployment
+  need_docker
   prepare_backup_directory
   printf 'Backups: %s on host, /backups in container\n' "$backup_dir"
-  run_once pesque backup --out /backups
+  run_once eval 'Pesque.Cli.main()' backup --out /backups
 }
 
 restore() {
@@ -297,101 +184,18 @@ restore() {
       ;;
   esac
   [ -f "$backup_dir/$archive" ] || die 1 "backup archive not found: $backup_dir/$archive"
-  container_archive=/backups/$archive
 
-  preflight
+  need_deployment
+  need_docker
+
+  if [ "$dry_run" -eq 0 ] && [ -n "$(compose ps --quiet pesque)" ]; then
+    die 3 "the Compose service is running; stop it with 'docker compose stop pesque' before restore"
+  fi
 
   if [ "$dry_run" -eq 1 ]; then
-    run_once pesque restore --dry-run "$container_archive"
-    return
-  fi
-
-  restart_after=0
-  if [ -n "$running" ]; then
-    compose stop --timeout 30 pesque || die 3 "could not stop the Pesque service; restore was not run"
-    still_running=$(running_container)
-    [ -z "$still_running" ] || die 3 "the service is still running; restore was not run"
-    restart_after=1
-    assert_no_other_writers ""
-  fi
-
-  if run_once pesque restore "$container_archive"; then
-    result=0
+    run_once eval 'Pesque.Cli.main()' restore --dry-run "/backups/$archive"
   else
-    result=$?
-  fi
-
-  if [ "$result" -ne 0 ]; then
-    if [ "$restart_after" -eq 1 ]; then
-      note "restore failed; the service remains stopped. Inspect recovery files before starting it again"
-    fi
-    return "$result"
-  fi
-
-  if [ "$restart_after" -eq 1 ] && ! start_service; then
-    stop_after_failed_start || die 3 "restore succeeded but the service could not be stopped after failing readiness"
-    die 3 "restore succeeded but the service did not become healthy; it remains stopped; check './pesque logs'"
-  fi
-}
-
-replace_image() {
-  target=$1
-  temporary=$(mktemp "$root/compose.yaml.XXXXXX") || die 3 "could not create a temporary Compose file"
-  if ! awk -v image="$target" '
-    /^    image: ghcr.io\/zeeetech\/pesque:/ {
-      if (found) { bad = 1; next }
-      print "    image: " image
-      found = 1
-      next
-    }
-    { print }
-    END {
-      if (bad) exit 2
-      if (!found) exit 3
-    }
-  ' "$compose_file" >"$temporary"; then
-    rm -f "$temporary"
-    die 3 "expected exactly one managed Pesque image line in $compose_file; it was not changed"
-  fi
-  chmod 0644 "$temporary"
-  mv "$temporary" "$compose_file" || die 3 "could not replace $compose_file"
-}
-
-update() {
-  [ "$#" -eq 1 ] || die 2 "usage: ./pesque update VERSION"
-  version=$1
-  case "$version" in v*) version=${version#v} ;; esac
-  case "$version" in
-    '' | *[!A-Za-z0-9._-]*) die 2 "version must contain only letters, digits, dots, underscores or hyphens" ;;
-  esac
-  [ "$version" != latest ] || die 2 "select an explicit release version, not latest"
-  target=ghcr.io/zeeetech/pesque:$version
-
-  preflight
-  previous_image=$(configured_image)
-  docker pull "$target" || die 3 "could not pull $target; the current service was not stopped"
-
-  prepare_backup_directory
-  printf 'Backups: %s on host, /backups in container\n' "$backup_dir"
-  run_once pesque backup --out /backups || die 3 "pre-upgrade backup failed; the server was not updated"
-  printf 'Pre-upgrade recovery point: the successful backup above, with previous image %s\n' "$previous_image"
-
-  if [ -n "$running" ]; then
-    compose stop --timeout 30 pesque || die 3 "could not stop the current service; update was not applied"
-    still_running=$(running_container)
-    [ -z "$still_running" ] || die 3 "the service is still running; update was not applied"
-    assert_no_other_writers ""
-  fi
-
-  replace_image "$target"
-  if [ -n "$running" ]; then
-    if ! start_service --force-recreate; then
-      stop_after_failed_start || die 3 "the failed update could not be stopped; do not restore until it is inactive"
-      die 3 "update to $target did not become healthy; service left stopped; previous image: $previous_image; use the pre-upgrade backup in $backup_dir for recovery"
-    fi
-  else
-    compose create --no-deps --force-recreate pesque ||
-      die 3 "could not prepare the stopped service with $target; previous image: $previous_image"
+    run_once eval 'Pesque.Cli.main()' restore "/backups/$archive"
   fi
 }
 
@@ -414,47 +218,8 @@ main() {
         run_domain config "$@"
       fi
       ;;
-    up)
-      [ "$#" -eq 0 ] || die 2 "usage: ./pesque up"
-      preflight
-      if ! start_service; then
-        stop_after_failed_start || die 3 "the service failed readiness and could not be stopped"
-        die 3 "the service did not become healthy; it remains stopped; check './pesque logs'"
-      fi
-      ;;
-    down)
-      [ "$#" -eq 0 ] || die 2 "usage: ./pesque down"
-      need_compose
-      need_docker
-      compose stop pesque
-      ;;
-    restart)
-      [ "$#" -eq 0 ] || die 2 "usage: ./pesque restart"
-      preflight
-      compose restart pesque
-      wait_healthy || die 3 "the service did not become healthy; check './pesque logs'"
-      ;;
-    logs)
-      need_compose
-      need_docker
-      compose logs "$@"
-      ;;
-    health)
-      [ "$#" -eq 0 ] || die 2 "usage: ./pesque health"
-      need_compose
-      need_docker
-      wait_healthy || die 3 "the service did not become healthy within 60 seconds"
-      printf 'healthy\n'
-      ;;
-    update) update "$@" ;;
     backup) backup "$@" ;;
     restore) restore "$@" ;;
-    version)
-      [ "$#" -eq 0 ] || die 2 "usage: ./pesque version"
-      need_compose
-      need_docker
-      printf 'pesque image %s\n' "$(configured_image)"
-      ;;
     *) run_domain "$command" "$@" ;;
   esac
 }
