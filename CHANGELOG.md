@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.15.0](https://github.com/zeeetech/pesque/compare/pesque-v1.14.1...pesque-v1.15.0) (2026-10-28)
+
+
+### Features
+
+* **deploy:** add versioned compose bundle ([1c9d21b](https://github.com/zeeetech/pesque/commit/1c9d21ba3fcd877ed9525c623e104d8c374fa98f))
+* **nix:** run the shared image on nixos ([274ef82](https://github.com/zeeetech/pesque/commit/274ef82c325ef4543652bf3110d8d2ac9a99dbc2))
+* **release:** separate installation preparation from startup ([a28de41](https://github.com/zeeetech/pesque/commit/a28de41833f7697b6c757f4fd7bbcd8a5398600c))
+
+
+### Bug Fixes
+
+* **deploy:** protect restore and backup access ([6df78b3](https://github.com/zeeetech/pesque/commit/6df78b3a68eb3f07fa4c0ff3a8cc16b4a146d35b))
+* **deploy:** verify backup directory permissions ([1edda61](https://github.com/zeeetech/pesque/commit/1edda61576e5f6a2f45165e9893329399435cc6c))
+* **nix:** require safe restore state and storage ([c55846d](https://github.com/zeeetech/pesque/commit/c55846d40594d020d7c563877d7ecdc6727996d8))
+* **ops:** make operator boots and restores safe ([0ea3ada](https://github.com/zeeetech/pesque/commit/0ea3ada1b90578ea6f5d0ce37671ba4669424361))
+* **test:** size the sandbox pool for concurrent writers ([6f765b8](https://github.com/zeeetech/pesque/commit/6f765b89ef61f2db9abfc9caeecebb577e3e4633))
+
 ## [1.14.1](https://github.com/zeeetech/pesque/compare/pesque-v1.14.0...pesque-v1.14.1) (2026-10-27)
 
 
