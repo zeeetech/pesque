@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.3](https://github.com/zeeetech/pesque/compare/pesque-v1.15.2...pesque-v1.15.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **docker:** pin the target platform ([3a6ed69](https://github.com/zeeetech/pesque/commit/3a6ed690895c87e2cea90b88fbc87d9cd978f450))
+
 ## [1.15.2](https://github.com/zeeetech/pesque/compare/pesque-v1.15.1...pesque-v1.15.2) (2026-10-28)
 
 
