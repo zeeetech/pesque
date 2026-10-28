@@ -9,10 +9,9 @@ defmodule Pesque.Plc.LocalDirectory do
   have built. A DID nothing was written for is asked of the real directory, so
   an account on another server still resolves for real.
 
-  Selected by `PDS_PLC_LOCAL=true`, which boot refuses outside the dev and test
-  environments. An account minted against a local directory resolves to this
-  server and nowhere else, which on a real deployment is a silent federation
-  break, so the setting is not one a deployment may carry.
+  Selected by the development and test configs only. An account minted against
+  a local directory resolves to this server and nowhere else, which on a real
+  deployment is a silent federation break, so a release never selects it.
   """
 
   @doc "Writes the operation for `did`, so `resolve/1` can answer it."

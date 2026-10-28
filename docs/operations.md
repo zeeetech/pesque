@@ -208,8 +208,8 @@ Updates are manual; nothing updates on its own.
    the new pinned tag and `nixos-rebuild switch`.
 3. `curl /xrpc/_health`, which reads a table, so it is the migration check
 
-Run `pesque config validate` after the swap: an unknown `PDS_*` variable or
-conf key fails boot, and the validate verb names it without a failed boot.
+Run `pesque config validate` after the swap: an unknown conf key fails boot,
+and the provider names it before the CLI runs.
 
 ### Recovering from a bad update
 
@@ -316,11 +316,9 @@ existence is public**: `listRepos` enumerates every hosted DID.
 
 - **`_health` returns 503.** Check the data mount, write permission,
   migrations.
-- **Boot dies on `unknown PDS_ variables` or `unknown key`.** The
-  environment and the config file are both strict: a name the server does not
-  read is refused, not ignored. Server settings live in `pesque.conf`;
-  `PDS_CONFIG` only selects the file. `pesque config validate` names the
-  offenders.
+- **Boot dies on an `unknown key` or an invalid setting.** Server settings
+  live in `pesque.conf`; `PDS_CONFIG` only selects the file. The provider
+  names the file, key and line before the server or a verb starts.
 - **A `did:web` with a port does not resolve.** The port is only encoded for
   loopback and private hosts; fix the proxy.
 - **The AppView shows nothing.** The account's DID document is not

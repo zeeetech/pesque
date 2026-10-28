@@ -17,13 +17,19 @@ let
     escapeShellArg
     ;
 
+  publicUrlMatch = builtins.match "^(https?)://([^/:]+)(:([0-9]+))?$" cfg.publicUrl;
+  publicScheme = if publicUrlMatch == null then "https" else builtins.elemAt publicUrlMatch 0;
+  publicHost = if publicUrlMatch == null then "" else builtins.elemAt publicUrlMatch 1;
+  publicPort = if publicUrlMatch == null then null else builtins.elemAt publicUrlMatch 3;
+
   confLines =
     [
-      "public_url = ${cfg.publicUrl}"
-      "mode = ${cfg.mode}"
-      "registration = ${cfg.registration}"
+      "url_scheme = ${publicScheme}"
+      "hostname = ${publicHost}"
       "port = ${toString cfg.port}"
       "data_dir = /data"
+      "mode = ${cfg.mode}"
+      "registration = ${cfg.registration}"
     ]
     ++ optional (cfg.handleDomain != null) "handle_domain = ${cfg.handleDomain}"
     ++ optional (cfg.crawler != [ ]) "crawler = ${concatStringsSep "," cfg.crawler}"
@@ -32,7 +38,8 @@ let
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
 
   deploymentKeys = [
-    "public_url"
+    "url_scheme"
+    "hostname"
     "port"
     "data_dir"
     "mode"
@@ -180,8 +187,8 @@ in
       };
       description = ''
         Uncommon application settings, written verbatim to the generated
-        pesque.conf. The keys the module owns (public_url, mode,
-        handle_domain, registration, crawler, port and data_dir) are refused
+        pesque.conf. The keys the module owns (url_scheme, hostname, port,
+        data_dir, mode, handle_domain, registration and crawler) are refused
         here. See the configuration reference in docs/installation.md.
       '';
     };
@@ -245,6 +252,14 @@ in
         message = "services.pesque.publicUrl is required.";
       }
       {
+        assertion = publicUrlMatch != null;
+        message = "services.pesque.publicUrl must be an http(s) URL without a path, query or fragment.";
+      }
+      {
+        assertion = publicPort == null || publicPort == toString cfg.port;
+        message = "services.pesque.publicUrl must not name a port different from services.pesque.port.";
+      }
+      {
         assertion = collisions == [ ];
         message = "services.pesque.settings must not set module-owned keys: ${concatStringsSep ", " collisions}.";
       }
@@ -269,8 +284,8 @@ in
     virtualisation.oci-containers.containers.pesque = {
       image = cfg.image;
       serviceName = "pesque";
-      entrypoint = "/app/bin/pesque";
-      cmd = [ "start" ];
+      entrypoint = "/app/bin/server";
+      cmd = [ ];
       user = userSpec;
       workdir = "/data";
       environment = {

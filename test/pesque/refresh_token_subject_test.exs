@@ -13,7 +13,7 @@ defmodule Pesque.Accounts.RefreshTokenSubjectTest do
   is rewritten to name another account, which is what the check has to refuse.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -24,7 +24,6 @@ defmodule Pesque.Accounts.RefreshTokenSubjectTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
 
     alice = insert_account("alice")

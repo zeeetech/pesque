@@ -7,6 +7,13 @@ source). Then:
 
 ```bash
 mix deps.get
+cat > pesque.conf <<'EOF'
+url_scheme = http
+hostname = localhost
+port = 4000
+data_dir = data
+EOF
+mix run --no-start -e 'Enum.each(Pesque.Config.source_config!(), fn {k, v} -> Application.put_env(:pesque, k, v) end); Pesque.Release.prepare()'
 mix phx.server
 curl http://localhost:4000/xrpc/_health
 ```

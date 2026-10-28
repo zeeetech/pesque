@@ -5,7 +5,7 @@ defmodule Pesque.CliTest do
   main maps onto 0, 1 and 2.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Cli
@@ -54,23 +54,30 @@ defmodule Pesque.CliTest do
   end
 
   describe "config validate" do
-    test "reports provenance for every key" do
+    test "prints the effective settings" do
+      path =
+        Path.join(System.tmp_dir!(), "pesque-cli-ok-#{System.unique_integer([:positive])}.conf")
+
+      File.write!(
+        path,
+        "url_scheme = https\nhostname = pds.example.com\nport = 4000\ndata_dir = /data\n"
+      )
+
+      on_exit(fn -> File.rm(path) end)
+
+      previous = System.get_env("PDS_CONFIG")
+      System.put_env("PDS_CONFIG", path)
+      on_exit(fn -> restore_config(previous) end)
+
       output =
         ExUnit.CaptureIO.capture_io(fn ->
           assert :ok = Cli.run(["config", "validate"])
         end)
 
-      assert output =~ "config file:"
-      assert output =~ "public_url"
-      assert output =~ "(derived from public_url)"
-      assert output =~ "(default)"
-    end
-
-    test "fails naming an unknown PDS_ variable" do
-      System.put_env("PDS_NOT_A_REAL_KEY", "1")
-      on_exit(fn -> System.delete_env("PDS_NOT_A_REAL_KEY") end)
-
-      assert {:error, {:unknown_env, ["PDS_NOT_A_REAL_KEY"]}} = Cli.run(["config", "validate"])
+      assert output =~ "config file: #{path}"
+      assert output =~ "url_scheme"
+      assert output =~ "hostname"
+      assert output =~ "pds.example.com"
     end
 
     test "fails naming the line of an unknown key in the config file" do
@@ -92,8 +99,6 @@ defmodule Pesque.CliTest do
     # The verbs boot the app themselves, like every account verb; the database
     # setup is what makes the rows the verbs read.
     setup do
-      Pesque.DataCase.setup()
-
       # multi so the account gets a handle: under single the
       # seeded server row has no handle and every account compares as taken.
       previous = Application.get_env(:pesque, :mode)
@@ -215,8 +220,6 @@ defmodule Pesque.CliTest do
     # Like the other account verbs, these boot the app themselves; the database
     # setup is what makes the rows and the keys the verbs read.
     setup do
-      Pesque.DataCase.setup()
-
       previous = Application.get_env(:pesque, :mode)
       on_exit(fn -> Application.put_env(:pesque, :mode, previous) end)
       Application.put_env(:pesque, :mode, :multi)

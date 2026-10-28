@@ -36,7 +36,8 @@ in
     assert config.virtualisation.oci-containers.backend == "docker";
     assert config.virtualisation.docker.enable;
     assert container.serviceName == "pesque";
-    assert container.entrypoint == "/app/bin/pesque";
+    assert container.entrypoint == "/app/bin/server";
+    assert container.cmd == [ ];
     assert container.user == "33333:33333";
     assert container.environment.PDS_CONFIG == "/data/pesque.conf";
     assert container.ports == [ "127.0.0.1:4000:4000" ];

@@ -77,12 +77,12 @@ run_compose() {
   compose run --rm --no-deps "$@"
 }
 
-run_once() { run_compose pesque "$@"; }
+run_once() { run_compose --entrypoint /app/bin/cli pesque "$@"; }
 
 run_with_env() {
   key=$1
   shift
-  run_compose -e "$key" pesque "$@"
+  run_compose -e "$key" --entrypoint /app/bin/cli pesque "$@"
 }
 
 run_domain() {
@@ -94,16 +94,13 @@ run_domain() {
   case "$verb" in
     migrate)
       if [ "${MIGRATE_PLC_TOKEN+x}" = x ]; then
-        run_with_env MIGRATE_PLC_TOKEN eval 'Pesque.Cli.main()' migrate "$@"
+        run_with_env MIGRATE_PLC_TOKEN migrate "$@"
       else
-        run_once eval 'Pesque.Cli.main()' migrate "$@"
+        run_once migrate "$@"
       fi
       ;;
-    account)
-      run_once eval 'Pesque.Cli.main()' account "$@"
-      ;;
     *)
-      run_once eval 'Pesque.Cli.main()' "$verb" "$@"
+      run_once "$verb" "$@"
       ;;
   esac
 }
@@ -199,7 +196,7 @@ backup() {
   need_docker
   prepare_backup_directory
   printf 'Backups: %s on host, /backups in container\n' "$backup_dir"
-  run_once eval 'Pesque.Cli.main()' backup --out /backups
+  run_once backup --out /backups
 }
 
 restore() {
@@ -237,9 +234,9 @@ restore() {
       *"$newline"*) die 3 "unexpected Compose service state; restore was not run" ;;
       *) die 3 "the Compose service is running; stop it with 'docker compose stop pesque' before restore" ;;
     esac
-    run_once eval 'Pesque.Cli.main()' restore "/backups/$archive"
+    run_once restore "/backups/$archive"
   else
-    run_once eval 'Pesque.Cli.main()' restore --dry-run "/backups/$archive"
+    run_once restore --dry-run "/backups/$archive"
   fi
 }
 

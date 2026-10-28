@@ -11,7 +11,7 @@ defmodule Pesque.Cli.Migrate do
   alias Pesque.Cli.Input
   alias Pesque.Cli.Report
   alias Pesque.Migrate
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
 
   @usage """
   usage: pesque migrate --old-pds URL --handle H --email E [--plc-token T]
@@ -35,7 +35,7 @@ defmodule Pesque.Cli.Migrate do
          {:ok, handle} <- Input.text(opts, :handle, "MIGRATE_HANDLE", "handle: "),
          {:ok, email} <- Input.text(opts, :email, "MIGRATE_EMAIL", "email: "),
          {:ok, password} <- Input.password("Password for the account: "),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       base = [old_pds: old_pds, handle: handle, email: email, password: password]
 
       case plc_token(opts) do

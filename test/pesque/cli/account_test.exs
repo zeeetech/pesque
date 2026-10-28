@@ -8,7 +8,7 @@ defmodule Pesque.Cli.AccountTest do
   the pin from the environment.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -23,7 +23,6 @@ defmodule Pesque.Cli.AccountTest do
 
   setup do
     Gettext.put_locale(PesqueWeb.Gettext, "en")
-    Pesque.DataCase.setup()
 
     # multi so the account gets a handle: under single the
     # seeded server row has no handle and every account compares as taken.

@@ -32,7 +32,7 @@ it against `SHA256SUMS`), then:
 ```bash
 tar -xzf pesque-compose-<version>.tar.gz && cd pesque
 ./pesque init                        # writes pesque.conf, creates backups/
-$EDITOR pesque.conf                  # the public URL clients will use
+$EDITOR pesque.conf                  # the public hostname clients will use
 docker compose up --detach --wait
 ./pesque account create --handle alice.example.com --email alice@example.com
 ```

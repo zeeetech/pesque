@@ -6,18 +6,13 @@ defmodule Pesque.BlobUploadOrderTest do
   are missing.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Blob
   alias Pesque.CID
   alias Pesque.RepoStore
 
   @did "did:web:example.com:user:alice"
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   test "a failed row insert leaves the file, and no row points at it" do
     bytes = "backup depends on this order"

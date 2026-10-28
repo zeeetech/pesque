@@ -6,7 +6,7 @@ defmodule Pesque.Accounts.AppPasswordTest do
   them and nothing else.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Accounts.AppPassword
@@ -16,8 +16,6 @@ defmodule Pesque.Accounts.AppPasswordTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
-
     # multi so the account gets a handle: under single the
     # seeded server row has no handle and every account compares as taken.
     put_mode(:multi)

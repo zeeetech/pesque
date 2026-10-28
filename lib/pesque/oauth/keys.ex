@@ -27,19 +27,26 @@ defmodule Pesque.OAuth.Keys do
   def path, do: Path.join(Storage.keys_dir(), @file_name)
 
   @doc """
-  Loads the key, generating it on first boot, and publishes the JWKS.
+  Loads the key that preparation already put on disk.
 
   Raises when the key cannot be read: a server that cannot sign an access
   token cannot be an authorization server, and serving one anyway would mint
   tokens nobody could verify.
   """
   def load! do
-    case ensure() do
+    case read() do
       {:ok, key} ->
         :persistent_term.put(@key, key)
 
       {:error, reason} ->
-        raise "the oauth signing key could not be loaded: #{inspect(reason)}"
+        raise "the oauth signing key is unavailable (#{inspect(reason)}); run bin/server once to prepare the installation"
+    end
+  end
+
+  defp read do
+    case File.read(path()) do
+      {:ok, priv} -> {:ok, keypair(priv)}
+      {:error, reason} -> {:error, {:key_unreadable, path(), reason}}
     end
   end
 

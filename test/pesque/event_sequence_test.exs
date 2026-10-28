@@ -1,5 +1,5 @@
 defmodule Pesque.EventSequenceTest do
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -11,8 +11,6 @@ defmodule Pesque.EventSequenceTest do
   alias Pesque.Tid
 
   setup do
-    Pesque.DataCase.setup()
-
     # Seeding rev and tid_int skips the genesis commit, so both RepoServers
     # snapshot the same max_seq, with no event written in between.
     carol = repo("carol")

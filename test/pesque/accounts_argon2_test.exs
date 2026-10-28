@@ -11,7 +11,7 @@ defmodule Pesque.Accounts.Argon2Test do
   being pushed to do.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Accounts.User
@@ -19,7 +19,6 @@ defmodule Pesque.Accounts.Argon2Test do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
   end
 

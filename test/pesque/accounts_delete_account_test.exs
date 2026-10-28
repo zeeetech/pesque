@@ -10,14 +10,13 @@ defmodule Pesque.Accounts.DeleteAccountTest do
   asserted.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
 
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     # multi so the account gets a handle: under single the
     # seeded server row has no handle and every account compares as taken.
     put_mode(:multi)

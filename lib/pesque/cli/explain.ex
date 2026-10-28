@@ -216,6 +216,25 @@ defmodule Pesque.Cli.Explain do
     }
   end
 
+  def for_reason({:boot_failed, reason}) do
+    %{
+      problem: gettext("the application could not start"),
+      next:
+        gettext(
+          "prepare the installation with bin/server once, or check the server log for the failed dependency"
+        ),
+      detail: inspect(reason)
+    }
+  end
+
+  def for_reason(%{} = errors) do
+    %{
+      problem: Pesque.Config.describe(errors),
+      next: gettext("fix the config file and run the command again"),
+      detail: nil
+    }
+  end
+
   def for_reason(:no_crawler_configured) do
     %{
       problem: gettext("no relay is configured to ask"),
@@ -238,11 +257,7 @@ defmodule Pesque.Cli.Explain do
         gettext("unknown PDS_ variables in the environment: %{names}",
           names: Enum.join(names, ", ")
         ),
-      next:
-        gettext(
-          "server settings live in pesque.conf, and PDS_CONFIG only selects the file; " <>
-            "PDS_PLC_LOCAL is development-only"
-        ),
+      next: gettext("server settings live in pesque.conf; PDS_CONFIG only selects the file"),
       detail: nil
     }
   end

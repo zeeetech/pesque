@@ -68,7 +68,7 @@ run_container() {
     --mount "type=bind,source=$data_dir,target=/data" \
     --mount "type=bind,source=$config_file,target=/data/pesque.conf,readonly" \
     --mount "type=bind,source=$backup_dir,target=/backups" \
-    --entrypoint /app/bin/pesque \
+    --entrypoint /app/bin/cli \
     "$@"
 }
 
@@ -79,16 +79,16 @@ run_domain() {
   case "$verb" in
     migrate)
       if [ "${MIGRATE_PLC_TOKEN+x}" = x ]; then
-        run_container --env MIGRATE_PLC_TOKEN "$image" eval 'Pesque.Cli.main()' migrate "$@"
+        run_container --env MIGRATE_PLC_TOKEN "$image" migrate "$@"
       else
-        run_container "$image" eval 'Pesque.Cli.main()' migrate "$@"
+        run_container "$image" migrate "$@"
       fi
       ;;
     account)
-      run_container "$image" eval 'Pesque.Cli.main()' account "$@"
+      run_container "$image" account "$@"
       ;;
     *)
-      run_container "$image" eval 'Pesque.Cli.main()' "$verb" "$@"
+      run_container "$image" "$verb" "$@"
       ;;
   esac
 }
@@ -124,7 +124,7 @@ backup() {
   fi
 
   printf 'Backups: %s on host, /backups in container\n' "$backup_dir"
-  run_container "$image" eval 'Pesque.Cli.main()' backup --out /backups
+  run_container "$image" backup --out /backups
 }
 
 restore() {
@@ -153,10 +153,10 @@ restore() {
 
   if [ "$dry_run" -eq 0 ]; then
     assert_stopped
-    run_container "$image" eval 'Pesque.Cli.main()' restore "$container_archive" ||
+    run_container "$image" restore "$container_archive" ||
       return $?
   else
-    run_container "$image" eval 'Pesque.Cli.main()' restore --dry-run "$container_archive" ||
+    run_container "$image" restore --dry-run "$container_archive" ||
       return $?
   fi
 }

@@ -18,14 +18,22 @@ defmodule Pesque.Identity do
 
   @pub_multibase {__MODULE__, :pub_multibase}
 
+  @doc "Ensures the server signing key exists. Preparation only."
+  def ensure! do
+    case Keys.ensure(did()) do
+      {:ok, _key} -> :ok
+      {:error, reason} -> raise "the server signing key could not be prepared: #{inspect(reason)}"
+    end
+  end
+
   @doc "Loads the server's signing key. Called once, before the endpoint starts."
   def load! do
-    case Keys.ensure(did()) do
-      {:ok, key} ->
-        :persistent_term.put(@pub_multibase, key.pub_multibase)
+    case Keys.load(did()) do
+      {:ok, priv} ->
+        :persistent_term.put(@pub_multibase, Keys.public_key_multibase(priv))
 
       {:error, reason} ->
-        raise "the server signing key could not be loaded: #{inspect(reason)}"
+        raise "the server signing key is unavailable (#{inspect(reason)}); run bin/server once to prepare the installation"
     end
   end
 

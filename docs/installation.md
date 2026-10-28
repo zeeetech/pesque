@@ -144,9 +144,9 @@ configuration, and puts a configured `pesque` command on PATH:
 `publicUrl`, `mode`, `handleDomain`, `registration` and `crawler` are the
 common application settings and are translated into the generated
 `pesque.conf`. `services.pesque.settings` takes the rest verbatim
-(`blob_upload_limit`, legal links, `admin_dids` and so on). `port` is both
-the container's listening port and the host port published on
-`listenAddress`; `publicUrl` carries the advertised port behind your proxy.
+(`blob_upload_limit`, legal links, `admin_dids` and so on). `port` is the
+container's listening port, the host port published on `listenAddress`, and
+the advertised port, so `publicUrl` must use the same port.
 
 `services.pesque.dataDir` (default `/var/lib/pesque`) is the **host** storage
 path mounted at `/data`; the container's own `data_dir` is always `/data`.
@@ -195,18 +195,24 @@ mix deps.get
 mix phx.server
 ```
 
-Migrations run on boot and the data directory is created if missing. There
-is no `mix ecto.create`, no seed step and no secret to invent: Pesque
-generates `data/server.secret` on first boot. A checkout has one development
-default, `public_url = http://localhost:4000`; put a different `public_url`
-in `pesque.conf` when the browser needs to reach another origin:
+The server does not create state during application startup. Prepare the
+installation once from `pesque.conf`, then start the server:
 
 ```bash
 cat > pesque.conf <<'EOF'
-public_url = http://localhost:4000
+url_scheme = http
+hostname = localhost
+port = 4000
+data_dir = data
 EOF
+
+mix run --no-start -e 'Enum.each(Pesque.Config.source_config!(), fn {k, v} -> Application.put_env(:pesque, k, v) end); Pesque.Release.prepare()'
 mix phx.server
 ```
+
+Preparation creates `data_dir`, `server.secret`, the server signing key, the
+OAuth key and the database. It is repeatable: existing material is reused.
+There is no `mix ecto.create` and no secret to invent.
 
 Operator verbs run through the CLI module directly:
 
@@ -220,10 +226,9 @@ lines appear around the verb's output; the verb exits the VM when it is
 done.
 
 The browser signup and migration pages are `multi` flows, and both mint real
-`did:plc` identities at the public PLC directory. To develop without that,
-set `PDS_PLC_LOCAL=true`: the operations are kept under `data_dir` instead.
-It is the only per-setting environment variable, it is refused outside the
-dev and test environments, and it is not a production configuration key.
+`did:plc` identities at the public PLC directory. The development and test
+configs select the local PLC directory, so their operations stay under
+`data_dir`; a release never does.
 
 ## Behind a TLS proxy
 
@@ -281,26 +286,28 @@ name with a certificate covering `*.<hostname>`.
 
 The server reads one file. `PDS_CONFIG` selects it, and inside the container
 the path is `/data/pesque.conf`; with no variable the working directory's
-`pesque.conf` is used. There are no per-setting environment variables. A
-retired or unknown `PDS_*` variable, and an unknown or retired conf key,
-fails boot instead of being ignored. `PDS_PLC_LOCAL` is the one exception:
-it is development-only and refused in a release.
+`pesque.conf` is used. There are no per-setting environment variables. An
+unknown or retired conf key fails boot instead of being ignored.
 
-The file is plain `key = value`, one per line, `#` for comments. `public_url`
-is the one required setting: an HTTP(S) origin with a host and optional port,
-no credentials, path, query or fragment. The advertised hostname, scheme and
-port come from it:
+The file is plain `key = value`, one per line, `#` for comments. Four keys are
+required:
 
 ```ini
-public_url = https://pds.example.com
+url_scheme = https
+hostname = pds.example.com
+port = 4000
+data_dir = /data
 ```
 
-`port` is where the process binds and defaults to `4000`. It is separate from
-the advertised port because a proxy often terminates TLS on 443 while the
-server listens on 4000. For local development with no proxy:
+`hostname` and `url_scheme` are the public origin. `port` is where the process
+binds and also the advertised port, so a proxy must forward the same port. For
+local development with no proxy:
 
 ```ini
-public_url = http://localhost:4000
+url_scheme = http
+hostname = localhost
+port = 4000
+data_dir = data
 ```
 
 When `handle_domain` is unset it defaults to the public hostname, so a server
@@ -312,11 +319,12 @@ The file supports these settings:
 
 | Key | Default | Purpose |
 | --- | --- | --- |
-| `public_url` | required in a deployment | Public origin: scheme, hostname and advertised port. Drives the DID, the DID document and every advertised URL |
-| `port` | `4000` | Port the process binds. Behind a proxy this is the internal port |
-| `data_dir` | `/data` in the image, `data` from source | Directory holding the database, keys, blobs and secret |
+| `url_scheme` | required | `http` or `https`. The scheme clients use |
+| `hostname` | required | Public hostname. Drives the DID, the DID document and every advertised URL |
+| `port` | required | Port the process binds and advertises |
+| `data_dir` | required | Directory holding the database, keys, blobs and secret |
 | `mode` | `single` | `single` or `multi`. See [Choose your shape](#choose-your-shape) |
-| `handle_domain` | public hostname | Domain accounts get handles under; under `single`, the account handle |
+| `handle_domain` | hostname | Domain accounts get handles under; under `single`, the account handle |
 | `registration` | `closed` | `open` lets anyone create an account; `closed` needs an invite code |
 | `crawler` | empty | Comma-separated relay base URLs to announce the server to at boot |
 | `plc_directory` | `https://plc.directory` | PLC directory used when an account is minted as `did:plc` |
@@ -329,19 +337,14 @@ The file supports these settings:
 | `privacy_policy_url` | empty | Your privacy policy, published by `describeServer`. Unset omits the link |
 | `terms_of_service_url` | empty | Your terms of service, published by `describeServer`. Unset omits the link |
 
-A source checkout defaults `public_url` to `http://localhost:4000` and
-`data_dir` to `data`. The image defaults `data_dir` to `/data`; a release has
-no `public_url` default and refuses to boot without one.
-
 Do not change the public hostname on a server with accounts: a `did:web`
 account is bound to it. Changing `handle_domain` does not rewrite stored
 handles, so existing handles stop resolving.
 
-`pesque config validate` boots nothing: it reads the file the way the server
-will at boot, runs the same validation, then prints every effective value
-with its source (`pesque.conf:LINE`, `(default)`, `(development default)` or
-`(derived from public_url)`). Run it after any configuration change or
-release swap; it names the offending key without a failed boot.
+`pesque config validate` reads the file the way the provider will, runs the
+same validation, then prints the effective values. An invalid file aborts the
+provider before the CLI runs, so the error names the file, setting and line.
+Run it after any configuration change or release swap.
 
 ## Create an account
 
@@ -390,7 +393,7 @@ curl -s https://pds.example.com/.well-known/did.json
 curl -s "https://pds.example.com/xrpc/com.atproto.identity.resolveHandle?handle=alice.example.com"
 ```
 
-If `did` says `localhost`, `public_url` was not set for this process. The
+If `did` says `localhost`, `hostname` is still the development default. The
 `links` the server advertises ship as placeholders, so set
 `privacy_policy_url` and `terms_of_service_url` before pointing a real
 domain at the server

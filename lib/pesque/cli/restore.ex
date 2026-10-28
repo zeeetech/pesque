@@ -12,7 +12,6 @@ defmodule Pesque.Cli.Restore do
 
   alias Pesque.Backup
   alias Pesque.Cli.Input
-  alias Pesque.Release
 
   @usage """
   usage: pesque restore (--archive PATH | PATH) [--dry-run]
@@ -32,7 +31,7 @@ defmodule Pesque.Cli.Restore do
       if opts[:dry_run] do
         :ok
       else
-        with :ok <- Release.boot!(), do: restore(archive)
+        restore(archive)
       end
     end
   end

@@ -4,7 +4,7 @@ defmodule Pesque.EntrywayTest do
   fetcher are injected, so no test reaches the network.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Entryway
@@ -51,7 +51,6 @@ defmodule Pesque.EntrywayTest do
   end
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
 
     :persistent_term.put(:entryway_test_pid, self())

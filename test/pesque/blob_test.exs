@@ -4,18 +4,13 @@ defmodule Pesque.BlobTest do
   orderings that look equivalent are not.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Blob
   alias Pesque.CID
   alias Pesque.Storage
 
   @did "did:web:example.com:user:alice"
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   test "put and read round trip, and the bytes land under the did's digest" do
     cid = CID.from_data("hello", CID.raw())

@@ -1,7 +1,14 @@
 # pesque configuration. Full reference: docs/installation.md#configuration
 #
-# Public address, behind your TLS proxy.
-public_url = https://pds.example.com
+# Public origin, behind your TLS proxy.
+url_scheme = https
+hostname = pds.example.com
+
+# Port the process binds. Behind a proxy this is the internal port.
+port = 4000
+
+# Directory holding the database, keys, blobs and secret.
+data_dir = /data
 
 # Defaults: one account, registration closed.
 # Use multi for multiple accounts or migration from another PDS.

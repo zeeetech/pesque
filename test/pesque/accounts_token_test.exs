@@ -10,17 +10,12 @@ defmodule Pesque.Accounts.TokenTest do
   shape at the issuer and the canonicalisation at the reader.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts.Token
 
   @did "did:plc:token-test"
   @code ~r/^[A-Z2-7]{5}-[A-Z2-7]{5}$/
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   describe "issue/4" do
     test "mints the base32 shape the official client requires, for every purpose" do

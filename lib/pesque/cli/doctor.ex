@@ -5,13 +5,13 @@ defmodule Pesque.Cli.Doctor do
   """
 
   alias Pesque.Cli.Input
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
 
   @usage "usage: pesque doctor"
 
   def run(argv) do
     with {:ok, _opts, []} <- Input.options(argv, [], @usage),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       case Pesque.Doctor.run() do
         :ok -> :ok
         :error -> {:error, :doctor_failed}

@@ -5,7 +5,7 @@ defmodule Pesque.Accounts.EmailTokenTest do
   not proven the account.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -16,7 +16,6 @@ defmodule Pesque.Accounts.EmailTokenTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
 
     handle = "email" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"

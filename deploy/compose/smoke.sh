@@ -64,7 +64,8 @@ cp "$repo/pesque.conf.example" "$bundle/pesque.conf.example"
 chmod 755 "$bundle/pesque"
 
 "$bundle/pesque" init
-printf 'port = 4567\n' >>"$bundle/pesque.conf"
+sed 's/^port = .*/port = 4567/' "$bundle/pesque.conf" >"$bundle/pesque.conf.new"
+mv "$bundle/pesque.conf.new" "$bundle/pesque.conf"
 compose up --detach --wait --wait-timeout 60
 "$bundle/pesque" config validate
 "$bundle/pesque" backup

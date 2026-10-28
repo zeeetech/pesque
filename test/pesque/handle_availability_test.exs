@@ -5,7 +5,7 @@ defmodule Pesque.HandleAvailabilityTest do
   getAccountInviteCodes.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -16,7 +16,6 @@ defmodule Pesque.HandleAvailabilityTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
     :ok
   end

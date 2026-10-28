@@ -8,7 +8,7 @@ defmodule Pesque.BlockSweepTest do
   nothing reaches goes.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts.User
   alias Pesque.CBOR
@@ -19,8 +19,6 @@ defmodule Pesque.BlockSweepTest do
   alias Pesque.RepoStore.Event
 
   setup do
-    Pesque.DataCase.setup()
-
     alice = account("alice")
     bob = account("bob")
 

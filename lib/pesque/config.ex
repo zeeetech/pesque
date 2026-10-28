@@ -3,88 +3,50 @@ defmodule Pesque.Config do
   The server's configuration file, and the only place server settings are read.
 
   The file is `key = value`, one per line, `#` for comments. `PDS_CONFIG`
-  selects the path; no individual setting has an environment equivalent. The
-  grammar and every value are refused when they cannot be read: an unknown or
-  retired key fails boot instead of configuring nothing.
-
-  `resolve/2` is the pure layer both boot and `config validate` use. File
-  reading and the few environment facts the boundary owns (the config path,
-  the release layout, the development-only PLC switch) stay outside it.
+  selects the path. The grammar and every value are refused when they cannot be
+  read: an unknown key fails boot instead of configuring nothing.
   """
 
-  # The settings table. `@keys` is derived from this list, so the parser,
-  # resolver and `config validate` cannot disagree about what the file accepts.
-  @keys ~w(
-    public_url
-    port
-    data_dir
-    mode
-    handle_domain
-    registration
-    crawler
-    plc_directory
-    lexicon_aggregator
-    blob_upload_limit
-    repo_import_limit
-    proxy_timeout
-    proxy_response_limit
-    admin_dids
-    privacy_policy_url
-    terms_of_service_url
-  )
+  @behaviour Config.Provider
 
-  # Values derived from public_url, printed by `config validate` beside the
-  # keys the operator wrote.
-  @derived_keys ~w(hostname url_scheme url_port)
+  use Ecto.Schema
+  import Ecto.Changeset
 
-  @key_atoms for key <- @keys ++ @derived_keys, into: %{}, do: {key, String.to_atom(key)}
+  @type t :: %__MODULE__{
+          url_scheme: :http | :https,
+          hostname: URI.t(),
+          port: integer,
+          data_dir: Path.t(),
+          mode: :single | :multi,
+          handle_domain: URI.t(),
+          registration: :open | :closed,
+          crawler: list(URI.t()),
+          plc_directory: URI.t(),
+          lexicon_aggregator: URI.t() | nil,
+          blob_upload_limit: integer,
+          repo_import_limit: integer,
+          proxy_timeout: integer,
+          proxy_response_limit: integer,
+          admin_dids: list(String.t()) | nil,
+          privacy_policy_url: URI.t() | nil,
+          terms_of_service_url: URI.t() | nil
+        }
 
-  @report_order ~w(
-    public_url
-    hostname
-    url_scheme
-    url_port
-    port
-    data_dir
-    mode
-    handle_domain
-    registration
-    crawler
-    plc_directory
-    lexicon_aggregator
-    blob_upload_limit
-    repo_import_limit
-    proxy_timeout
-    proxy_response_limit
-    admin_dids
-    privacy_policy_url
-    terms_of_service_url
-  )
-
-  @retired_keys %{
-    "hostname" =>
-      "set public_url instead; hostname, scheme and advertised port are derived from it",
-    "url_scheme" => "set public_url instead; the scheme is derived from it",
-    "url_port" => "set public_url instead; the advertised port is derived from it",
-    "handle" => "set handle_domain instead; single publishes that domain as the account handle",
-    "serve" => "remove it; one-off commands already start without the HTTP endpoint"
-  }
-
-  @base_env ~w(PDS_CONFIG)
-  @development_env ~w(PDS_PLC_LOCAL)
-
-  @origin_expectation "must be an HTTP or HTTPS origin with a host and optional port, and no credentials, path, query or fragment"
   @port_expectation "must be an integer between 1 and 65535"
-  @positive_expectation "must be a positive integer"
-  @mode_expectation "must be single or multi"
-  @registration_expectation "must be open or closed"
   @lexicon_expectation "must be an https URL or empty"
 
   @template """
   # pesque configuration. Full reference: docs/installation.md#configuration
   #
-  # Public address, behind your TLS proxy.
-  public_url = https://pds.example.com
+  # Public origin, behind your TLS proxy.
+  url_scheme = https
+  hostname = pds.example.com
+
+  # Port the process binds. Behind a proxy this is the internal port.
+  port = 4000
+
+  # Directory holding the database, keys, blobs and secret.
+  data_dir = /data
 
   # Defaults: one account, registration closed.
   # Use multi for multiple accounts or migration from another PDS.
@@ -97,29 +59,54 @@ defmodule Pesque.Config do
   # crawler = https://bsky.network
   """
 
-  @doc "The config file path: `PDS_CONFIG`, or `pesque.conf` in the working directory."
-  def path, do: System.get_env("PDS_CONFIG", "pesque.conf")
+  @required ~w(url_scheme hostname port data_dir)a
 
-  @doc """
-  Reads the file into `%{key => {value, line}}`.
+  @fields ~w(mode handle_domain registration crawler plc_directory lexicon_aggregator blob_upload_limit repo_import_limit proxy_timeout proxy_response_limit admin_dids privacy_policy_url terms_of_service_url)a ++
+            @required
 
-  A missing file is an empty map, because a source checkout may run with
-  built-in development defaults. A release without `public_url` is refused
-  by `resolve/2` instead of silently advertising localhost.
-  """
-  def load do
-    case File.read(path()) do
-      {:ok, text} -> parse(text)
-      {:error, :enoent} -> {:ok, %{}}
-      {:error, reason} -> {:error, {:unreadable, path(), reason}}
-    end
+  @keys Enum.map(@fields, &to_string/1)
+
+  embedded_schema do
+    field :url_scheme, Ecto.Enum, values: ~w(http https)a
+    field :hostname, __MODULE__.URI
+    field :port, :integer
+    field :data_dir, :string
+    field :mode, Ecto.Enum, values: ~w(single multi)a, default: :single
+    field :handle_domain, __MODULE__.URI
+    field :registration, Ecto.Enum, values: ~w(open closed)a, default: :closed
+    field :crawler, {:array, __MODULE__.URI}, default: []
+    field :plc_directory, __MODULE__.URI, default: "https://plc.directory"
+    field :lexicon_aggregator, __MODULE__.URI
+    field :blob_upload_limit, :integer, default: 5_242_880
+    field :repo_import_limit, :integer, default: 104_857_600
+    field :proxy_timeout, :integer, default: 15_000
+    field :proxy_response_limit, :integer, default: 10_485_760
+    field :admin_dids, {:array, :string}, default: []
+    field :privacy_policy_url, __MODULE__.URI
+    field :terms_of_service_url, __MODULE__.URI
   end
 
-  @doc "Reads the file, raising a message that names it and the line at fault."
-  def load! do
-    case load() do
-      {:ok, values} -> values
-      {:error, reason} -> raise "config file #{path()} is invalid: #{describe(reason)}"
+  @impl true
+  def init(_opts), do: {:system, "PDS_CONFIG"}
+
+  @impl true
+  def load(config, {:system, name}) do
+    path =
+      case System.get_env(name) do
+        path when path in [nil, ""] -> "pesque.conf"
+        path -> path
+      end
+
+    settings = effective!(path)
+
+    Config.Reader.merge(config, pesque: pesque_config(settings))
+  end
+
+  @doc "The config file path: `PDS_CONFIG`, or `pesque.conf` in the working directory."
+  def path do
+    case System.get_env("PDS_CONFIG") do
+      path when path in [nil, ""] -> "pesque.conf"
+      path -> path
     end
   end
 
@@ -128,343 +115,279 @@ defmodule Pesque.Config do
     text
     |> String.split("\n")
     |> Enum.with_index(1)
-    |> Enum.reduce_while({:ok, []}, fn {line, number}, {:ok, acc} ->
-      case parse_line(line) do
-        :skip ->
-          {:cont, {:ok, acc}}
-
-        {:ok, key, value} ->
-          cond do
-            Map.has_key?(@retired_keys, key) ->
-              {:halt, {:error, {:retired_key, key, number, @retired_keys[key]}}}
-
-            key not in @keys ->
-              {:halt, {:error, {:unknown_key, key, number}}}
-
-            List.keymember?(acc, key, 0) ->
-              {:halt, {:error, {:duplicate_key, key, number}}}
-
-            true ->
-              {:cont, {:ok, [{key, value, number} | acc]}}
-          end
-
-        {:error, reason} ->
-          {:halt, {:error, {reason, number}}}
-      end
-    end)
+    |> Enum.reduce_while({:ok, []}, &parse_entry/2)
     |> case do
-      {:ok, acc} -> {:ok, Map.new(acc, fn {key, value, line} -> {key, {value, line}} end)}
-      {:error, reason} -> {:error, reason}
+      {:ok, entries} ->
+        {:ok, Map.new(entries, fn {key, value, line} -> {key, {value, line}} end)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  @doc """
-  Fails boot when the environment carries a `PDS_*` variable nothing reads.
-
-  The file layer refuses unknown and retired keys, and the environment is held
-  to the same rule: a variable in a unit file or container environment must
-  not configure nothing and boot anyway. `PDS_CONFIG` is the one production
-  variable; `PDS_PLC_LOCAL` is allowed only in development and test.
-  """
-  def validate_env do
-    known =
-      MapSet.new(@base_env ++ if(development?(), do: @development_env, else: []))
-
-    unknown =
-      System.get_env()
-      |> Map.keys()
-      |> Enum.filter(&String.starts_with?(&1, "PDS_"))
-      |> Enum.reject(&MapSet.member?(known, &1))
-      |> Enum.sort()
-
-    case unknown do
-      [] -> :ok
-      unknown -> {:error, {:unknown_env, unknown}}
+  defp parse_entry({line, number}, {:ok, entries}) do
+    case parse_line(line) do
+      :skip -> {:cont, {:ok, entries}}
+      {:ok, key, value} -> add_entry(key, value, number, entries)
+      {:error, reason} -> {:halt, {:error, {reason, number}}}
     end
   end
 
-  @doc "Validates the environment, raising a message that names the variables."
-  def validate_env! do
-    case validate_env() do
-      :ok -> :ok
-      {:error, reason} -> raise "invalid environment: #{describe(reason)}"
-    end
-  end
+  defp add_entry(key, value, number, entries) do
+    cond do
+      key not in @keys ->
+        {:halt, {:error, {:unknown_key, key, number}}}
 
-  @doc "The built-in defaults, including the defaults that depend on the release layout."
-  def defaults do
-    %{
-      "public_url" => if(development?(), do: "http://localhost:4000"),
-      "port" => "4000",
-      "data_dir" => default_data_dir(),
-      "mode" => "single",
-      "handle_domain" => nil,
-      "registration" => "closed",
-      "crawler" => "",
-      "plc_directory" => "https://plc.directory",
-      "lexicon_aggregator" => "",
-      "blob_upload_limit" => "5242880",
-      "repo_import_limit" => "104857600",
-      "proxy_timeout" => "15000",
-      "proxy_response_limit" => "10485760",
-      "admin_dids" => "",
-      "privacy_policy_url" => "",
-      "terms_of_service_url" => ""
-    }
-  end
+      List.keymember?(entries, key, 0) ->
+        {:halt, {:error, {:duplicate_key, key, number}}}
 
-  @doc """
-  Normalizes and validates the file into the settings boot uses.
-
-  Pure: it takes the parsed file and the defaults, and returns either the
-  effective settings or a reason naming the setting. `hostname`,
-  `url_scheme` and `url_port` are derived from `public_url`; the listening
-  `port` stays separate because a proxy may terminate TLS on another port.
-  """
-  def resolve(file, defaults \\ defaults()) do
-    public = fetch(file, defaults, "public_url")
-
-    with {:ok, origin} <- origin(public),
-         {:ok, port} <-
-           integer(fetch(file, defaults, "port"), "port", 1, 65_535, @port_expectation),
-         {:ok, mode} <-
-           enum(
-             fetch(file, defaults, "mode"),
-             "mode",
-             %{"single" => :single, "multi" => :multi},
-             @mode_expectation
-           ),
-         {:ok, registration} <-
-           enum(
-             fetch(file, defaults, "registration"),
-             "registration",
-             %{"open" => :open, "closed" => :closed},
-             @registration_expectation
-           ),
-         {:ok, blob_upload_limit} <-
-           integer(
-             fetch(file, defaults, "blob_upload_limit"),
-             "blob_upload_limit",
-             1,
-             nil,
-             @positive_expectation
-           ),
-         {:ok, repo_import_limit} <-
-           integer(
-             fetch(file, defaults, "repo_import_limit"),
-             "repo_import_limit",
-             1,
-             nil,
-             @positive_expectation
-           ),
-         {:ok, proxy_timeout} <-
-           integer(
-             fetch(file, defaults, "proxy_timeout"),
-             "proxy_timeout",
-             1,
-             nil,
-             @positive_expectation
-           ),
-         {:ok, proxy_response_limit} <-
-           integer(
-             fetch(file, defaults, "proxy_response_limit"),
-             "proxy_response_limit",
-             1,
-             nil,
-             @positive_expectation
-           ),
-         {:ok, lexicon_aggregator} <-
-           lexicon(fetch(file, defaults, "lexicon_aggregator")) do
-      handle_domain = handle_domain(fetch(file, defaults, "handle_domain"), origin.host)
-
-      {:ok,
-       %{
-         public_url: origin.url,
-         hostname: origin.host,
-         url_scheme: origin.scheme,
-         url_port: origin.port,
-         port: port,
-         data_dir: value(fetch(file, defaults, "data_dir")),
-         mode: mode,
-         handle_domain: handle_domain,
-         registration: registration,
-         crawler: list(fetch(file, defaults, "crawler")),
-         plc_directory: value(fetch(file, defaults, "plc_directory")),
-         lexicon_aggregator: lexicon_aggregator,
-         blob_upload_limit: blob_upload_limit,
-         repo_import_limit: repo_import_limit,
-         proxy_timeout: proxy_timeout,
-         proxy_response_limit: proxy_response_limit,
-         admin_dids: list(fetch(file, defaults, "admin_dids")),
-         privacy_policy_url: value(fetch(file, defaults, "privacy_policy_url")),
-         terms_of_service_url: value(fetch(file, defaults, "terms_of_service_url"))
-       }}
+      true ->
+        {:cont, {:ok, [{key, value, number} | entries]}}
     end
   end
 
   @doc "Reads and resolves the effective configuration."
-  def effective do
-    with {:ok, file} <- load(), do: resolve(file)
+  def effective(path \\ path()) do
+    with {:ok, file} <- read(path), do: resolve(file)
   end
 
   @doc "Reads and resolves the effective configuration, raising on an invalid one."
-  def effective! do
-    case effective() do
-      {:ok, settings} -> settings
-      {:error, reason} -> raise "config file #{path()} is invalid: #{describe(reason)}"
+  def effective!(path \\ path()) do
+    case effective(path) do
+      {:ok, settings} ->
+        settings
+
+      {:error, {:invalid, _path, _reason} = reason} ->
+        raise Pesque.Config.Error, reason
+
+      {:error, reason} ->
+        raise Pesque.Config.Error, {:invalid, path, reason}
     end
   end
 
-  @doc """
-  Where every effective value came from, for `config validate`: one entry per
-  setting and derived value, in report order. `resolve/2` runs first, so an
-  invalid value is reported here instead of surfacing as a failed boot.
-  """
-  def resolution do
-    with {:ok, file} <- load(),
-         {:ok, settings} <- resolve(file) do
-      {:ok, Enum.map(@report_order, &{&1, setting(settings, &1), source(&1, file)})}
-    end
+  @doc "The :pesque application configuration from the file, for source execution."
+  def source_config!(path \\ path()) do
+    path |> effective!() |> pesque_config()
   end
 
   @doc "The example configuration file, kept short on purpose."
   def template, do: @template
 
-  @doc """
-  Whether this process is running from a checkout in development or test.
-
-  A release, or a `MIX_ENV=prod` source run, is a deployment: it has to name
-  `public_url` instead of inheriting the localhost default.
-  """
-  def development? do
-    release_root() == nil and mix_env() in [:dev, :test]
+  @doc "The effective settings in display order."
+  def settings(%__MODULE__{} = settings) do
+    [
+      url_scheme: to_string(settings.url_scheme),
+      hostname: host(settings.hostname),
+      port: settings.port,
+      data_dir: settings.data_dir,
+      public_url: origin(settings),
+      mode: settings.mode,
+      handle_domain: host(settings.handle_domain),
+      registration: settings.registration,
+      crawler: Enum.map(settings.crawler, &url/1),
+      plc_directory: url(settings.plc_directory),
+      lexicon_aggregator: url(settings.lexicon_aggregator),
+      blob_upload_limit: settings.blob_upload_limit,
+      repo_import_limit: settings.repo_import_limit,
+      proxy_timeout: settings.proxy_timeout,
+      proxy_response_limit: settings.proxy_response_limit,
+      admin_dids: settings.admin_dids || [],
+      privacy_policy_url: url(settings.privacy_policy_url),
+      terms_of_service_url: url(settings.terms_of_service_url)
+    ]
   end
 
-  @doc false
-  def default_data_dir do
-    cond do
-      release_root() != nil -> "/data"
-      mix_env() == :test -> "tmp/test"
-      true -> "data"
+  defp resolve(file) do
+    attrs =
+      file
+      |> Map.new(fn {key, {value, _line}} -> {key, value} end)
+      |> split_list("crawler")
+      |> split_list("admin_dids")
+
+    changeset = changeset(attrs)
+
+    case apply_action(changeset, :insert) do
+      {:ok, settings} ->
+        {:ok, settings}
+
+      {:error, changeset} ->
+        errors =
+          changeset
+          |> traverse_changeset_errors()
+          |> with_lines(file)
+
+        {:error, errors}
     end
   end
 
-  # Mix.env/0 is the source of truth in a checkout. A release does not carry
-  # Mix, so the module is absent and the release layout wins.
-  defp mix_env do
-    if Code.ensure_loaded?(Mix) do
-      Mix.env()
+  defp read(path) do
+    case File.read(path) do
+      {:ok, text} -> parse(text)
+      {:error, :enoent} -> {:error, {:missing_file, path}}
+      {:error, reason} -> {:error, {:unreadable, path, reason}}
+    end
+  end
+
+  defp split_list(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} when is_binary(value) ->
+        Map.put(attrs, key, value |> String.split(",", trim: true) |> Enum.map(&String.trim/1))
+
+      _other ->
+        attrs
+    end
+  end
+
+  defp with_lines(errors, file) do
+    Map.new(errors, fn {key, message} ->
+      case Map.get(file, to_string(key)) do
+        {_value, line} -> {key, message <> " on line #{line}"}
+        nil -> {key, message}
+      end
+    end)
+  end
+
+  defp pesque_config(settings) do
+    [
+      {Pesque.Repo, repo_config(settings)},
+      {PesqueWeb.Endpoint, endpoint_config(settings)},
+      public_url: origin(settings),
+      data_dir: settings.data_dir,
+      hostname: host(settings.hostname),
+      url_scheme: to_string(settings.url_scheme),
+      port: settings.port,
+      mode: settings.mode,
+      handle_domain: host(settings.handle_domain),
+      registration: settings.registration,
+      plc_directory: url(settings.plc_directory),
+      lexicon_aggregator: url(settings.lexicon_aggregator),
+      crawlers: Enum.map(settings.crawler, &url/1),
+      blob_max_bytes: settings.blob_upload_limit,
+      repo_import_max_bytes: settings.repo_import_limit,
+      proxy_timeout: settings.proxy_timeout,
+      proxy_response_limit: settings.proxy_response_limit,
+      privacy_policy_url: url(settings.privacy_policy_url) || "",
+      terms_of_service_url: url(settings.terms_of_service_url) || "",
+      admin_dids: settings.admin_dids || [],
+      argon2_opts: [t_cost: 3, m_cost: 12]
+    ]
+  end
+
+  defp repo_config(settings) do
+    [
+      database: Path.join(settings.data_dir, "pesque.db"),
+      journal_mode: :wal,
+      busy_timeout: 5_000,
+      migration_lock: nil,
+      pool_size: 4
+    ]
+  end
+
+  defp endpoint_config(settings) do
+    [
+      http: [
+        ip: {0, 0, 0, 0},
+        port: settings.port,
+        websocket_options: [
+          max_frame_size: 1_048_576,
+          max_fragmented_message_size: 1_048_576
+        ]
+      ],
+      url: [
+        host: host(settings.hostname),
+        scheme: to_string(settings.url_scheme),
+        port: settings.port
+      ]
+    ]
+  end
+
+  defp origin(settings) do
+    scheme = to_string(settings.url_scheme)
+    host = host(settings.hostname)
+    port = settings.port
+
+    if port == URI.default_port(scheme) do
+      "#{scheme}://#{host}"
     else
-      :prod
+      "#{scheme}://#{host}:#{port}"
     end
   end
 
-  defp release_root do
-    case System.get_env("RELEASE_ROOT") do
-      nil -> nil
-      "" -> nil
-      _root -> :release
-    end
+  defp host(nil), do: nil
+  defp host(%URI{host: host}) when is_binary(host), do: host
+  defp host(%URI{path: path}), do: path
+  defp host(host), do: host
+
+  defp url(nil), do: nil
+  defp url(%URI{} = uri), do: URI.to_string(uri)
+  defp url(url), do: url
+
+  defp changeset(%{} = attrs) do
+    %__MODULE__{}
+    |> cast(attrs, @fields)
+    |> update_change(:lexicon_aggregator, &empty_to_nil/1)
+    |> validate_required(@required)
+    |> validate_number(:port,
+      greater_than_or_equal_to: 1,
+      less_than_or_equal_to: 65_535,
+      message: @port_expectation
+    )
+    |> validate_number(:blob_upload_limit, greater_than: 0)
+    |> validate_number(:repo_import_limit, greater_than: 0)
+    |> validate_number(:proxy_timeout, greater_than: 0)
+    |> validate_number(:proxy_response_limit, greater_than: 0)
+    |> validate_change(:lexicon_aggregator, fn
+      _, nil -> []
+      _, %URI{scheme: "https"} -> []
+      _, _ -> [@lexicon_expectation]
+    end)
+    |> maybe_put_handle_domain()
   end
 
-  defp fetch(file, defaults, key) do
-    case Map.get(file, key) do
-      {value, line} -> {value, line}
-      value when is_binary(value) -> {value, nil}
-      nil -> {Map.get(defaults, key), nil}
-    end
-  end
+  defp empty_to_nil(%URI{scheme: nil, host: nil, path: path}) when path in [nil, ""], do: nil
+  defp empty_to_nil(uri), do: uri
 
-  defp value({value, _line}), do: value
+  defp maybe_put_handle_domain(%{valid?: false} = changeset), do: changeset
 
-  defp origin({nil, _line}) do
-    {:error,
-     {:missing_setting, "public_url",
-      "set public_url in pesque.conf; it is the one required server setting"}}
-  end
+  defp maybe_put_handle_domain(%Ecto.Changeset{} = changeset) do
+    hostname = get_change(changeset, :hostname)
+    handle_domain = get_change(changeset, :handle_domain)
 
-  defp origin({raw, line}) do
-    with {:ok, uri} <- URI.new(String.trim(raw)),
-         true <- origin?(uri) do
-      {:ok,
-       %{
-         url: uri |> Map.put(:path, nil) |> URI.to_string(),
-         scheme: uri.scheme,
-         host: uri.host,
-         port: uri.port
-       }}
+    if is_nil(handle_domain) do
+      put_change(changeset, :handle_domain, hostname)
     else
-      _other -> {:error, {:invalid_setting, "public_url", raw, @origin_expectation, line}}
+      changeset
     end
   end
 
-  defp origin?(%URI{
-         scheme: scheme,
-         host: host,
-         userinfo: nil,
-         query: nil,
-         fragment: nil,
-         port: port,
-         path: path
-       })
-       when scheme in ["http", "https"] and is_binary(host) and host != "" and
-              is_integer(port) and port > 0 and port <= 65_535 and path in [nil, "", "/"] do
-    true
+  defp traverse_changeset_errors(changeset) do
+    traverse_errors(changeset, fn {msg, opts} ->
+      msg = fold_error(msg, opts)
+
+      type = Keyword.get(opts, :type)
+
+      case type do
+        nil ->
+          msg
+
+        {:parameterized, {Ecto.Enum, _}} ->
+          msg <> ", expected one of [#{Enum.join(opts[:enum], ", ")}]"
+
+        type ->
+          msg <> ", expected #{type}"
+      end
+    end)
+    |> Map.new(fn {k, v} -> {k, Enum.join(v, ", ")} end)
   end
 
-  defp origin?(_uri), do: false
+  defp fold_error(msg, opts) do
+    Enum.reduce(opts, msg, fn
+      {_, {:parameterized, {Ecto.Enum, _}}}, acc ->
+        acc
 
-  defp integer({raw, line}, key, min, max, expectation) when is_binary(raw) do
-    case Integer.parse(raw) do
-      {number, ""} when number >= min and (is_nil(max) or number <= max) -> {:ok, number}
-      _other -> {:error, {:invalid_setting, key, raw, expectation, line}}
-    end
-  end
-
-  defp integer({raw, line}, key, _min, _max, expectation) do
-    {:error, {:invalid_setting, key, raw, expectation, line}}
-  end
-
-  defp enum({raw, line}, key, values, expectation) do
-    case Map.fetch(values, raw) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, {:invalid_setting, key, raw, expectation, line}}
-    end
-  end
-
-  defp lexicon({raw, _line}) when raw in [nil, ""], do: {:ok, nil}
-
-  defp lexicon({"https://" <> _rest = raw, _line}), do: {:ok, raw}
-
-  defp lexicon({raw, line}) do
-    {:error, {:invalid_setting, "lexicon_aggregator", raw, @lexicon_expectation, line}}
-  end
-
-  defp handle_domain({nil, _line}, hostname), do: String.downcase(hostname)
-  defp handle_domain({raw, _line}, _hostname), do: String.downcase(raw)
-
-  defp list({raw, _line}) do
-    raw
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp setting(settings, key), do: Map.fetch!(settings, Map.fetch!(@key_atoms, key))
-
-  defp source(key, file) do
-    case Map.get(file, key) do
-      {_value, line} ->
-        {:file, line}
-
-      nil ->
-        cond do
-          key in @derived_keys -> {:derived, "public_url"}
-          key == "handle_domain" -> {:derived, "public_url"}
-          key == "public_url" -> :development_default
-          true -> :default
-        end
-    end
+      {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+    end)
   end
 
   defp parse_line(line) do
@@ -480,28 +403,22 @@ defmodule Pesque.Config do
   defp build(_key, ""), do: {:error, :missing_value}
   defp build(key, value), do: {:ok, key, value}
 
-  defp describe({:unknown_env, names}) do
-    "unknown PDS_ variables in the environment: " <>
-      Enum.join(names, ", ") <>
-      ". Server settings live in #{path()}; PDS_CONFIG only selects the file, " <>
-      "and PDS_PLC_LOCAL is development-only."
-  end
+  @doc false
+  def describe({:invalid, path, reason}),
+    do: "config file #{path} is invalid:\n" <> describe(reason)
 
-  defp describe({:retired_key, key, line, advice}),
-    do: "retired key #{inspect(key)} on line #{line}: #{advice}"
+  def describe({:missing_file, path}),
+    do: "config file #{path} does not exist; copy pesque.conf.example or set PDS_CONFIG"
 
-  defp describe({:unknown_key, key, line}),
+  def describe({:unknown_key, key, line}),
     do: "unknown key #{inspect(key)} on line #{line}; see docs/installation.md#configuration"
 
-  defp describe({:duplicate_key, key, line}), do: "duplicate key #{inspect(key)} on line #{line}"
+  def describe({:duplicate_key, key, line}),
+    do: "duplicate key #{inspect(key)} on line #{line}"
 
-  defp describe({:missing_setting, key, advice}), do: "#{key} is required: #{advice}"
+  def describe({:unreadable, path, reason}), do: "cannot read #{path}: #{inspect(reason)}"
 
-  defp describe({:invalid_setting, key, value, expectation, line}) do
-    where = if line, do: " on line #{line}", else: ""
-    "#{key} #{expectation}, got #{inspect(value)}#{where}"
+  def describe(%{} = errors) do
+    Enum.map_join(errors, "\n", fn {key, message} -> "#{key}: #{message}" end)
   end
-
-  defp describe({reason, line}), do: "#{reason} on line #{line}"
-  defp describe({:unreadable, path, reason}), do: "cannot read #{path}: #{inspect(reason)}"
 end

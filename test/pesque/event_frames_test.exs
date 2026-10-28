@@ -5,7 +5,7 @@ defmodule Pesque.EventFramesTest do
   #account frame in seq order with the commits around it.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -21,7 +21,6 @@ defmodule Pesque.EventFramesTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
     :ok
   end

@@ -13,14 +13,13 @@ defmodule Pesque.Accounts.InviteCodeLimitsTest do
   checking, which is the half that has to hold.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Accounts.InviteCode
   alias Pesque.Repo
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
   end
 

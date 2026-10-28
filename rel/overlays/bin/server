@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+bin_dir=$(CDPATH='' cd -P "$(dirname "$0")" && pwd)
+
+"$bin_dir/pesque" eval 'Pesque.Release.prepare()' || exit 1
+PHX_SERVER=true exec "$bin_dir/pesque" start

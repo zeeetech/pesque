@@ -8,7 +8,7 @@ defmodule Pesque.MigrateTest do
   real, so the new-server half is exercised as it runs.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.CBOR
@@ -20,7 +20,6 @@ defmodule Pesque.MigrateTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     restore_env()
     Application.put_env(:pesque, :mode, :multi)
     Application.put_env(:pesque, :identity, :plc)

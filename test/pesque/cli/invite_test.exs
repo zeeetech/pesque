@@ -5,7 +5,7 @@ defmodule Pesque.Cli.InviteTest do
   (single, where /signup answers 404).
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts.InviteCode
   alias Pesque.Cli.Invite
@@ -13,7 +13,6 @@ defmodule Pesque.Cli.InviteTest do
 
   setup do
     Gettext.put_locale(PesqueWeb.Gettext, "en")
-    Pesque.DataCase.setup()
     :ok
   end
 

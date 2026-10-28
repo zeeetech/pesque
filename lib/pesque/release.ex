@@ -1,81 +1,56 @@
 defmodule Pesque.Release do
-  @moduledoc "Release support: task bootstrap, the boot-time migration, and the account printer."
+  @moduledoc """
+  Persistent preparation and database tasks for a release.
 
-  use Gettext, backend: PesqueWeb.Gettext
+  Preparation runs before the server starts. It uses the configuration already
+  installed by `Pesque.Config`; it never reads or installs configuration itself.
+  """
 
-  alias Pesque.Cli.Report
+  @app :pesque
 
   @doc """
-  Starts the application for a one-off release task.
+  Creates the installation a server needs before it can boot.
 
-  A release `eval` boots the VM but does not start the applications, so a task
-  that reads the server identity or touches the database has to ask for them
-  first. The endpoint stays down, and startup-only migrations, recovery,
-  retention and relay announcements are skipped: a task can run against the
-  data directory a live server already holds without applying server-startup
-  work to it.
+  Repeatable: an existing secret, identity key, OAuth key, database or data
+  directory is reused rather than replaced.
   """
-  def boot! do
-    Application.put_env(:pesque, :serve, false)
-    Application.put_env(:pesque, :operator_boot, true)
+  def prepare do
+    Pesque.Storage.init!()
+    Pesque.Storage.ensure_server_secret!()
+    Pesque.Identity.ensure!()
 
-    case Application.ensure_all_started(:pesque) do
-      {:ok, _apps} -> :ok
-      {:error, reason} -> raise "the application could not start: #{inspect(reason)}"
+    case Pesque.OAuth.Keys.ensure() do
+      {:ok, _key} -> :ok
+      {:error, reason} -> raise "the oauth signing key could not be prepared: #{inspect(reason)}"
     end
+
+    migrate()
   end
 
+  @doc "Runs every pending migration. Database only."
   def migrate do
-    if Process.whereis(Pesque.Repo) do
-      run()
-    else
-      {:ok, _, _} = Ecto.Migrator.with_repo(Pesque.Repo, fn _repo -> run() end)
-      :ok
+    load_app()
+    File.mkdir_p!(Pesque.data_dir())
+
+    for repo <- repos() do
+      {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :up, all: true))
     end
+
+    :ok
   end
 
-  @doc """
-  Prints the account and what to do next, the part of account creation the
-  account verbs share. The steps after the account exist render through the
-  shared next-steps block (`Pesque.Cli.Report`).
-  """
-  def print_account(account, opts \\ []) do
-    IO.puts("")
+  @doc "Rolls a repository back to `version`. Database only."
+  def rollback(repo, version) do
+    load_app()
 
-    [
-      gettext("Account created.") <> "\n  handle  #{account.handle}\n  did     #{account.did}",
-      gettext(
-        "Point this domain at the server, then add the handle record, and give DNS a few minutes to catch up:"
-      ) <>
-        "\n\n" <> Enum.join(dns_lines(account, opts[:public_ip]), "\n"),
-      gettext("Check that everything is reachable from outside:") <> "\n\n  pesque doctor"
-    ]
-    |> Report.next_steps()
-    |> IO.puts()
+    {:ok, _, _} = Ecto.Migrator.with_repo(repo, &Ecto.Migrator.run(&1, :down, to: version))
+    :ok
   end
 
-  # A did:web account serves its own handle at /.well-known/atproto-did, so
-  # only the host record is needed. A multi account is resolved at
-  # _atproto.<handle>, which nothing else publishes, so the TXT carries the
-  # DID the directory minted.
-  defp dns_lines(%{did: "did:plc:" <> _} = account, public_ip) do
-    [host_line(public_ip), "  _atproto.#{account.handle}   TXT    \"did=#{account.did}\""]
-  end
+  defp repos, do: Application.fetch_env!(@app, :ecto_repos)
 
-  defp dns_lines(_account, public_ip), do: [host_line(public_ip)]
-
-  defp host_line(public_ip) do
-    ip =
-      case public_ip do
-        value when is_binary(value) and value != "" -> value
-        _unset -> "<this server's public IP>"
-      end
-
-    "  #{Pesque.hostname()}   A      #{ip}"
-  end
-
-  defp run do
-    path = Path.join(:code.priv_dir(:pesque), "repo/migrations")
-    Ecto.Migrator.run(Pesque.Repo, path, :up, all: true)
+  defp load_app do
+    Application.ensure_all_started(:ssl)
+    Application.ensure_loaded(@app)
   end
 end

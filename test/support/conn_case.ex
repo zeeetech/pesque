@@ -49,8 +49,8 @@ defmodule PesqueWeb.ConnCase do
     end
   end
 
-  setup do
-    Pesque.DataCase.setup()
+  setup tags do
+    Pesque.DataCase.setup_database(tags)
     put_mode(:multi)
     :ok
   end

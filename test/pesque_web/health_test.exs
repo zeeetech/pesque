@@ -4,18 +4,13 @@ defmodule PesqueWeb.HealthTest do
   so it has to mean something beyond "a process answered".
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Phoenix.ConnTest
 
   alias PesqueWeb.Endpoint
 
   @endpoint Endpoint
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   test "reports the database as reachable" do
     conn = get(build_conn(), "/xrpc/_health")

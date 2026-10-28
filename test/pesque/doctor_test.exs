@@ -1,11 +1,10 @@
 defmodule Pesque.DoctorTest do
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Doctor
   alias Pesque.Identity
 
   setup do
-    Pesque.DataCase.setup()
     previous = Application.get_env(:pesque, :hostname)
     previous_crawlers = Application.get_env(:pesque, :crawlers)
     Application.put_env(:pesque, :hostname, "pds.example.com")

@@ -12,8 +12,8 @@ defmodule Pesque do
   @doc """
   The public base URL clients are told to reach this server at.
 
-  This is the normalized `public_url` from the config file: the advertised
-  scheme and port are the proxied ones, not the ones this process listens on.
+  This is derived from `url_scheme`, `hostname` and `port`: the advertised
+  origin clients use.
   """
   def base_url, do: Application.get_env(:pesque, :public_url, "http://localhost:4000")
 
@@ -32,7 +32,7 @@ defmodule Pesque do
   @doc "Relay base URLs to ask for a crawl at boot. Empty means ask nobody."
   def crawlers, do: Application.get_env(:pesque, :crawlers, [])
 
-  @doc "The host this server is reached at, derived from public_url, without scheme or port."
+  @doc "The host this server is reached at, from the configured hostname."
   def hostname, do: Application.get_env(:pesque, :hostname, "localhost")
 
   # Handles are case-insensitive and stored lowercase, so the domain they are

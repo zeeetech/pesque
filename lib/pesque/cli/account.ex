@@ -14,8 +14,9 @@ defmodule Pesque.Cli.Account do
   alias Pesque.Accounts.User
   alias Pesque.Cli.Input
   alias Pesque.Cli.Output
+  alias Pesque.Cli.Runtime
   alias Pesque.Plc
-  alias Pesque.Release
+  alias Pesque.Cli.Report
   alias Pesque.RepoStore
 
   @usage """
@@ -108,10 +109,10 @@ defmodule Pesque.Cli.Account do
          {:ok, method} <- identity_method(opts[:identity]),
          {:ok, password} <-
            Input.password("Password for the new account (at least 8 characters): "),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       case Accounts.create_account(handle, email, password, identity: method) do
         {:ok, account} ->
-          Release.print_account(account, public_ip: opts[:public_ip])
+          Report.print_account(account, public_ip: opts[:public_ip])
           :ok
 
         {:error, reason} ->
@@ -127,7 +128,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, [status: :string, grep: :string] ++ @json, @sub_usage["list"]),
          :ok <- check_status(opts[:status]),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       users = filtered_users(opts)
 
       if opts[:json] do
@@ -145,7 +146,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches ++ @json, @sub_usage["show"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       if opts[:json] do
         Output.json(%{"account" => show_json(user)})
@@ -165,7 +166,7 @@ defmodule Pesque.Cli.Account do
              @sub_usage["delete"]
            ),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       # Both paths print the same before-picture, read once through
       # describe_deletion/1. The dry run stops there; the real run goes on to
@@ -185,7 +186,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches, @sub_usage["takedown"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       case Accounts.deactivate_account(user) do
         {:ok, did} ->
@@ -202,7 +203,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches, @sub_usage["activate"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       case Accounts.activate_account(user) do
         {:ok, did} ->
@@ -220,7 +221,7 @@ defmodule Pesque.Cli.Account do
            Input.options(argv, @identifier_switches, @sub_usage["reset-password"]),
          {:ok, identifier} <- identifier(opts),
          {:ok, password} <- Input.password("new password: "),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier),
          :ok <- Accounts.reset_password(user, password) do
       IO.puts("password updated for #{user.handle || user.did}; every session it held is revoked")
@@ -235,7 +236,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches, @sub_usage["plc-token"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier),
          {:ok, %{token: token, expires_at: expires_at}} <- Plc.request_operation_signature(user) do
       IO.puts("plc operation token for #{user.did}: #{token}")
@@ -253,7 +254,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches, @sub_usage["email-token"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier),
          {:ok, %{token: token, expires_at: expires_at}} <-
            Accounts.request_email_confirmation(user) do
@@ -271,7 +272,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches, @sub_usage["reset-token"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier),
          {:ok, %{token: token, expires_at: expires_at}} <-
            Accounts.request_password_reset(user) do
@@ -290,7 +291,7 @@ defmodule Pesque.Cli.Account do
     with {:ok, opts, []} <-
            Input.options(argv, @identifier_switches ++ @json, @sub_usage["app-passwords"]),
          {:ok, identifier} <- identifier(opts),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       rows = Accounts.list_app_passwords(user.did)
 
@@ -313,7 +314,7 @@ defmodule Pesque.Cli.Account do
            ),
          {:ok, identifier} <- identifier(opts),
          {:ok, name} <- Input.text(opts, :name, "APP_PASSWORD_NAME", "name: "),
-         :ok <- Release.boot!(),
+         :ok <- Runtime.start(),
          {:ok, user} <- resolve(identifier) do
       # Distinguish "nothing to do" from a real revoke; both exit 0 (the
       # endpoint is idempotent the same way).

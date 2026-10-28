@@ -1,8 +1,8 @@
 defmodule Pesque.Cli.Config do
   @moduledoc """
-  Configuration verbs. Neither boots: an invalid config would kill a boot
-  before anything could report it, so validate reads the file the way the
-  server will at boot, then prints every effective value with its source.
+  Configuration verbs. Neither boots the application: `validate` reads and
+  resolves the file the way the provider will, then prints the effective
+  settings; `template` writes the example.
   """
 
   alias Pesque.Cli.Input
@@ -20,11 +20,10 @@ defmodule Pesque.Cli.Config do
 
   def run(["validate" | argv]) do
     with {:ok, _opts, []} <- Input.options(argv, [], @validate_usage),
-         :ok <- Config.validate_env(),
-         {:ok, entries} <- Config.resolution() do
+         {:ok, settings} <- Config.effective() do
       IO.puts("config file: #{Config.path()}")
       IO.puts("")
-      Enum.each(entries, &print_entry/1)
+      Enum.each(Config.settings(settings), &print_setting/1)
       :ok
     end
   end
@@ -53,24 +52,12 @@ defmodule Pesque.Cli.Config do
     end
   end
 
-  # One line per effective setting with the layer that decided it: the file,
-  # a built-in default, the development default, or public_url for a derived
-  # value.
-  defp print_entry({key, value, source}) do
-    IO.puts(row(key, format(value), source_text(source)))
+  defp print_setting({key, value}) do
+    IO.puts(String.pad_trailing(to_string(key), 24) <> format(value))
   end
-
-  defp source_text({:file, line}), do: "#{Config.path()}:#{line}"
-  defp source_text(:default), do: "(default)"
-  defp source_text(:development_default), do: "(development default)"
-  defp source_text({:derived, key}), do: "(derived from #{key})"
 
   defp format(nil), do: ""
   defp format(values) when is_list(values), do: Enum.join(values, ",")
   defp format(value) when is_atom(value), do: Atom.to_string(value)
   defp format(value), do: to_string(value)
-
-  defp row(key, value, source) do
-    String.pad_trailing(key, 24) <> String.pad_trailing(value, 44) <> source
-  end
 end

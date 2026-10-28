@@ -5,7 +5,7 @@ defmodule Pesque.Cli.Crawl do
   """
 
   alias Pesque.Cli.Input
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
 
   @usage "usage: pesque crawl request"
 
@@ -13,7 +13,7 @@ defmodule Pesque.Cli.Crawl do
 
   def run(["request" | argv]) do
     with {:ok, _opts, []} <- Input.options(argv, [], @usage),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       if Pesque.crawlers() == [] do
         {:error, :no_crawler_configured}
       else

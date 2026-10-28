@@ -13,7 +13,7 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
   the hash out is also what makes a wrong code free.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Accounts.InviteCode
@@ -23,7 +23,6 @@ defmodule Pesque.Accounts.PasswordHashPlacementTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
   end
 

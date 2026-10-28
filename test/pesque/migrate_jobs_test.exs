@@ -10,7 +10,7 @@ defmodule Pesque.Migrate.JobsTest do
   the runner starts.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.Car
@@ -25,7 +25,6 @@ defmodule Pesque.Migrate.JobsTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     restore_env()
     Application.put_env(:pesque, :mode, :multi)
     Application.put_env(:pesque, :identity, :plc)

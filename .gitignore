@@ -39,3 +39,5 @@ pesque-*.tar
 
 # Scratch notes and ideas, not published
 /docs/ideas/
+
+/priv/data_test/

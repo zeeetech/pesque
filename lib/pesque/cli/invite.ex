@@ -9,7 +9,7 @@ defmodule Pesque.Cli.Invite do
 
   alias Pesque.Accounts
   alias Pesque.Cli.Input
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
 
   @usage "usage: pesque invite create [--count N] [--uses N] [--for DID]"
 
@@ -18,7 +18,7 @@ defmodule Pesque.Cli.Invite do
   def run(["create" | argv]) do
     with {:ok, opts, []} <-
            Input.options(argv, [count: :integer, uses: :integer, for: :string], @usage),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       count = opts[:count] || 1
       uses = opts[:uses] || 1
       for_dids = if opts[:for], do: [opts[:for]], else: []

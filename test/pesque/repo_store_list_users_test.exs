@@ -6,7 +6,7 @@ defmodule Pesque.RepoStore.ListUsersTest do
   was no longer deactivated for.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
   alias Pesque.RepoStore
@@ -14,7 +14,6 @@ defmodule Pesque.RepoStore.ListUsersTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
 
     handle = "list" <> Base.encode16(:crypto.strong_rand_bytes(6), case: :lower) <> ".localhost"

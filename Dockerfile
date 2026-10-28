@@ -16,6 +16,7 @@ RUN mix deps.compile
 COPY config config
 COPY priv priv
 COPY lib lib
+COPY rel rel
 
 RUN mix compile
 RUN mix release
@@ -33,7 +34,7 @@ USER pesque
 COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque ./
 COPY --chown=pesque:pesque pesque.conf.example /app/pesque.conf.example
 COPY --chown=pesque:pesque docker/healthcheck.sh /app/healthcheck.sh
-RUN chmod 755 /app/healthcheck.sh
+RUN chmod 755 /app/healthcheck.sh /app/bin/server /app/bin/cli
 
 ENV PDS_CONFIG=/data/pesque.conf
 # The config file lives on the volume. A release refuses to boot without
@@ -46,4 +47,4 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD ["/app/healthcheck.sh"]
 
-CMD ["/app/bin/pesque", "start"]
+CMD ["/app/bin/server"]

@@ -25,26 +25,34 @@ defmodule Pesque.DataCase do
   row would otherwise still leave a file on disk for a DID no account owns.
   """
 
+  use ExUnit.CaseTemplate
+
   alias Ecto.Adapters.SQL.Sandbox
   alias Pesque.Repo
   alias Pesque.RepoSupervisor
   alias Pesque.Storage
 
-  @doc "Checks a connection out for the calling test. Call from a test's setup block."
-  def setup do
+  setup tags do
+    setup_database(tags)
+    :ok
+  end
+
+  def setup_database(tags) do
     Pesque.FakeStore.clear()
-    owner = Sandbox.start_owner!(Repo, shared: true)
+    owner = Sandbox.start_owner!(Repo, shared: not tags[:async])
     keys = key_files()
     blobs = blob_dirs()
 
-    ExUnit.Callbacks.on_exit(fn ->
+    if tags[:async] do
+      Ecto.Migrator.run(Pesque.Repo, :up, all: true, log: false)
+    end
+
+    on_exit(fn ->
       stop_repos()
       Sandbox.stop_owner(owner)
       remove_keys(keys)
       remove_blobs(blobs)
     end)
-
-    :ok
   end
 
   defp stop_repos do

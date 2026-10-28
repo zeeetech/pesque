@@ -35,10 +35,9 @@ defmodule Pesque.Doctor do
   Runs the checks, prints one line each, and answers `:ok` or `:error`.
 
   This is the release-friendly entry:
-  `bin/pesque eval 'Pesque.Release.boot!(); Pesque.Doctor.run()'` answers it
-  without Mix, which a container image does not carry. `boot!` is required
-  because a release `eval` does not start the application, so the server
-  identity is not loaded until it does.
+  `bin/cli doctor` answers it without Mix, which a container image does not
+  carry. The CLI runtime is required because a release `eval` does not start
+  the application, so the server identity is not loaded until it does.
   """
   def run(opts \\ []) do
     results = checks(opts)
@@ -78,10 +77,11 @@ defmodule Pesque.Doctor do
   defp hint(:warn, "dns"), do: "add an A record before going live"
 
   defp hint(:fail, "describeServer"),
-    do: "check the proxy forwards to the server and that public_url is the origin clients use"
+    do:
+      "check the proxy forwards to the server and that hostname and url_scheme are the origin clients use"
 
   defp hint(:fail, "did document"),
-    do: "the domain publishes a different key; restart the server and check public_url"
+    do: "the domain publishes a different key; restart the server and check hostname"
 
   defp hint(:fail, "handle"),
     do:

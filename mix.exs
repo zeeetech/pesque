@@ -9,7 +9,14 @@ defmodule Pesque.MixProject do
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      releases: [
+        pesque: [
+          config_providers: [
+            {Pesque.Config, {:system, "PDS_CONFIG"}}
+          ]
+        ]
+      ]
     ]
   end
 

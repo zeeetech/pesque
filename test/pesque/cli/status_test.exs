@@ -6,7 +6,7 @@ defmodule Pesque.Cli.StatusTest do
   explain tests.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Cli.Status
 
@@ -98,10 +98,6 @@ defmodule Pesque.Cli.StatusTest do
   describe "run/1 --json" do
     # The payload is the gathered facts themselves, so this one boots: the
     # read is the proof the database opened.
-    setup do
-      Pesque.DataCase.setup()
-      :ok
-    end
 
     test "answers one status object over the gathered facts" do
       output = ExUnit.CaptureIO.capture_io(fn -> assert :ok = Status.run(["--json"]) end)

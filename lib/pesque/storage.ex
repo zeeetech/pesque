@@ -29,15 +29,15 @@ defmodule Pesque.Storage do
   """
   def digest_name(did), do: Base.url_encode64(:crypto.hash(:sha256, did), padding: false)
 
-  @doc "Reads the server secret from disk, generating and persisting it on first boot."
-  def server_secret!(data_dir \\ Pesque.data_dir()) do
+  @doc "Reads the server secret, generating and persisting it when it is absent."
+  def ensure_server_secret!(data_dir \\ Pesque.data_dir()) do
     path = Path.join(data_dir, "server.secret")
 
     case File.read(path) do
       {:ok, secret} ->
         String.trim(secret)
 
-      {:error, _reason} ->
+      {:error, :enoent} ->
         secret = Base.encode16(:crypto.strong_rand_bytes(64), case: :lower)
         File.mkdir_p!(data_dir)
         {:ok, device} = :file.open(path, [:write])
@@ -48,6 +48,22 @@ defmodule Pesque.Storage do
         :ok = :file.write(device, secret)
         :ok = :file.close(device)
         secret
+
+      {:error, reason} ->
+        raise "the server secret at #{path} could not be read: #{inspect(reason)}"
+    end
+  end
+
+  @doc "Reads the server secret. Raises when the installation has not been prepared."
+  def server_secret!(data_dir \\ Pesque.data_dir()) do
+    path = Path.join(data_dir, "server.secret")
+
+    case File.read(path) do
+      {:ok, secret} ->
+        String.trim(secret)
+
+      {:error, reason} ->
+        raise "the server secret at #{path} is unavailable (#{inspect(reason)}); run bin/server once to prepare the installation"
     end
   end
 

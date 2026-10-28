@@ -11,7 +11,7 @@ defmodule Pesque.ServerIdentityTest do
   DID; a plc account is minted through the directory at creation.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Phoenix.ConnTest
 
@@ -21,7 +21,6 @@ defmodule Pesque.ServerIdentityTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     restore_env()
     :ok
   end

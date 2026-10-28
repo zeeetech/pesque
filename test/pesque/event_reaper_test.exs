@@ -4,7 +4,7 @@ defmodule Pesque.EventReaperTest do
   current tree reaches go, and everything reachable stays.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.Accounts.User
   alias Pesque.Repo
@@ -13,8 +13,6 @@ defmodule Pesque.EventReaperTest do
   alias Pesque.RepoStore.Event
 
   setup do
-    Pesque.DataCase.setup()
-
     alice = account("alice")
 
     %{alice: alice, repo: start_repo(alice.did)}

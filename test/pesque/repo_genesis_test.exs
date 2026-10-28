@@ -21,7 +21,7 @@ defmodule Pesque.RepoGenesisTest do
   signal of what the commit answered, and it is the thing the bug was about.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
   import ExUnit.CaptureLog
@@ -32,11 +32,6 @@ defmodule Pesque.RepoGenesisTest do
   alias Pesque.RepoStore.Event
   alias Pesque.RepoSupervisor
   alias Pesque.Tid
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   test "a genesis that rolls back is retried until it lands" do
     did = did("genesis-retry")

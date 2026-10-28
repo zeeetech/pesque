@@ -13,7 +13,7 @@ defmodule PesqueWeb.Plugs.AdminTest do
   is the plug's decision, which is the part that has to hold once it is.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Plug.Test
   import Plug.Conn
@@ -22,7 +22,6 @@ defmodule PesqueWeb.Plugs.AdminTest do
   alias PesqueWeb.Plugs.Admin
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:single)
   end
 

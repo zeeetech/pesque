@@ -7,18 +7,13 @@ defmodule Pesque.BlockInsertTest do
   is more than a single statement may carry.
   """
 
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   alias Pesque.RepoStore
 
   # Past the ceiling at four parameters per row (32766 / 4 = 8191), so a single
   # insert_all would be refused by SQLite.
   @blocks 9_000
-
-  setup do
-    Pesque.DataCase.setup()
-    :ok
-  end
 
   test "inserts more blocks than one statement can bind" do
     did = "did:web:localhost:user:batch"

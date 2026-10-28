@@ -1,5 +1,5 @@
 defmodule Pesque.MultiAccountTest do
-  use ExUnit.Case, async: false
+  use Pesque.DataCase, async: false
 
   import Ecto.Query
 
@@ -16,7 +16,6 @@ defmodule Pesque.MultiAccountTest do
   @password "hunter2hunter2"
 
   setup do
-    Pesque.DataCase.setup()
     put_mode(:multi)
     put_client(Pesque.Plc.TestClient)
     Pesque.FakeStore.put(:plc_submit_result, :ok)

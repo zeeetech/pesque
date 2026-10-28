@@ -7,13 +7,13 @@ defmodule Pesque.Cli.Backup do
 
   alias Pesque.Backup
   alias Pesque.Cli.Input
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
 
   @usage "usage: pesque backup [--out DIR]"
 
   def run(argv) do
     with {:ok, opts, []} <- Input.options(argv, [out: :string], @usage),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       case Backup.create(Pesque.data_dir(), opts[:out] || File.cwd!()) do
         {:ok, archive} ->
           IO.puts("wrote #{archive}")

@@ -628,12 +628,12 @@ msgstr "é preciso informar um email"
 msgid "another account already uses that email"
 msgstr "outra conta já usa esse email"
 
-#: lib/pesque/cli/explain.ex:331
+#: lib/pesque/cli/explain.ex:346
 #, elixir-autogen, elixir-format
 msgid "cannot read %{path}: %{reason}"
 msgstr "não foi possível ler %{path}: %{reason}"
 
-#: lib/pesque/cli/explain.ex:339
+#: lib/pesque/cli/explain.ex:354
 #, elixir-autogen, elixir-format
 msgid "cannot write %{path}: %{reason}"
 msgstr "não foi possível escrever %{path}: %{reason}"
@@ -649,12 +649,12 @@ msgstr "confira --old-pds; o servidor antigo precisa continuar no ar até a migr
 msgid "choose another name, or see who has it with pesque account list"
 msgstr "escolha outro nome, ou veja quem o tem com pesque account list"
 
-#: lib/pesque/cli/explain.ex:465
+#: lib/pesque/cli/explain.ex:480
 #, elixir-autogen, elixir-format
 msgid "could not complete the operation"
 msgstr "não consegui completar a operação"
 
-#: lib/pesque/cli/explain.ex:359
+#: lib/pesque/cli/explain.ex:374
 #, elixir-autogen, elixir-format
 msgid "could not write the archive: %{reason}"
 msgstr "não foi possível gravar o arquivo de backup: %{reason}"
@@ -669,7 +669,7 @@ msgstr "o doctor encontrou problemas"
 msgid "fix the failures above and run it again"
 msgstr "corrija as falhas acima e rode de novo"
 
-#: lib/pesque/cli/explain.ex:230
+#: lib/pesque/cli/explain.ex:249
 #, elixir-autogen, elixir-format
 msgid "give it by flag or environment"
 msgstr "informe por flag ou por variável de ambiente"
@@ -689,7 +689,7 @@ msgstr "nenhum código PLC foi lido"
 msgid "no account with that DID or handle on this server"
 msgstr "nenhuma conta com esse DID ou handle neste servidor"
 
-#: lib/pesque/cli/explain.ex:221
+#: lib/pesque/cli/explain.ex:240
 #, elixir-autogen, elixir-format
 msgid "no relay is configured to ask"
 msgstr "nenhum relay está configurado"
@@ -714,12 +714,12 @@ msgstr "rode num terminal, ou passe o valor pelo stdin"
 msgid "run this where the prompt can be answered, or set MIGRATE_PLC_TOKEN"
 msgstr "rode onde o prompt pode ser respondido, ou defina MIGRATE_PLC_TOKEN"
 
-#: lib/pesque/cli/explain.ex:222
+#: lib/pesque/cli/explain.ex:241
 #, elixir-autogen, elixir-format
 msgid "set crawler = https://bsky.network"
 msgstr "defina crawler = https://bsky.network"
 
-#: lib/pesque/cli/explain.ex:376
+#: lib/pesque/cli/explain.ex:391
 #, elixir-autogen, elixir-format
 msgid "stop the server (the driver does this) and run restore again"
 msgstr "pare o servidor (o driver faz isso) e rode o restore de novo"
@@ -759,72 +759,72 @@ msgstr "essa não é a senha desta conta"
 msgid "the account row could not be updated"
 msgstr "não foi possível atualizar a linha da conta"
 
-#: lib/pesque/cli/explain.ex:383
+#: lib/pesque/cli/explain.ex:398
 #, elixir-autogen, elixir-format
 msgid "the archive carries no manifest.json, so it is not a pesque backup"
 msgstr "o arquivo de backup não tem manifest.json, então não é um backup do pesque"
 
-#: lib/pesque/cli/explain.ex:409
+#: lib/pesque/cli/explain.ex:424
 #, elixir-autogen, elixir-format
 msgid "the archive could not be read: %{reason}"
 msgstr "não foi possível ler o arquivo de backup: %{reason}"
 
-#: lib/pesque/cli/explain.ex:418
+#: lib/pesque/cli/explain.ex:433
 #, elixir-autogen, elixir-format
 msgid "the archive is backup version %{version}; this server writes and restores version 1"
 msgstr "o arquivo de backup está na versão %{version}; este servidor escreve e restaura a versão 1"
 
-#: lib/pesque/cli/explain.ex:430
+#: lib/pesque/cli/explain.ex:445
 #, elixir-autogen, elixir-format
 msgid "the archive is missing %{name}, so it is not a complete pesque backup"
 msgstr "o arquivo de backup está sem %{name}, então não é um backup completo do pesque"
 
-#: lib/pesque/cli/explain.ex:401
+#: lib/pesque/cli/explain.ex:416
 #, elixir-autogen, elixir-format
 msgid "the archive's manifest names another format, so it is not a pesque backup"
 msgstr "o manifest do arquivo de backup indica outro formato, então não é um backup do pesque"
 
-#: lib/pesque/cli/explain.ex:392
+#: lib/pesque/cli/explain.ex:407
 #, elixir-autogen, elixir-format
 msgid "the archive's manifest.json does not decode, so it is not a pesque backup"
 msgstr "o manifest.json do arquivo de backup não decodifica, então não é um backup do pesque"
 
-#: lib/pesque/cli/explain.ex:323
+#: lib/pesque/cli/explain.ex:338
 #, elixir-autogen, elixir-format
 msgid "the config file has a key with no value on line %{line}"
 msgstr "o arquivo de configuração tem uma chave sem valor na linha %{line}"
 
-#: lib/pesque/cli/explain.ex:312
+#: lib/pesque/cli/explain.ex:327
 #, elixir-autogen, elixir-format
 msgid "the config file has a line that is not a comment, blank, or key = value on line %{line}"
 msgstr "o arquivo de configuração tem na linha %{line} uma linha que não é comentário, linha em branco, nem chave = valor"
 
-#: lib/pesque/cli/explain.ex:288
+#: lib/pesque/cli/explain.ex:303
 #, elixir-autogen, elixir-format
 msgid "the config file names an unknown key %{key} on line %{line}"
 msgstr "o arquivo de configuração tem a chave desconhecida %{key} na linha %{line}"
 
-#: lib/pesque/cli/explain.ex:300
+#: lib/pesque/cli/explain.ex:315
 #, elixir-autogen, elixir-format
 msgid "the config file repeats %{key} on line %{line}"
 msgstr "o arquivo de configuração repete %{key} na linha %{line}"
 
-#: lib/pesque/cli/explain.ex:348
+#: lib/pesque/cli/explain.ex:363
 #, elixir-autogen, elixir-format
 msgid "the data directory is missing %{entries}; a server that has never booted has nothing to back up"
 msgstr "o diretório de dados está sem %{entries}; um servidor que nunca iniciou não tem nada pra fazer backup"
 
-#: lib/pesque/cli/explain.ex:367
+#: lib/pesque/cli/explain.ex:382
 #, elixir-autogen, elixir-format
 msgid "the database answered: %{reason}"
 msgstr "o banco respondeu: %{reason}"
 
-#: lib/pesque/cli/explain.ex:375
+#: lib/pesque/cli/explain.ex:390
 #, elixir-autogen, elixir-format
 msgid "the database is locked"
 msgstr "o banco de dados está travado"
 
-#: lib/pesque/cli/explain.ex:229
+#: lib/pesque/cli/explain.ex:248
 #, elixir-autogen, elixir-format
 msgid "the migration is missing %{key}"
 msgstr "a migração está sem %{key}"
@@ -849,27 +849,27 @@ msgstr "não foi possível falar com o PDS antigo: %{detail}"
 msgid "the password must be at least 8 characters"
 msgstr "a senha precisa de pelo menos 8 caracteres"
 
-#: lib/pesque/cli/explain.ex:453
+#: lib/pesque/cli/explain.ex:468
 #, elixir-autogen, elixir-format
 msgid "the restore could not move %{name}: %{reason}; the previous state is in the .old files"
 msgstr "o restore não conseguiu mover %{name}: %{reason}; o estado anterior está nos arquivos .old"
 
-#: lib/pesque/cli/explain.ex:441
+#: lib/pesque/cli/explain.ex:456
 #, elixir-autogen, elixir-format
 msgid "the restore is missing its staged %{name}; the previous state is in the .old files"
 msgstr "o restore está sem o %{name} preparado; o estado anterior está nos arquivos .old"
 
-#: lib/pesque/cli/explain.ex:466
+#: lib/pesque/cli/explain.ex:481
 #, elixir-autogen, elixir-format
 msgid "this looks like a defect. run it again with PESQUE_DEBUG=1 and report it"
 msgstr "isto parece um defeito. rode de novo com PESQUE_DEBUG=1 e relate o problema"
 
-#: lib/pesque/cli/explain.ex:238
+#: lib/pesque/cli/explain.ex:257
 #, elixir-autogen, elixir-format
 msgid "unknown PDS_ variables in the environment: %{names}"
 msgstr "variáveis PDS_ desconhecidas no ambiente: %{names}"
 
-#: lib/pesque/cli/explain.ex:422
+#: lib/pesque/cli/explain.ex:437
 #, elixir-autogen, elixir-format
 msgid "upgrade pesque to restore it"
 msgstr "atualize o pesque pra restaurá-lo"
@@ -879,17 +879,17 @@ msgstr "atualize o pesque pra restaurá-lo"
 msgid "%{n} bytes"
 msgstr "%{n} bytes"
 
-#: lib/pesque/release.ex:46
+#: lib/pesque/cli/report.ex:30
 #, elixir-autogen, elixir-format
 msgid "Account created."
 msgstr "conta criada"
 
-#: lib/pesque/release.ex:51
+#: lib/pesque/cli/report.ex:35
 #, elixir-autogen, elixir-format
 msgid "Check that everything is reachable from outside:"
 msgstr "Confira se tudo está acessível de fora:"
 
-#: lib/pesque/release.ex:47
+#: lib/pesque/cli/report.ex:31
 #, elixir-autogen, elixir-format
 msgid "Point this domain at the server, then add the handle record, and give DNS a few minutes to catch up:"
 msgstr "Aponte este domínio pro servidor, depois adicione o registro do handle e dê alguns minutos pro DNS propagar:"
@@ -905,33 +905,33 @@ msgstr "um código de operação PLC foi enviado por email pra %{handle}"
 msgid "crawlers"
 msgstr "crawlers"
 
-#: lib/pesque/cli/restore.ex:60
+#: lib/pesque/cli/restore.ex:59
 #, elixir-autogen, elixir-format
 msgid "dry run: nothing has been restored"
 msgstr "simulação: nada foi restaurado"
 
-#: lib/pesque/cli/account.ex:176
+#: lib/pesque/cli/account.ex:177
 #, elixir-autogen, elixir-format
 msgid "dry run: nothing was deleted"
 msgstr "simulação: nada foi apagado"
 
-#: lib/pesque/cli/account.ex:456
+#: lib/pesque/cli/account.ex:457
 #, elixir-autogen, elixir-format
 msgid "firehose events already emitted survive this deletion"
 msgstr "os eventos de firehose já emitidos sobrevivem a esta exclusão"
 
-#: lib/pesque/cli/restore.ex:70
+#: lib/pesque/cli/restore.ex:69
 #, elixir-autogen, elixir-format
 msgid "if anything stops the swap, the previous state is left in the .old files"
 msgstr "se algo interromper a troca, o estado anterior fica nos arquivos .old"
 
-#: lib/pesque/cli/account.ex:429
-#: lib/pesque/cli/account.ex:449
+#: lib/pesque/cli/account.ex:430
+#: lib/pesque/cli/account.ex:450
 #, elixir-autogen, elixir-format
 msgid "no"
 msgstr "não"
 
-#: lib/pesque/cli/account.ex:434
+#: lib/pesque/cli/account.ex:435
 #, elixir-autogen, elixir-format
 msgid "no app passwords"
 msgstr "nenhuma app password"
@@ -951,7 +951,7 @@ msgstr "rode pesque migrate --plc-token <código> (ou defina MIGRATE_PLC_TOKEN) 
 msgid "server"
 msgstr "servidor"
 
-#: lib/pesque/cli/account.ex:419
+#: lib/pesque/cli/account.ex:420
 #, elixir-autogen, elixir-format
 msgid "status must be active or deactivated"
 msgstr "status precisa ser active ou deactivated"
@@ -961,13 +961,13 @@ msgstr "status precisa ser active ou deactivated"
 msgid "storage"
 msgstr "armazenamento"
 
-#: lib/pesque/cli/account.ex:445
+#: lib/pesque/cli/account.ex:446
 #, elixir-autogen, elixir-format
 msgid "this permanently deletes the account and its repo; it cannot be undone"
 msgstr "isto apaga permanentemente a conta e o repositório dela; não tem volta"
 
-#: lib/pesque/cli/account.ex:429
-#: lib/pesque/cli/account.ex:449
+#: lib/pesque/cli/account.ex:430
+#: lib/pesque/cli/account.ex:450
 #, elixir-autogen, elixir-format
 msgid "yes"
 msgstr "sim"
@@ -1007,27 +1007,42 @@ msgstr "no modo multi, um handle tem a forma <name>.%{domain}"
 msgid "under single there is no signup page; accounts are made with pesque account create"
 msgstr "no modo single não há página de cadastro; crie contas com pesque account create"
 
-#: lib/pesque/cli/explain.ex:271
+#: lib/pesque/cli/explain.ex:286
 #, elixir-autogen, elixir-format
 msgid " on line %{line}"
 msgstr " na linha %{line}"
 
-#: lib/pesque/cli/explain.ex:275
+#: lib/pesque/cli/explain.ex:290
 #, elixir-autogen, elixir-format
 msgid "%{key} %{expectation}, got %{value}"
 msgstr "%{key} %{expectation}, recebeu %{value}"
 
-#: lib/pesque/cli/explain.ex:264
+#: lib/pesque/cli/explain.ex:279
 #, elixir-autogen, elixir-format
 msgid "%{key} is required"
 msgstr "%{key} é obrigatório"
 
-#: lib/pesque/cli/explain.ex:242
-#, elixir-autogen, elixir-format
-msgid "server settings live in pesque.conf, and PDS_CONFIG only selects the file; PDS_PLC_LOCAL is development-only"
-msgstr "as configurações do servidor ficam em pesque.conf, e PDS_CONFIG só seleciona o arquivo; PDS_PLC_LOCAL é só para desenvolvimento"
-
-#: lib/pesque/cli/explain.ex:253
+#: lib/pesque/cli/explain.ex:268
 #, elixir-autogen, elixir-format
 msgid "the config file uses the retired key %{key} on line %{line}"
 msgstr "o arquivo de configuração usa a chave aposentada %{key} na linha %{line}"
+
+#: lib/pesque/cli/explain.ex:233
+#, elixir-autogen, elixir-format
+msgid "fix the config file and run the command again"
+msgstr "corrija o arquivo de configuração e rode o comando de novo"
+
+#: lib/pesque/cli/explain.ex:223
+#, elixir-autogen, elixir-format
+msgid "prepare the installation with bin/server once, or check the server log for the failed dependency"
+msgstr "prepare a instalação com bin/server uma vez, ou confira no log do servidor qual dependência falhou"
+
+#: lib/pesque/cli/explain.ex:221
+#, elixir-autogen, elixir-format
+msgid "the application could not start"
+msgstr "a aplicação não pôde iniciar"
+
+#: lib/pesque/cli/explain.ex:260
+#, elixir-autogen, elixir-format
+msgid "server settings live in pesque.conf; PDS_CONFIG only selects the file"
+msgstr "as configurações do servidor ficam em pesque.conf; PDS_CONFIG só seleciona o arquivo"

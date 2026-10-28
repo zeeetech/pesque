@@ -8,19 +8,11 @@ defmodule Pesque.Application do
   def start(_type, _args) do
     operator_boot? = Application.get_env(:pesque, :operator_boot, false)
 
-    Pesque.Storage.init!()
     Pesque.Secret.load!()
     Pesque.Identity.load!()
     Pesque.OAuth.Keys.load!()
     Pesque.Lexicon.Registry.reload()
 
-    # Release tasks may share the data directory with a live server. Its
-    # migrations and interrupted-job recovery belong to server startup only.
-    unless operator_boot?, do: Pesque.Release.migrate()
-
-    # Resolving the secret reads (or creates) data/server.secret. Doing it
-    # here rather than in config/runtime.exs keeps everyday mix tasks from
-    # touching the data directory; only an app boot does.
     endpoint = Application.get_env(:pesque, PesqueWeb.Endpoint, [])
 
     Application.put_env(
@@ -63,8 +55,7 @@ defmodule Pesque.Application do
   # A move runs in a task under Pesque.Migrate.Supervisor, so a restart took
   # it down with the node while its row still says it is running. This sweep
   # marks those failed. It cannot run earlier than here: the Repo is up by
-  # now, and Pesque.Release.migrate/0, above, runs before the tree and stops
-  # the Repo it starts itself.
+  # now.
   defp reap_interrupted_moves do
     _ = Pesque.Migrate.Jobs.reap_interrupted()
 
@@ -113,7 +104,7 @@ defmodule Pesque.Application do
       [
         "hostname #{Pesque.hostname()} is an IP literal: ATProto handles and did:web " <>
           "resolve through DNS, so this server is reachable but not resolvable. Point a " <>
-          "domain at it and set public_url to that domain to federate."
+          "domain at it and set hostname to that domain to federate."
       ]
     else
       []
@@ -124,7 +115,7 @@ defmodule Pesque.Application do
     if String.starts_with?(Pesque.base_url(), "http://") and Pesque.hostname() != "localhost" do
       [
         "the advertised base URL is #{Pesque.base_url()}, not HTTPS: the spec requires TLS " <>
-          "for federation. Put a proxy in front and set public_url to an https origin."
+          "for federation. Put a proxy in front and set url_scheme = https."
       ]
     else
       []

@@ -5,8 +5,7 @@ services:
     image: ghcr.io/zeeetech/pesque:@VERSION@
     restart: unless-stopped
     working_dir: /data
-    entrypoint: ["/app/bin/pesque"]
-    command: ["start"]
+    entrypoint: ["/app/bin/server"]
     environment:
       PDS_CONFIG: /data/pesque.conf
     volumes:

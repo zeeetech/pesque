@@ -15,7 +15,7 @@ defmodule Pesque.Cli.Status do
   alias Pesque.Cli.Input
   alias Pesque.Cli.Output
   alias Pesque.Identity
-  alias Pesque.Release
+  alias Pesque.Cli.Runtime
   alias Pesque.RepoStore
   alias Pesque.Storage
 
@@ -26,7 +26,7 @@ defmodule Pesque.Cli.Status do
 
   def run(argv) do
     with {:ok, opts, []} <- Input.options(argv, [json: :boolean], @usage),
-         :ok <- Release.boot!() do
+         :ok <- Runtime.start() do
       data = gather()
 
       if opts[:json] do
