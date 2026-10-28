@@ -42,6 +42,11 @@ jobs:
               - 'deploy/compose/**'
               - 'docker/**'
               - 'Dockerfile'
+              - 'lib/**'
+              - 'config/**'
+              - 'priv/**'
+              - 'mix.exs'
+              - 'mix.lock'
               - 'pesque.conf.example'
               - '.github/workflows/ci.yml'
               - '.github/workflows/release.yml'
@@ -116,11 +121,8 @@ jobs:
           docker compose --project-directory "$work" \
             --file "$work/compose.yaml" config --quiet
 
-      # The runner UID differs from the image's non-root pesque UID, so a
-      # correctly private ./backups cannot be read or removed by the runner.
-      # Only this host-side harness is elevated; the application stays non-root.
       - name: Build and exercise the real image
-        run: sudo --preserve-env=GITHUB_RUN_ID deploy/compose/smoke.sh
+        run: deploy/compose/smoke.sh
 
   nix-module:
     name: NixOS module
