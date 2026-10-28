@@ -24,14 +24,14 @@ RUN mix release
 # Runtime stage: the release bundles ERTS, so only C libs are needed.
 FROM alpine:3.21.8
 
-RUN apk add --no-cache libstdc++ openssl ncurses-libs sqlite-libs ca-certificates
+RUN apk add --no-cache libstdc++ openssl ncurses-libs sqlite-libs ca-certificates gcompat
 
 WORKDIR /app
 
 RUN adduser -D pesque && mkdir -p /data && chown pesque:pesque /data
 USER pesque
 
-COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque ./
+COPY --from=build --chown=pesque:pesque /app/_build/prod/rel/pesque /app
 COPY --chown=pesque:pesque pesque.conf.example /app/pesque.conf.example
 COPY --chown=pesque:pesque docker/healthcheck.sh /app/healthcheck.sh
 RUN chmod 755 /app/healthcheck.sh /app/bin/server /app/bin/cli
