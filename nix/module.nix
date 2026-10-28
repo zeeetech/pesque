@@ -1,52 +1,9 @@
-# A NixOS module that runs pesque as a plain systemd service from a release
-# built in Nix, with no container runtime. The configuration is written to a
-# pesque.conf in the store and pointed at with PDS_CONFIG, the same file the
-# server reads in every other deployment.
-#
-# The one-off operator tasks (doctor, account, migrate, backup) are declared
-# as oneshot units that run the release verbs against the same data directory:
-#
-#   systemctl start pesque-doctor
-#   systemctl start pesque-account    # reads /var/lib/pesque/account.env
-#   systemctl start pesque-migrate    # reads /var/lib/pesque/migrate.env
-#   systemctl start pesque-backup     # writes pesque-backup-<stamp>.tar.gz
-#                                     # into the data directory
-#
-# A oneshot has no terminal, so the password arrives on stdin from a file the
-# unit feeds it. The env files hold the non-secret inputs (ACCOUNT_HANDLE,
-# ACCOUNT_EMAIL; MIGRATE_OLD_PDS, MIGRATE_HANDLE, MIGRATE_EMAIL) and stay out
-# of the Nix store; the password files hold the password alone, one line:
-#
-#   install -m600 /dev/null /var/lib/pesque/account.env
-#   install -m600 /dev/null /var/lib/pesque/account.password
-#   install -m600 /dev/null /var/lib/pesque/migrate.env
-#   install -m600 /dev/null /var/lib/pesque/migrate.password
-#
-# The move stops at the PLC step for a code the account holder gets by email.
-# A oneshot has no terminal to prompt on, so pesque-migrate is run twice: the
-# first start asks the old PDS to email the code, then MIGRATE_PLC_TOKEN is set
-# in migrate.env and the second start completes the move.
-#
-# There is deliberately no pesque-restore unit: a restore swaps the data
-# directory in place, so it wants the server stopped and an archive path, not
-# a unit. Stop pesque and run the verb by hand as the pesque user, pointing
-# PDS_CONFIG at the same conf the service runs (`systemctl cat pesque` shows
-# both store paths).
-#
-# The host-side CLI is installed on PATH by default (the flake builds it with a
-# pinned Zig and turns the option on), and also into the pesque user's own
-# packages so `sudo -u pesque pesque <verb>` works. It finds the release and
-# the config from the running unit, so `sudo pesque doctor`,
-# `sudo pesque account list` and the rest reach this server. The lifecycle
-# verbs no-op here: the unit owns the lifecycle. The oneshot units below stay
-# as optional conveniences next to the CLI.
 {
   config,
   lib,
   pkgs,
   ...
 }:
-
 let
   cfg = config.services.pesque;
   inherit (lib)
@@ -57,6 +14,7 @@ let
     optional
     concatStringsSep
     mapAttrsToList
+    escapeShellArg
     ;
 
   confLines =
@@ -64,8 +22,8 @@ let
       "hostname = ${cfg.hostname}"
       "mode = ${cfg.mode}"
       "registration = ${cfg.registration}"
+      "data_dir = /data"
       "port = ${toString cfg.port}"
-      "data_dir = ${cfg.dataDir}"
     ]
     ++ optional (cfg.handleDomain != null) "handle_domain = ${cfg.handleDomain}"
     ++ optional (cfg.handle != null) "handle = ${cfg.handle}"
@@ -73,8 +31,12 @@ let
     ++ optional (cfg.urlScheme != null) "url_scheme = ${cfg.urlScheme}"
     ++ optional (cfg.urlPort != null) "url_port = ${toString cfg.urlPort}"
     ++ optional (cfg.plcDirectory != null) "plc_directory = ${cfg.plcDirectory}"
+    ++ optional (cfg.lexiconAggregator != null) "lexicon_aggregator = ${cfg.lexiconAggregator}"
     ++ optional (cfg.blobUploadLimit != null) "blob_upload_limit = ${toString cfg.blobUploadLimit}"
     ++ optional (cfg.repoImportLimit != null) "repo_import_limit = ${toString cfg.repoImportLimit}"
+    ++ optional (cfg.proxyTimeout != null) "proxy_timeout = ${toString cfg.proxyTimeout}"
+    ++ optional (cfg.proxyResponseLimit != null)
+      "proxy_response_limit = ${toString cfg.proxyResponseLimit}"
     ++ optional (cfg.adminDids != [ ]) "admin_dids = ${concatStringsSep "," cfg.adminDids}"
     ++ optional (cfg.privacyPolicyUrl != null) "privacy_policy_url = ${cfg.privacyPolicyUrl}"
     ++ optional (cfg.termsOfServiceUrl != null) "terms_of_service_url = ${cfg.termsOfServiceUrl}"
@@ -82,45 +44,49 @@ let
 
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
 
-  # A one-off task: the same release, the same config and data directory, the
-  # endpoint off so it does not fight the running server for the port. Non-secret
-  # inputs come from the environment (an env file is all the wiring a headless
-  # run needs); the password arrives on stdin from a file the unit feeds it,
-  # since the verb prompts or reads stdin and a oneshot has no terminal.
-  taskService =
-    { exec, environmentFiles ? [ ], stdinFile ? null }:
-    {
-      description = "pesque one-off task";
-      # The data directory is often its own mount (a ZFS dataset, a separate
-      # disk); wait for it rather than writing to the empty mountpoint on root.
-      unitConfig.RequiresMountsFor = [ cfg.dataDir ];
-      serviceConfig = {
-        Type = "oneshot";
-        User = "pesque";
-        Group = "pesque";
-        WorkingDirectory = cfg.dataDir;
-        Environment = [
-          "PDS_CONFIG=${confFile}"
-          "PDS_SERVE=false"
-        ];
-        EnvironmentFile = environmentFiles;
-        ExecStart = "${cfg.package}/bin/pesque ${exec}";
-        ReadWritePaths = [ cfg.dataDir ];
-        PrivateTmp = true;
-        NoNewPrivileges = true;
-      }
-      // lib.optionalAttrs (stdinFile != null) { StandardInputFile = stdinFile; };
-    };
+  userSpec = "${toString config.users.users.pesque.uid}:${toString config.users.groups.pesque.gid}";
+  imageName = lib.last (lib.splitString "/" cfg.image);
+  imagePinned = (lib.hasInfix ":" imageName) && !(lib.hasSuffix ":latest" cfg.image);
+
+  operator = pkgs.writeShellApplication {
+    name = "pesque";
+    runtimeInputs = [
+      config.virtualisation.docker.package
+      config.systemd.package
+    ];
+    text = lib.replaceStrings
+      [
+        "@IMAGE@"
+        "@CONTAINER@"
+        "@SERVICE@"
+        "@DATA_DIR@"
+        "@CONFIG_FILE@"
+        "@BACKUP_DIR@"
+        "@USER_SPEC@"
+      ]
+      [
+        (escapeShellArg cfg.image)
+        (escapeShellArg "pesque")
+        (escapeShellArg "pesque")
+        (escapeShellArg cfg.dataDir)
+        (escapeShellArg confFile)
+        (escapeShellArg cfg.backupDir)
+        (escapeShellArg userSpec)
+      ]
+      (builtins.readFile ./operator.sh);
+  };
 in
 {
   options.services.pesque = {
     enable = mkEnableOption "pesque, a self-hostable ATProto PDS";
 
-    package = mkOption {
-      type = types.package;
-      default = pkgs.callPackage ./package.nix { };
-      defaultText = lib.literalExpression "pkgs.callPackage ./package.nix { }";
-      description = "The pesque release to run.";
+    image = mkOption {
+      type = types.str;
+      example = "ghcr.io/zeeetech/pesque:1.14.2";
+      description = ''
+        The shared Pesque OCI image. Select an explicit release tag or digest;
+        `latest` is refused so a NixOS rebuild cannot silently change servers.
+      '';
     };
 
     hostname = mkOption {
@@ -179,6 +145,16 @@ in
       description = "Port the process binds. Behind a proxy, this is the internal port.";
     };
 
+    listenAddress = mkOption {
+      type = types.str;
+      default = "127.0.0.1";
+      example = "0.0.0.0";
+      description = ''
+        Host address the container port is published on. Loopback is the safe
+        default because a TLS proxy is expected on the same host.
+      '';
+    };
+
     urlScheme = mkOption {
       type = types.nullOr (
         types.enum [
@@ -203,6 +179,13 @@ in
       description = "PLC directory used when an account is minted as did:plc.";
     };
 
+    lexiconAggregator = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "https://lexicon.example.com";
+      description = "HTTPS base URL used to fetch permission sets not vendored with the server.";
+    };
+
     blobUploadLimit = mkOption {
       type = types.nullOr types.int;
       default = null;
@@ -213,6 +196,18 @@ in
       type = types.nullOr types.int;
       default = null;
       description = "Largest importRepo body, in bytes.";
+    };
+
+    proxyTimeout = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      description = "How long a proxied call may take before it is answered 504, in milliseconds.";
+    };
+
+    proxyResponseLimit = mkOption {
+      type = types.nullOr types.int;
+      default = null;
+      description = "Largest body a proxied call may return, in bytes.";
     };
 
     adminDids = mkOption {
@@ -236,132 +231,106 @@ in
     settings = mkOption {
       type = types.attrsOf types.str;
       default = { };
-      example = { proxy_timeout = "30000"; };
+      example = { proxy_response_limit = "10485760"; };
       description = ''
         Extra pesque.conf keys, written verbatim. The key is the variable
         without the PDS_ prefix, lowercased; an unknown key fails boot.
       '';
     };
 
-    dataDir = mkOption {
-      type = types.path;
-      default = "/var/lib/pesque";
-      description = "Directory holding the entire server state: database, keys, blobs.";
-    };
-
-    openFirewall = mkOption {
-      type = types.bool;
-      default = false;
+    uid = mkOption {
+      type = types.int;
+      default = 33333;
       description = ''
-        Open the port in the firewall. Off by default: a federating server sits
-        behind a TLS proxy, so the only thing that should reach this port is the
-        proxy on the loopback or the private interface.
+        Stable host UID shared by the service user and the container. The
+        container remains non-root, and the data and backup mounts use this
+        owner.
       '';
     };
 
-    cli = {
-      enable = mkOption {
-        type = types.bool;
-        default = false;
-        description = ''
-          Install the host-side CLI on the system PATH and in the pesque
-          user's own packages, so `sudo pesque <verb>` and
-          `sudo -u pesque pesque <verb>` both work. The flake turns this on
-          with a pinned build; importing this module directly leaves it off.
-        '';
-      };
+    gid = mkOption {
+      type = types.int;
+      default = 33333;
+      description = "Stable host GID shared by the service group and the container.";
+    };
 
-      package = mkOption {
-        type = types.nullOr types.package;
-        default = null;
-        description = "The CLI package to install.";
-      };
+    dataDir = mkOption {
+      type = types.path;
+      default = "/var/lib/pesque";
+      description = "Host directory holding the entire server state, mounted at /data.";
+    };
+
+    backupDir = mkOption {
+      type = types.path;
+      default = "${cfg.dataDir}/backups";
+      defaultText = lib.literalExpression ''"''${config.services.pesque.dataDir}/backups"'';
+      description = "Host directory for backup archives, mounted at /backups.";
     };
   };
 
   config = mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = imagePinned;
+        message = "services.pesque.image must select an explicit release tag or digest, not latest.";
+      }
+    ];
+
     users.users.pesque = {
       isSystemUser = true;
       group = "pesque";
+      uid = cfg.uid;
       home = cfg.dataDir;
       description = "pesque ATProto PDS";
-      # The CLI has to run as the service user too (`sudo -u pesque pesque ...`):
-      # the per-user profile at /etc/profiles/per-user/pesque puts the binary on
-      # that user's PATH, next to the system PATH entry below.
-      packages = mkIf (cfg.cli.enable && cfg.cli.package != null) [ cfg.cli.package ];
     };
-    users.groups.pesque = { };
+    users.groups.pesque.gid = cfg.gid;
 
     systemd.tmpfiles.rules = [
       "d '${cfg.dataDir}' 0700 pesque pesque -"
+      "d '${cfg.backupDir}' 0700 pesque pesque -"
     ];
 
-    systemd.services.pesque = {
-      description = "pesque ATProto PDS";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      # The data directory is often its own mount (a ZFS dataset, a separate
-      # disk); wait for it rather than writing to the empty mountpoint on root.
-      unitConfig.RequiresMountsFor = [ cfg.dataDir ];
+    virtualisation.docker.enable = lib.mkDefault true;
+    virtualisation.oci-containers.backend = "docker";
+    virtualisation.oci-containers.containers.pesque = {
+      image = cfg.image;
+      serviceName = "pesque";
+      entrypoint = "/app/bin/pesque";
+      cmd = [ "start" ];
+      user = userSpec;
+      workdir = "/data";
+      environment = {
+        PDS_CONFIG = "/data/pesque.conf";
+        PDS_DATA_DIR = "/data";
+        HOME = "/data";
+      };
+      volumes = [
+        "${cfg.dataDir}:/data"
+        "${confFile}:/data/pesque.conf:ro"
+        "${cfg.backupDir}:/backups"
+      ];
+      ports = [ "${cfg.listenAddress}:${toString cfg.port}:${toString cfg.port}" ];
+      log-driver = "journald";
+      pull = "missing";
+    };
 
-      environment.PDS_CONFIG = confFile;
+    systemd.services.pesque.unitConfig.RequiresMountsFor = [
+      cfg.dataDir
+      cfg.backupDir
+    ];
 
+    systemd.services.pesque-backup = {
+      description = "Pesque backup";
+      unitConfig.RequiresMountsFor = [
+        cfg.dataDir
+        cfg.backupDir
+      ];
       serviceConfig = {
-        Type = "exec";
-        User = "pesque";
-        Group = "pesque";
-        WorkingDirectory = cfg.dataDir;
-        ExecStart = "${cfg.package}/bin/pesque start";
-        Restart = "on-failure";
-        RestartSec = 5;
-        # bin/pesque start is a clean SIGTERM: the endpoint drains and the
-        # in-flight commit finishes, so give it room before SIGKILL.
-        KillSignal = "SIGTERM";
-        TimeoutStopSec = 30;
-
-        # The firehose holds a socket per subscriber; the default soft limit is
-        # low for a server whose whole job is long-lived connections.
-        LimitNOFILE = 65536;
-
-        # Hardening. MemoryDenyWriteExecute is left off: the BEAM's JIT needs
-        # writable and executable memory.
-        NoNewPrivileges = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectControlGroups = true;
-        RestrictAddressFamilies = [
-          "AF_INET"
-          "AF_INET6"
-          "AF_UNIX"
-        ];
-        ReadWritePaths = [ cfg.dataDir ];
+        Type = "oneshot";
+        ExecStart = "${operator}/bin/pesque backup";
       };
     };
 
-    systemd.services.pesque-doctor = taskService { exec = "doctor"; };
-
-    systemd.services.pesque-account = taskService {
-      exec = "account create";
-      environmentFiles = [ "-${cfg.dataDir}/account.env" ];
-      stdinFile = "${cfg.dataDir}/account.password";
-    };
-
-    systemd.services.pesque-migrate = taskService {
-      exec = "migrate";
-      environmentFiles = [ "-${cfg.dataDir}/migrate.env" ];
-      stdinFile = "${cfg.dataDir}/migrate.password";
-    };
-
-    systemd.services.pesque-backup = taskService { exec = "backup"; };
-
-    environment.systemPackages =
-      mkIf (cfg.cli.enable && cfg.cli.package != null) [ cfg.cli.package ];
-
-    networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.port ];
+    environment.systemPackages = [ operator ];
   };
 }
