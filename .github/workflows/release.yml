@@ -53,8 +53,8 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag_name }}
+            type=match,pattern=v(.*),group=1,value=${{ needs.release-please.outputs.tag_name }}
+            type=match,pattern=v(\d+i\.\d+),group=1,value=${{ needs.release-please.outputs.tag_name }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
