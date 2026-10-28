@@ -16,6 +16,9 @@ let
           hostname = "pds.example.com";
           mode = "multi";
           handleDomain = "example.com";
+          uid = 33333;
+          gid = 33333;
+          requiredMounts = [ "/var/lib/pesque" ];
         };
       }
     ];
@@ -37,6 +40,7 @@ in
     assert config.users.users.pesque.uid == 33333;
     assert config.users.groups.pesque.gid == 33333;
     assert config.systemd.services.pesque-backup.serviceConfig.Type == "oneshot";
+    assert nixpkgs.lib.hasInfix "mountpoint -q /var/lib/pesque" config.systemd.services.pesque.preStart;
     assert !(config.systemd.services ? pesque-account);
     assert !(config.systemd.services ? pesque-doctor);
     assert !(config.systemd.services ? pesque-migrate);

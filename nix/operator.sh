@@ -11,6 +11,15 @@ user_spec=@USER_SPEC@
 newline=$(printf '\nx')
 newline=${newline%x}
 
+require_mount() {
+  mountpoint -q "$1" || die 3 "required mount is not available: $1"
+}
+
+require_storage() {
+  :
+@STORAGE_CHECKS@
+}
+
 die() {
   code=$1
   shift
@@ -39,25 +48,28 @@ need_docker() {
   docker info >/dev/null 2>&1 || die 3 "the Docker daemon is not running"
 }
 
+docker_run() {
+  if [ -t 0 ] && [ -t 1 ]; then
+    set -- -it "$@"
+  else
+    set -- -i "$@"
+  fi
+  docker run --rm "$@"
+}
+
 run_container() {
   need_docker
-  if [ -t 0 ] && [ -t 1 ]; then
-    tty=-it
-  else
-    tty=-i
-  fi
-  # tty is one of the two fixed values above.
-  # shellcheck disable=SC2086
-  docker run --rm $tty \
+  require_storage
+  docker_run \
     --user "$user_spec" \
     --workdir /data \
     --env PDS_CONFIG=/data/pesque.conf \
     --env PDS_DATA_DIR=/data \
     --env PDS_SERVE=false \
     --env HOME=/data \
-    --volume "$data_dir:/data" \
-    --volume "$config_file:/data/pesque.conf:ro" \
-    --volume "$backup_dir:/backups" \
+    --mount "type=bind,source=$data_dir,target=/data" \
+    --mount "type=bind,source=$config_file,target=/data/pesque.conf,readonly" \
+    --mount "type=bind,source=$backup_dir,target=/backups" \
     --entrypoint /app/bin/pesque \
     "$@"
 }
@@ -87,21 +99,25 @@ run_domain() {
   esac
 }
 
-wait_healthy() {
-  attempt=0
-  while [ "$attempt" -lt 30 ]; do
-    if state=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null); then
-      case "$state" in
-        healthy) return 0 ;;
-        unhealthy | none) return 1 ;;
-        starting) ;;
-        *) return 1 ;;
-      esac
-    fi
-    attempt=$((attempt + 1))
-    sleep 2
-  done
-  return 1
+check_health() {
+  if ! state=$(docker inspect --format '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null); then
+    return 1
+  fi
+  [ "$state" = "true healthy" ]
+}
+
+assert_stopped() {
+  need_docker
+  if ! state=$(systemctl show --property=ActiveState --value "$service"); then
+    die 3 "could not query $service state; restore was not run"
+  fi
+  [ "$state" = inactive ] ||
+    die 3 "$service is $state; stop it with 'sudo systemctl stop $service' before restore"
+
+  if ! running=$(docker ps --quiet --filter "name=^/${container}$"); then
+    die 3 "could not query the service container; restore was not run"
+  fi
+  [ -z "$running" ] || die 3 "the service container is running; restore was not run"
 }
 
 backup() {
@@ -141,12 +157,14 @@ restore() {
   [ -f "$backup_dir/$archive" ] || die 1 "backup archive not found: $backup_dir/$archive"
   container_archive=/backups/$archive
 
-  if [ "$dry_run" -eq 0 ] && systemctl is-active --quiet "$service"; then
-    die 3 "$service is active; stop it with 'sudo systemctl stop $service' before restore"
+  if [ "$dry_run" -eq 0 ]; then
+    assert_stopped
+    run_container "$image" eval 'Pesque.Cli.main()' restore "$container_archive" ||
+      return $?
+  else
+    run_container "$image" eval 'Pesque.Cli.main()' restore --dry-run "$container_archive" ||
+      return $?
   fi
-
-  run_container "$image" eval 'Pesque.Cli.main()' restore "$container_archive" ||
-    return $?
 }
 
 main() {
@@ -161,7 +179,7 @@ main() {
     health)
       [ "$#" -eq 0 ] || die 2 "usage: pesque health"
       need_docker
-      wait_healthy || die 3 "$service did not become healthy within 60 seconds"
+      check_health || die 3 "$service is not running and healthy"
       printf 'healthy\n'
       ;;
     *) run_domain "$command" "$@" ;;

@@ -47,12 +47,29 @@ let
   userSpec = "${toString config.users.users.pesque.uid}:${toString config.users.groups.pesque.gid}";
   imageName = lib.last (lib.splitString "/" cfg.image);
   imagePinned = (lib.hasInfix ":" imageName) && !(lib.hasSuffix ":latest" cfg.image);
+  requiredMounts = cfg.requiredMounts ++ [
+    cfg.dataDir
+    cfg.backupDir
+  ];
+
+  storageCommands = concatStringsSep "\n" (
+    map (path: "  require_mount ${escapeShellArg (toString path)}") cfg.requiredMounts
+  );
+  storagePreStart = concatStringsSep "\n" (
+    map (path: ''
+      if ! ${pkgs.util-linux}/bin/mountpoint -q ${escapeShellArg (toString path)}; then
+        echo "required mount is not available: ${toString path}" >&2
+        exit 1
+      fi
+    '') cfg.requiredMounts
+  );
 
   operator = pkgs.writeShellApplication {
     name = "pesque";
     runtimeInputs = [
       config.virtualisation.docker.package
       config.systemd.package
+      pkgs.util-linux
     ];
     text = lib.replaceStrings
       [
@@ -63,6 +80,7 @@ let
         "@CONFIG_FILE@"
         "@BACKUP_DIR@"
         "@USER_SPEC@"
+        "@STORAGE_CHECKS@"
       ]
       [
         (escapeShellArg cfg.image)
@@ -72,6 +90,7 @@ let
         (escapeShellArg confFile)
         (escapeShellArg cfg.backupDir)
         (escapeShellArg userSpec)
+        storageCommands
       ]
       (builtins.readFile ./operator.sh);
   };
@@ -240,18 +259,33 @@ in
 
     uid = mkOption {
       type = types.int;
-      default = 33333;
+      example = 33333;
       description = ''
-        Stable host UID shared by the service user and the container. The
-        container remains non-root, and the data and backup mounts use this
-        owner.
+        Stable host UID shared by the service user and the container. Set this
+        to the current data owner when adopting an existing installation. The
+        module never changes ownership of existing state.
       '';
     };
 
     gid = mkOption {
       type = types.int;
-      default = 33333;
-      description = "Stable host GID shared by the service group and the container.";
+      example = 33333;
+      description = ''
+        Stable host GID shared by the service group and the container. Set this
+        to the current data group when adopting an existing installation.
+      '';
+    };
+
+    requiredMounts = mkOption {
+      type = types.listOf types.path;
+      default = [ ];
+      example = [ "/var/lib/pesque" ];
+      description = ''
+        Paths that must already be mountpoints before the service or a one-off
+        command uses the data. Set this for datasets that could otherwise be
+        hidden by an empty directory, such as a ZFS dataset. No automatic mount
+        or ownership changes are performed.
+      '';
     };
 
     dataDir = mkOption {
@@ -314,17 +348,14 @@ in
       pull = "missing";
     };
 
-    systemd.services.pesque.unitConfig.RequiresMountsFor = [
-      cfg.dataDir
-      cfg.backupDir
-    ];
+    systemd.services.pesque = {
+      unitConfig.RequiresMountsFor = lib.unique requiredMounts;
+      preStart = storagePreStart;
+    };
 
     systemd.services.pesque-backup = {
       description = "Pesque backup";
-      unitConfig.RequiresMountsFor = [
-        cfg.dataDir
-        cfg.backupDir
-      ];
+      unitConfig.RequiresMountsFor = lib.unique requiredMounts;
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${operator}/bin/pesque backup";
