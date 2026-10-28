@@ -31,6 +31,31 @@ compose() {
   docker compose --project-directory "$bundle" --file "$bundle/compose.yaml" "$@"
 }
 
+check_backup_permissions() {
+  if stat -c '%a %g' "$bundle/backups" >/dev/null 2>&1; then
+    backup_state=$(stat -c '%a %g' "$bundle/backups")
+  else
+    backup_state=$(stat -f '%Lp %g' "$bundle/backups")
+  fi
+  backup_mode=${backup_state%% *}
+  backup_gid=${backup_state#* }
+  case "$backup_mode" in
+    *0) ;;
+    *)
+      printf 'error: backup directory grants access to other users (mode %s)\n' "$backup_mode" >&2
+      exit 1
+      ;;
+  esac
+  [ "$backup_gid" = "$(id -g)" ] || {
+    printf 'error: backup directory group %s does not match the operator group %s\n' "$backup_gid" "$(id -g)" >&2
+    exit 1
+  }
+  [ -r "$bundle/backups" ] && [ -x "$bundle/backups" ] || {
+    printf 'error: the operator cannot list or read the backup directory\n' >&2
+    exit 1
+  }
+}
+
 docker build --tag "$image" "$repo"
 sed "s/^name: pesque$/name: pesque-smoke-$run_id/; s/@VERSION@/ci-$run_id/g; s/127.0.0.1:4000:4000/127.0.0.1::4567/; s/name: pesque-data/name: pesque-smoke-data-$run_id/" \
   "$repo/deploy/compose/compose.yaml" >"$bundle/compose.yaml"
@@ -43,29 +68,14 @@ printf 'port = 4567\n' >>"$bundle/pesque.conf"
 compose up --detach --wait --wait-timeout 60
 "$bundle/pesque" config validate
 "$bundle/pesque" backup
+check_backup_permissions
 
-if stat -c '%a %g' "$bundle/backups" >/dev/null 2>&1; then
-  backup_state=$(stat -c '%a %g' "$bundle/backups")
-else
-  backup_state=$(stat -f '%Lp %g' "$bundle/backups")
-fi
-backup_mode=${backup_state%% *}
-backup_gid=${backup_state#* }
-case "$backup_mode" in
-  *0) ;;
-  *)
-    printf 'error: backup directory grants access to other users (mode %s)\n' "$backup_mode" >&2
-    exit 1
-    ;;
-esac
-[ "$backup_gid" = "$(id -g)" ] || {
-  printf 'error: backup directory group %s does not match the operator group %s\n' "$backup_gid" "$(id -g)" >&2
-  exit 1
-}
-[ -r "$bundle/backups" ] && [ -x "$bundle/backups" ] || {
-  printf 'error: the operator cannot list or read the backup directory\n' >&2
-  exit 1
-}
+# An old 0700 directory owned by the container user is writable but not
+# readable by the operator; backup must repair it before writing again.
+compose run --rm --no-deps --user 0 --entrypoint /bin/sh pesque \
+  -c 'chown pesque:pesque /backups && chmod 0700 /backups'
+"$bundle/pesque" backup
+check_backup_permissions
 
 set -- "$bundle"/backups/pesque-backup-*.tar.gz
 [ -f "$1" ] || { printf 'error: no host-visible backup was created\n' >&2; exit 1; }
