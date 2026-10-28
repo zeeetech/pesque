@@ -92,9 +92,7 @@ jobs:
           cp deploy/compose/pesque dist/pesque/pesque
           chmod 755 dist/pesque/pesque
           sed "s/@VERSION@/$version/g" deploy/compose/compose.yaml > dist/pesque/compose.yaml
-          elixir -r lib/pesque/config.ex \
-            -e 'IO.write(Pesque.Config.template())' > dist/pesque/pesque.conf.example
-          cmp pesque.conf.example dist/pesque/pesque.conf.example
+          cp pesque.conf.example dist/pesque/pesque.conf.example
           tar -czf "pesque-compose-$version.tar.gz" -C dist pesque
 
       - uses: actions/upload-artifact@v4
