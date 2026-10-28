@@ -10,66 +10,61 @@ A Personal Data Server for ATProto, written in Elixir.
 
 It does account creation, OAuth (PAR, PKCE, DPoP), legacy sessions, signed
 repositories, public reads, blob storage, a firehose, and `did:web` server
-identity with account identities chosen at creation. A PDS stores records, signs
-commits, hands those commits to anyone who asks, and answers `describeServer`
-well enough that a client can decide to talk to it. No feed, no ranking, no
-moderation queue.
+identity with account identities chosen at creation. A PDS stores records,
+signs commits, hands those commits to anyone who asks, and answers
+`describeServer` well enough that a client can decide to talk to it. No
+feed, no ranking, no moderation queue.
 
 State is one SQLite file and one directory of blobs. No Postgres, no S3, no
-cluster. The protocol primitives (CIDs, DAG-CBOR, the Merkle Search Tree, CAR
-archives, TIDs, JWTs, secp256k1) are implemented here rather than pulled in,
-because a reference implementation that hides its protocol code behind a
+cluster. The protocol primitives (CIDs, DAG-CBOR, the Merkle Search Tree,
+CAR archives, TIDs, JWTs, secp256k1) are implemented here rather than pulled
+in, because a reference implementation that hides its protocol code behind a
 dependency is not showing you anything.
 
 The name sounds like PDS and means "go fish" in Portuguese.
 
 ## Deploy it
 
-Install the CLI, write a conf, bring the server up:
+Two supported paths, both running the same pinned OCI image. On any Docker
+host, get the Compose bundle from the
+[latest release](https://github.com/zeeetech/pesque/releases/latest) (verify
+it against `SHA256SUMS`), then:
 
 ```bash
-curl -fsSL https://github.com/zeeetech/pesque/releases/latest/download/install.sh | sh
-pesque config template --out pesque.conf
+tar -xzf pesque-compose-<version>.tar.gz && cd pesque
+./pesque init                        # writes pesque.conf, creates backups/
+$EDITOR pesque.conf                  # the domain clients will use
+docker compose up --detach --wait
+./pesque account create --handle alice.example.com --email alice@example.com
 ```
 
-Edit `pesque.conf` with the domain clients will use, then:
+On NixOS, the flake's module runs the same image under systemd:
+[Installation](docs/installation.md#nixos).
 
-```bash
-pesque up
-pesque account create --handle alice.example.com --email alice@example.com
-```
-
-The installer verifies and installs the `pesque` CLI, that's all. There is no
-setup wizard and no TLS in the box: the reverse proxy and its certificates are
-the operator's job. Point your proxy at the published port (`127.0.0.1:4000` by
-default) and add the DNS records yourself.
-
-The CLI speaks to one of two backends, picked with `--backend docker|systemd`
-or `PESQUE_BACKEND`. `docker` (default) creates and owns one container: `up`
-runs it if absent and starts it otherwise, `down` stops it with the data kept,
-`update [tag]` pulls a new image and recreates the container with the same
-settings. `systemd` runs the release as a native systemd service and the unit
-owns the lifecycle, so `up`, `down`, `restart` and `update` are no-ops there;
-NixOS is detected as systemd. Updates are manual only, there is no auto-update.
+There is no setup wizard and no TLS in the box: the reverse proxy and its
+certificates are the operator's job. Point the proxy at the published port
+(`127.0.0.1:4000` by default) and add the DNS records yourself. Lifecycle is
+Docker Compose (or `systemctl`); the `pesque` command, a short shell script
+on Docker and a configured command on NixOS, runs everything that touches
+the data directly, and updates are manual.
 
 After the first account:
 
 ```bash
-pesque doctor          # federation preflight
-pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
-pesque update          # pull a new image and recreate the container
-pesque logs -f         # follow the server logs
+./pesque doctor          # federation preflight
+./pesque migrate --old-pds https://bsky.social --handle alice.example.com --email alice@example.com
+./pesque backup          # live-safe; restore is cold
+./pesque account list
 ```
 
-`account create` and `migrate` prompt for the password with echo off, or read
-it from stdin (`echo secret | pesque ...`), so it never lands in your shell
-history or the environment. Raw Docker, releases, TLS and every configuration
-knob are in the [installation guide](docs/installation.md).
+`account create` and `migrate` prompt for the password with echo off, or
+read it from stdin (`echo secret | ./pesque ...`), so it never lands in your
+shell history or the environment.
 
 ## Run it from source
 
-Needs Elixir 1.19+ on OTP 28+ and a C toolchain (the SQLite driver compiles from
-source).
+Needs Elixir 1.19+ on OTP 28+ and a C toolchain (the SQLite driver compiles
+from source).
 
 ```bash
 mix deps.get
@@ -80,64 +75,56 @@ curl http://localhost:4000/xrpc/_health
 To host an account:
 
 ```bash
-mix pesque.account create --handle alice.example.com --email alice@example.com
+mix run -e 'Pesque.Cli.main()' account create --handle alice.example.com --email alice@example.com
 ```
 
-`mix pesque.create_account` is the same task under the old name, kept so older
-guides and scripts keep working.
+The verb boots the whole application, endpoint included, runs, and exits.
+Migrations run on boot and `_health` reads the users table, so a server
+whose migrations never ran answers `503` instead of a cheerful ok.
 
-Signing up needs `PDS_MODE=multi`, which mints `did:plc` accounts and
-submits them to the public PLC directory. `PDS_MODE` controls only whether the
-server hosts one account or many; a single account can choose `did:web` or
-`did:plc` with `pesque account create --identity`. To sign up or migrate in development
-without minting a real DID there, add `PDS_PLC_LOCAL=true`: the operations are
-kept under `data_dir` instead. The setting is refused outside the dev and test
-environments.
-
-Migrations run on boot and `_health` reads the users table, so a server whose
-migrations never ran answers `503` instead of a cheerful ok.
-
-Not implemented yet: `signPlcOperation` and `requestPlcOperationSignature` (the
-old PDS signs the move), and granular OAuth consent.
+Not implemented yet: granular OAuth consent.
 
 ## Guides
 
-- [Installation](docs/installation.md) - local, Docker, release, TLS, first account
-- [Operations](docs/operations.md) - backup, upgrades, limits, what your data exposes
+- [Installation](docs/installation.md) - single or multi, Docker, NixOS, the
+  TLS proxy, configuration, verification
+- [Operations](docs/operations.md) - backup, accounts, moving an account in,
+  upgrades, limits, what your data exposes
 
 The guides are English only. This README is mirrored in
 [Português (BR)](README.pt-BR.md).
 
 ## Common questions
 
-- **How do I get a server?** The installer and three commands:
-  [Deploy it](#deploy-it). One Docker container or a systemd service; the TLS
-  proxy is yours.
+- **How do I get a server?** The Compose bundle and four commands:
+  [Deploy it](#deploy-it). One container; the TLS proxy is yours.
 - **How do I add another account?**
-  `pesque account create --handle alice.example.com --email alice@example.com`;
-  it prompts for the password with echo off.
-- **How do I back up and restore?** `pesque backup [--out DIR]` runs with the
-  server up; `pesque restore ARCHIVE.tar.gz` is cold, stop the server first.
-  [Operations](docs/operations.md) has the schedule and the hazards.
-- **How do I update?** `pesque update` pulls a new image and recreates the
-  container (docker backend, manual only); on systemd you upgrade the release
-  yourself.
+  `./pesque account create --handle alice.example.com --email alice@example.com`;
+  it prompts for the password with echo off. Later accounts need an invite
+  code unless registration is open.
+- **How do I back up and restore?** `pesque backup` runs with the server up;
+  `pesque restore ARCHIVE_NAME` is cold, stop the server first.
+  [Operations](docs/operations.md#backup-and-restore) has the schedule and
+  the hazards.
+- **How do I update?** Manually. Docker: unpack a newer bundle over the same
+  directory and `docker compose up --detach --wait`. NixOS: raise the pinned
+  image tag and `nixos-rebuild switch`.
 - **How do I move an account in?**
-  `pesque migrate --old-pds https://bsky.social --handle alice.example.com
-  --email alice@example.com`; the move is one-way. [Operations](docs/operations.md)
-  has the full dance.
-- **How do I move an account out?** Not implemented yet: this PDS can't sign
-  the move (`signPlcOperation`).
-- **How do I accept records for another app's collection?** You already do. A
-  collection this server ships no lexicon for is stored as it came and reported
-  `validationStatus: "unknown"`, the same answer the reference PDS gives; writes
-  are only refused when they break a lexicon this server ships (`com.atproto`,
-  `app.bsky`, `chat.bsky`, `tools.ozone`). There is nothing to install:
-  `mix pesque.sync_lexicons` mirrors exactly those four namespaces, and an OAuth
-  permission set this server does not ship is fetched through the aggregator
-  (`PDS_LEXICON_AGGREGATOR`).
-- **Where is the code?** Here. The protocol primitives live in `lib/pesque` on
-  purpose; [CONTRIBUTING.md](CONTRIBUTING.md) maps the layers.
+  `./pesque migrate --old-pds https://bsky.social --handle alice.example.com
+  --email alice@example.com`; the move is one-way and the new server must be
+  `multi`. [Operations](docs/operations.md#moving-an-account-in) has the
+  full dance.
+- **How do I move an account out?** The destination PDS runs the move; this
+  server signs the identity step (`signPlcOperation`), and the confirmation
+  code reaches you, the operator, through the log or
+  `pesque account plc-token`, not an inbox.
+  [Operations](docs/operations.md#accounts).
+- **How do I accept records for another app's collection?** You already do.
+  A collection this server ships no lexicon for is stored as it came and
+  reported `validationStatus: "unknown"`, the same answer the reference PDS
+  gives. There is nothing to install.
+- **Where is the code?** Here. The protocol primitives live in `lib/pesque`
+  on purpose; [CONTRIBUTING.md](CONTRIBUTING.md) maps the layers.
 
 ## Contributing
 
