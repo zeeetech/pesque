@@ -112,23 +112,82 @@ run_domain() {
   esac
 }
 
-prepare_backup_directory() {
-  probe=.pesque-write-test.$$
-  if compose run --rm --no-deps --entrypoint /bin/sh pesque \
-    -c "touch /backups/$probe && rm /backups/$probe"; then
+backup_stat() {
+  if output=$(stat -c '%a %g' "$backup_dir" 2>/dev/null); then
+    printf '%s\n' "$output"
     return
   fi
+  stat -f '%Lp %g' "$backup_dir"
+}
 
+backup_directory_usable() {
+  host_gid=$1
+
+  if ! probe_path=$(compose run --rm --no-deps --entrypoint /bin/sh pesque \
+    -c "probe=\$(mktemp /backups/.pesque-write-test.XXXXXX) || exit 1
+        mode=\$(printf '%o' \$((0666 & ~0\$(umask)))) || exit 1
+        chmod \"\$mode\" \"\$probe\" || exit 1
+        printf '%s\n' \"\${probe##*/}\"" 2>/dev/null); then
+    return 1
+  fi
+
+  probe=${probe_path##*/}
+  case "$probe" in
+    .pesque-write-test.*) ;;
+    *) return 1 ;;
+  esac
+
+  if ! cat "$backup_dir/$probe" >/dev/null 2>&1; then
+    compose run --rm --no-deps --env PROBE="/backups/$probe" \
+      --entrypoint /bin/sh pesque -c "rm -f -- \"\$PROBE\"" >/dev/null 2>&1 || :
+    return 1
+  fi
+
+  if ! compose run --rm --no-deps --env PROBE="/backups/$probe" \
+    --entrypoint /bin/sh pesque -c "rm -f -- \"\$PROBE\"" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  [ -r "$backup_dir" ] && [ -x "$backup_dir" ] || return 1
+
+  if ! state=$(backup_stat); then
+    return 1
+  fi
+  mode=${state%% *}
+  gid=${state#* }
+
+  [ "$gid" = "$host_gid" ] || return 1
+  case "$mode" in
+    *0) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+repair_backup_directory() {
+  host_gid=$1
+
+  # Only the backup mount is changed; the server and one-off commands stay
+  # non-root. The container user owns the directory, the operator's primary
+  # group can list and read it, and setgid makes new archives inherit that
+  # group.
+  compose run --rm --no-deps --user 0 --entrypoint /bin/sh pesque \
+    -c "chown pesque:$host_gid /backups && chmod 2770 /backups" ||
+    die 3 "could not prepare backup directory permissions for container user and host group $host_gid"
+}
+
+prepare_backup_directory() {
   host_gid=$(id -g)
   case "$host_gid" in
     '' | *[!0-9]*) die 3 "could not determine the host GID for the backup directory" ;;
   esac
 
-  # Owner stays the container user; the operator's host group can list and
-  # read archives, including files inherited through the setgid bit.
-  compose run --rm --no-deps --user 0 --entrypoint /bin/sh pesque \
-    -c "chown pesque:$host_gid /backups && chmod 2770 /backups" ||
-    die 3 "could not prepare backup directory ownership for container user and host group $host_gid"
+  if backup_directory_usable "$host_gid"; then
+    return
+  fi
+
+  repair_backup_directory "$host_gid"
+  backup_directory_usable "$host_gid" ||
+    die 3 "the backup directory is not writable by the container, readable by host group $host_gid, and private to other users"
 }
 
 backup() {

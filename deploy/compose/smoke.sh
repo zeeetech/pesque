@@ -44,6 +44,29 @@ compose up --detach --wait --wait-timeout 60
 "$bundle/pesque" config validate
 "$bundle/pesque" backup
 
+if stat -c '%a %g' "$bundle/backups" >/dev/null 2>&1; then
+  backup_state=$(stat -c '%a %g' "$bundle/backups")
+else
+  backup_state=$(stat -f '%Lp %g' "$bundle/backups")
+fi
+backup_mode=${backup_state%% *}
+backup_gid=${backup_state#* }
+case "$backup_mode" in
+  *0) ;;
+  *)
+    printf 'error: backup directory grants access to other users (mode %s)\n' "$backup_mode" >&2
+    exit 1
+    ;;
+esac
+[ "$backup_gid" = "$(id -g)" ] || {
+  printf 'error: backup directory group %s does not match the operator group %s\n' "$backup_gid" "$(id -g)" >&2
+  exit 1
+}
+[ -r "$bundle/backups" ] && [ -x "$bundle/backups" ] || {
+  printf 'error: the operator cannot list or read the backup directory\n' >&2
+  exit 1
+}
+
 set -- "$bundle"/backups/pesque-backup-*.tar.gz
 [ -f "$1" ] || { printf 'error: no host-visible backup was created\n' >&2; exit 1; }
 tar -tzf "$1" >/dev/null
