@@ -27,7 +27,10 @@ let
   container = config.virtualisation.oci-containers.containers.pesque;
 in
 {
-  wrapper = builtins.head config.environment.systemPackages;
+  wrapper =
+    nixpkgs.lib.findFirst (package: nixpkgs.lib.getName package == "pesque")
+      (throw "the pesque operator wrapper is missing from environment.systemPackages")
+      config.environment.systemPackages;
   result =
     assert config.virtualisation.oci-containers.backend == "docker";
     assert config.virtualisation.docker.enable;
