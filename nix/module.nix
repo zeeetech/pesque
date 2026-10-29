@@ -119,7 +119,7 @@ in
     };
 
     scheme = mkOption {
-      type = types.enum ["http", "https"];
+      type = types.enum ["http" "https"];
       example = "https";
       description = ''
       The desired URL scheme
@@ -166,8 +166,7 @@ in
       default = 4000;
       description = ''
         Port the process binds and the container port published on the host.
-        Behind a proxy this is the internal port; the advertised port is in
-        publicUrl.
+        Behind a proxy this is the internal port..
       '';
     };
 
@@ -249,14 +248,6 @@ in
       {
         assertion = imagePinned;
         message = "services.pesque.image must select an explicit release tag or digest, not latest.";
-      }
-      {
-        assertion = cfg.publicUrl != "";
-        message = "services.pesque.publicUrl is required.";
-      }
-      {
-        assertion = publicUrlMatch != null;
-        message = "services.pesque.publicUrl must be an http(s) URL without a path, query or fragment.";
       }
       {
         assertion = collisions == [ ];

@@ -13,7 +13,9 @@ let
         services.pesque = {
           enable = true;
           image = "ghcr.io/zeeetech/pesque:1.14.2";
-          publicUrl = "https://pds.example.com";
+          hostname = "pds.example.com";
+          scheme = "https";
+          port = 4000;
           mode = "multi";
           handleDomain = "example.com";
           uid = 33333;
