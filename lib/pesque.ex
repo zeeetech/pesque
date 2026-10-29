@@ -12,8 +12,9 @@ defmodule Pesque do
   @doc """
   The public base URL clients are told to reach this server at.
 
-  This is derived from `url_scheme`, `hostname` and `port`: the advertised
-  origin clients use.
+  This is derived from `url_scheme` and `hostname`: a public origin uses the
+  scheme's default port, while a loopback or private hostname keeps the
+  configured listening port. `port` itself is internal behind a proxy.
   """
   def base_url, do: Application.get_env(:pesque, :public_url, "http://localhost:4000")
 

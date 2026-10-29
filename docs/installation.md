@@ -91,7 +91,8 @@ The server state lives in the named volume `pesque-data` (`/data` in the
 container), and `./pesque.conf` is bound read-only at `/data/pesque.conf`.
 The port publishes as `127.0.0.1:4000:4000`: loopback because a TLS proxy on
 the same host is expected. If you edit the published side, the container
-port must match `port` in the conf.
+port must match `port` in the conf; the public URL stays on the proxy's 443
+and never carries the internal port.
 
 The `./pesque` command is everything that touches the data directly; it runs
 each verb in a throwaway container from the same image, against the same
@@ -126,8 +127,10 @@ configuration, and puts a configured `pesque` command on PATH:
 
   services.pesque = {
     enable = true;
-    image = "ghcr.io/zeeetech/pesque:1.14.2";  # explicit tag or digest; latest is refused
-    publicUrl = "https://pds.example.com";
+    image = "ghcr.io/zeeetech/pesque:1.15.6";  # explicit tag or digest; latest is refused
+    scheme = "https";
+    hostname = "pds.example.com";
+    port = 4000;
     mode = "multi";
     handleDomain = "example.com";
     crawler = [ "https://bsky.network" ];
@@ -141,12 +144,15 @@ configuration, and puts a configured `pesque` command on PATH:
 }
 ```
 
-`publicUrl`, `mode`, `handleDomain`, `registration` and `crawler` are the
-common application settings and are translated into the generated
+`scheme`, `hostname`, `mode`, `handleDomain`, `registration` and `crawler`
+are the common application settings and are translated into the generated
 `pesque.conf`. `services.pesque.settings` takes the rest verbatim
 (`blob_upload_limit`, legal links, `admin_dids` and so on). `port` is the
-container's listening port, the host port published on `listenAddress`, and
-the advertised port, so `publicUrl` must use the same port.
+container's listening port and the host port published on `listenAddress`; it
+is not advertised. The public origin is `scheme://hostname` on the scheme's
+default port (443 for `https`, 80 for `http`), so a TLS proxy forwarding to
+`port` publishes the right URL without a `:4000`. A loopback or private
+hostname keeps `port` in the origin, which is what source development uses.
 
 `services.pesque.dataDir` (default `/var/lib/pesque`) is the **host** storage
 path mounted at `/data`; the container's own `data_dir` is always `/data`.
@@ -300,8 +306,12 @@ data_dir = /data
 ```
 
 `hostname` and `url_scheme` are the public origin. `port` is where the process
-binds and also the advertised port, so a proxy must forward the same port. For
-local development with no proxy:
+binds; it is internal behind a proxy and is not added to a public origin. The
+public URL uses the scheme's default port (443 for `https`, 80 for `http`), so
+a proxy on 443 forwarding to `port = 4000` produces `https://pds.example.com`,
+not `https://pds.example.com:4000`. A loopback or private hostname keeps
+`port` in the URL, because there is no proxy to assume. For local development
+with no proxy:
 
 ```ini
 url_scheme = http
@@ -321,7 +331,7 @@ The file supports these settings:
 | --- | --- | --- |
 | `url_scheme` | required | `http` or `https`. The scheme clients use |
 | `hostname` | required | Public hostname. Drives the DID, the DID document and every advertised URL |
-| `port` | required | Port the process binds and advertises |
+| `port` | required | Port the process binds. Internal on a public hostname; advertised only on loopback and private hosts |
 | `data_dir` | required | Directory holding the database, keys, blobs and secret |
 | `mode` | `single` | `single` or `multi`. See [Choose your shape](#choose-your-shape) |
 | `handle_domain` | hostname | Domain accounts get handles under; under `single`, the account handle |

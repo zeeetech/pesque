@@ -38,11 +38,11 @@ defmodule Pesque.Config do
   @template """
   # pesque configuration. Full reference: docs/installation.md#configuration
   #
-  # Public origin, behind your TLS proxy.
+  # Public origin, behind your TLS proxy: scheme://hostname on 443/80.
   url_scheme = https
   hostname = pds.example.com
 
-  # Port the process binds. Behind a proxy this is the internal port.
+  # Port the process binds. Internal behind the proxy; not in the public URL.
   port = 4000
 
   # Directory holding the database, keys, blobs and secret.
@@ -284,6 +284,9 @@ defmodule Pesque.Config do
   end
 
   defp endpoint_config(settings) do
+    scheme = to_string(settings.url_scheme)
+    host = host(settings.hostname)
+
     [
       http: [
         ip: {0, 0, 0, 0},
@@ -294,9 +297,9 @@ defmodule Pesque.Config do
         ]
       ],
       url: [
-        host: host(settings.hostname),
-        scheme: to_string(settings.url_scheme),
-        port: settings.port
+        host: host,
+        scheme: scheme,
+        port: public_port(settings, scheme, host)
       ]
     ]
   end
@@ -304,13 +307,21 @@ defmodule Pesque.Config do
   defp origin(settings) do
     scheme = to_string(settings.url_scheme)
     host = host(settings.hostname)
-    port = settings.port
+    port = public_port(settings, scheme, host)
 
     if port == URI.default_port(scheme) do
       "#{scheme}://#{host}"
     else
       "#{scheme}://#{host}:#{port}"
     end
+  end
+
+  # The listening port is internal when a proxy terminates TLS, so a public
+  # host advertises the scheme's default port (443 or 80) instead. Loopback
+  # and private hosts have no proxy to assume, so they keep the listening
+  # port and source development works unchanged.
+  defp public_port(settings, scheme, host) do
+    if Pesque.Did.local_host?(host), do: settings.port, else: URI.default_port(scheme)
   end
 
   defp host(nil), do: nil

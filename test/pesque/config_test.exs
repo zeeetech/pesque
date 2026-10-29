@@ -103,6 +103,40 @@ defmodule Pesque.ConfigTest do
     end
   end
 
+  describe "advertised origin" do
+    test "uses the scheme's default port on a public hostname" do
+      settings = Config.source_config!(file())
+
+      assert settings[:public_url] == "https://pds.example.com"
+
+      assert settings[PesqueWeb.Endpoint][:url] == [
+               host: "pds.example.com",
+               scheme: "https",
+               port: 443
+             ]
+    end
+
+    test "keeps the listening port for loopback development" do
+      path = file("url_scheme = http\nhostname = localhost\nport = 4000\ndata_dir = data\n")
+
+      settings = Config.source_config!(path)
+
+      assert settings[:public_url] == "http://localhost:4000"
+
+      assert settings[PesqueWeb.Endpoint][:url] == [
+               host: "localhost",
+               scheme: "http",
+               port: 4000
+             ]
+    end
+
+    test "keeps the listening port on a private host" do
+      path = file("url_scheme = http\nhostname = 192.168.1.10\nport = 4000\ndata_dir = data\n")
+
+      assert Config.source_config!(path)[:public_url] == "http://192.168.1.10:4000"
+    end
+  end
+
   describe "init/1" do
     test "carries the PDS_CONFIG lookup into the boot" do
       assert Config.init({:system, "PDS_CONFIG"}) == {:system, "PDS_CONFIG"}

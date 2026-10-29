@@ -24,7 +24,8 @@ services:
         bind:
           create_host_path: false
     ports:
-      # The container port must match `port` in pesque.conf.
+      # Internal port; must match `port` in pesque.conf. The public URL uses
+      # the scheme's default port (443/80), not this one.
       - "127.0.0.1:4000:4000"
     logging:
       driver: json-file

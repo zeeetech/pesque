@@ -27,11 +27,30 @@ defmodule Pesque.Did do
   an internal port and stop the DID from resolving.
   """
   def did_host(hostname, port) do
-    if port in [nil, 443] or not local?(hostname) do
+    if port in [nil, 443] or not local_host?(hostname) do
       hostname
     else
       hostname <> URI.encode_www_form(":" <> to_string(port))
     end
+  end
+
+  @doc """
+  Whether a hostname is loopback or on a private network.
+
+  Such a name is only reachable locally, so it keeps the listening port in the
+  advertised origin and in a did:web authority; a public name is assumed to sit
+  behind a proxy on the scheme's default port.
+  """
+  def local_host?("localhost"), do: true
+
+  def local_host?(hostname) do
+    String.ends_with?(hostname, ".localhost") or
+      String.starts_with?(hostname, "127.") or
+      String.starts_with?(hostname, "10.") or
+      String.starts_with?(hostname, "192.168.") or
+      String.starts_with?(hostname, "169.254.") or
+      private_172?(hostname) or
+      local_v6?(hostname)
   end
 
   @doc """
@@ -235,18 +254,6 @@ defmodule Pesque.Did do
       {:error, reason} ->
         raise ArgumentError, "invalid username: #{inspect(reason)}"
     end
-  end
-
-  defp local?("localhost"), do: true
-
-  defp local?(hostname) do
-    String.ends_with?(hostname, ".localhost") or
-      String.starts_with?(hostname, "127.") or
-      String.starts_with?(hostname, "10.") or
-      String.starts_with?(hostname, "192.168.") or
-      String.starts_with?(hostname, "169.254.") or
-      private_172?(hostname) or
-      local_v6?(hostname)
   end
 
   defp private_172?("172." <> rest) do

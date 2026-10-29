@@ -17,7 +17,6 @@ let
     escapeShellArg
     ;
 
-
   confLines =
     [
       "url_scheme = ${cfg.scheme}"
@@ -166,7 +165,9 @@ in
       default = 4000;
       description = ''
         Port the process binds and the container port published on the host.
-        Behind a proxy this is the internal port..
+        This is an internal port: the public origin is scheme://hostname on the
+        scheme's default port (443 or 80). A loopback or private hostname keeps
+        this port in the advertised URL instead.
       '';
     };
 

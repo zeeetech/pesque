@@ -1,10 +1,10 @@
 # pesque configuration. Full reference: docs/installation.md#configuration
 #
-# Public origin, behind your TLS proxy.
+# Public origin, behind your TLS proxy: scheme://hostname on 443/80.
 url_scheme = https
 hostname = pds.example.com
 
-# Port the process binds. Behind a proxy this is the internal port.
+# Port the process binds. Internal behind the proxy; not in the public URL.
 port = 4000
 
 # Directory holding the database, keys, blobs and secret.
