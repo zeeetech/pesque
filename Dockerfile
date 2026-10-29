@@ -26,7 +26,7 @@ RUN mix release
 # Runtime stage: the release bundles ERTS, so only C libs are needed.
 FROM --platform=$TARGETPLATFORM alpine:3.21.8
 
-RUN apk add --no-cache libstdc++ openssl ncurses-libs sqlite-libs ca-certificates gcompat
+RUN apk add --no-cache libstdc++ openssl ncurses-libs sqlite-libs ca-certificates gcompat lksctp-tools
 
 WORKDIR /app
 
