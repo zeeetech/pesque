@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.8](https://github.com/zeeetech/pesque/compare/pesque-v1.15.7...pesque-v1.15.8) (2026-10-29)
+
+
+### Bug Fixes
+
+* **docker:** add socket tools libraries for otp 29 ([28b21df](https://github.com/zeeetech/pesque/commit/28b21dff36a45c38289eddcb217bed724c1a3724))
+
 ## [1.15.7](https://github.com/zeeetech/pesque/compare/pesque-v1.15.6...pesque-v1.15.7) (2026-10-29)
 
 
