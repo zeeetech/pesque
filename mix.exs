@@ -4,7 +4,7 @@ defmodule Pesque.MixProject do
   def project do
     [
       app: :pesque,
-      version: "1.15.4",
+      version: "1.15.5",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
