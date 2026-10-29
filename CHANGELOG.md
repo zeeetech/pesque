@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.6](https://github.com/zeeetech/pesque/compare/pesque-v1.15.5...pesque-v1.15.6) (2026-10-29)
+
+
+### Bug Fixes
+
+* **nix:** correct nixos module ([962f5ab](https://github.com/zeeetech/pesque/commit/962f5ab69eb3996417a89d4b6ba4a6338802df3a))
+
 ## [1.15.5](https://github.com/zeeetech/pesque/compare/pesque-v1.15.4...pesque-v1.15.5) (2026-10-29)
 
 
