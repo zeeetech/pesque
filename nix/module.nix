@@ -17,15 +17,11 @@ let
     escapeShellArg
     ;
 
-  publicUrlMatch = builtins.match "^(https?)://([^/:]+)(:([0-9]+))?$" cfg.publicUrl;
-  publicScheme = if publicUrlMatch == null then "https" else builtins.elemAt publicUrlMatch 0;
-  publicHost = if publicUrlMatch == null then "" else builtins.elemAt publicUrlMatch 1;
-  publicPort = if publicUrlMatch == null then null else builtins.elemAt publicUrlMatch 3;
 
   confLines =
     [
-      "url_scheme = ${publicScheme}"
-      "hostname = ${publicHost}"
+      "url_scheme = ${cfg.scheme}"
+      "hostname = ${cfg.hostname}"
       "port = ${toString cfg.port}"
       "data_dir = /data"
       "mode = ${cfg.mode}"
@@ -113,13 +109,20 @@ in
       '';
     };
 
-    publicUrl = mkOption {
+    hostname = mkOption {
       type = types.str;
-      example = "https://pds.example.com";
+      example = "pds.example.com";
       description = ''
-        Public origin clients reach this server at: scheme, hostname and the
-        advertised port. Drives the DID, DID document and every advertised URL.
+        Public origin clients reach this server at. Drives the DID, DID document and every advertised URL.
         TLS terminates at your proxy; this is the name it answers for.
+      '';
+    };
+
+    scheme = mkOption {
+      type = types.enum ["http", "https"];
+      example = "https";
+      description = ''
+      The desired URL scheme
       '';
     };
 
@@ -254,10 +257,6 @@ in
       {
         assertion = publicUrlMatch != null;
         message = "services.pesque.publicUrl must be an http(s) URL without a path, query or fragment.";
-      }
-      {
-        assertion = publicPort == null || publicPort == toString cfg.port;
-        message = "services.pesque.publicUrl must not name a port different from services.pesque.port.";
       }
       {
         assertion = collisions == [ ];
