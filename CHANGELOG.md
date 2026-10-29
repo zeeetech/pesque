@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.7](https://github.com/zeeetech/pesque/compare/pesque-v1.15.6...pesque-v1.15.7) (2026-10-29)
+
+
+### Bug Fixes
+
+* **config:** correctly bind origin/port ([7613ac8](https://github.com/zeeetech/pesque/commit/7613ac80069a75587a170a0fc9de354916aae265))
+
 ## [1.15.6](https://github.com/zeeetech/pesque/compare/pesque-v1.15.5...pesque-v1.15.6) (2026-10-29)
 
 
