@@ -13,6 +13,7 @@ defmodule Pesque.Doctor do
   """
 
   alias Pesque.HandleResolver
+  alias Pesque.HTTP
   alias Pesque.Identity
 
   @doc "Runs every check, cheapest and most local first."
@@ -320,32 +321,12 @@ defmodule Pesque.Doctor do
     {:ok, _} = Application.ensure_all_started(:inets)
     {:ok, _} = Application.ensure_all_started(:ssl)
 
-    request = {String.to_charlist(url), []}
-
-    options = [
-      timeout: 10_000,
-      connect_timeout: 5_000,
-      ssl: ssl_options(),
-      autoredirect: false
-    ]
-
-    case :httpc.request(:get, request, options, body_format: :binary) do
-      {:ok, {{_version, status, _reason}, _headers, body}} ->
-        {:ok, status, IO.iodata_to_binary(body)}
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, uri} <- URI.new(url),
+         {:ok, status, _headers, body} <-
+           HTTP.request(uri, :get, [], nil, connect_timeout: 5_000, timeout: 10_000) do
+      {:ok, status, body}
+    else
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp ssl_options do
-    [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      depth: 3,
-      customize_hostname_check: [
-        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-      ]
-    ]
   end
 end

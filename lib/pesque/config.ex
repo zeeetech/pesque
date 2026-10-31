@@ -14,11 +14,11 @@ defmodule Pesque.Config do
 
   @type t :: %__MODULE__{
           url_scheme: :http | :https,
-          hostname: URI.t(),
+          hostname: String.t(),
           port: integer,
           data_dir: Path.t(),
           mode: :single | :multi,
-          handle_domain: URI.t(),
+          handle_domain: String.t(),
           registration: :open | :closed,
           crawler: list(URI.t()),
           plc_directory: URI.t(),
@@ -33,6 +33,7 @@ defmodule Pesque.Config do
         }
 
   @port_expectation "must be an integer between 1 and 65535"
+  @host_expectation "is invalid"
   @lexicon_expectation "must be an https URL or empty"
 
   @template """
@@ -68,11 +69,11 @@ defmodule Pesque.Config do
 
   embedded_schema do
     field :url_scheme, Ecto.Enum, values: ~w(http https)a
-    field :hostname, __MODULE__.URI
+    field :hostname, :string
     field :port, :integer
     field :data_dir, :string
     field :mode, Ecto.Enum, values: ~w(single multi)a, default: :single
-    field :handle_domain, __MODULE__.URI
+    field :handle_domain, :string
     field :registration, Ecto.Enum, values: ~w(open closed)a, default: :closed
     field :crawler, {:array, __MODULE__.URI}, default: []
     field :plc_directory, __MODULE__.URI, default: "https://plc.directory"
@@ -268,19 +269,12 @@ defmodule Pesque.Config do
       proxy_response_limit: settings.proxy_response_limit,
       privacy_policy_url: url(settings.privacy_policy_url) || "",
       terms_of_service_url: url(settings.terms_of_service_url) || "",
-      admin_dids: settings.admin_dids || [],
-      argon2_opts: [t_cost: 3, m_cost: 12]
+      admin_dids: settings.admin_dids || []
     ]
   end
 
   defp repo_config(settings) do
-    [
-      database: Path.join(settings.data_dir, "pesque.db"),
-      journal_mode: :wal,
-      busy_timeout: 5_000,
-      migration_lock: nil,
-      pool_size: 4
-    ]
+    [database: Path.join(settings.data_dir, "pesque.db")]
   end
 
   defp endpoint_config(settings) do
@@ -288,14 +282,7 @@ defmodule Pesque.Config do
     host = host(settings.hostname)
 
     [
-      http: [
-        ip: {0, 0, 0, 0},
-        port: settings.port,
-        websocket_options: [
-          max_frame_size: 1_048_576,
-          max_fragmented_message_size: 1_048_576
-        ]
-      ],
+      http: [port: settings.port],
       url: [
         host: host,
         scheme: scheme,
@@ -325,8 +312,7 @@ defmodule Pesque.Config do
   end
 
   defp host(nil), do: nil
-  defp host(%URI{host: host}) when is_binary(host), do: host
-  defp host(%URI{path: path}), do: path
+  defp host(""), do: nil
   defp host(host), do: host
 
   defp url(nil), do: nil
@@ -336,6 +322,10 @@ defmodule Pesque.Config do
   defp changeset(%{} = attrs) do
     %__MODULE__{}
     |> cast(attrs, @fields)
+    |> update_change(:hostname, &normalize_host/1)
+    |> update_change(:handle_domain, &normalize_host/1)
+    |> validate_change(:hostname, &validate_host/2)
+    |> validate_change(:handle_domain, &validate_host/2)
     |> update_change(:lexicon_aggregator, &empty_to_nil/1)
     |> validate_required(@required)
     |> validate_number(:port,
@@ -357,6 +347,21 @@ defmodule Pesque.Config do
 
   defp empty_to_nil(%URI{scheme: nil, host: nil, path: path}) when path in [nil, ""], do: nil
   defp empty_to_nil(uri), do: uri
+
+  defp normalize_host(host) when is_binary(host) do
+    case URI.new(host) do
+      {:ok, %URI{host: parsed_host}} when is_binary(parsed_host) -> parsed_host
+      {:ok, %URI{path: path}} when is_binary(path) -> path
+      _result -> host
+    end
+  end
+
+  defp validate_host(field, host) do
+    case URI.new(host) do
+      {:ok, _uri} -> []
+      {:error, _reason} -> [{field, @host_expectation}]
+    end
+  end
 
   defp maybe_put_handle_domain(%{valid?: false} = changeset), do: changeset
 

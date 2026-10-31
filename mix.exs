@@ -52,6 +52,10 @@ defmodule Pesque.MixProject do
   # compiled call sites.
   defp aliases do
     [
+      setup: ["deps.get", "pesque.prepare", "compile"],
+      test: ["pesque.prepare", "test"],
+      "ecto.setup": ["ecto.create", "ecto.migrate --all"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
       precommit: [
         "compile --warnings-as-errors",
         "format --check-formatted",

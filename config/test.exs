@@ -1,6 +1,7 @@
 import Config
 
-test_dir = Path.join(System.tmp_dir!(), "pesque-test")
+partition = System.get_env("MIX_TEST_PARTITION", "")
+test_dir = Path.join(System.tmp_dir!(), partition)
 
 config :pesque, Pesque.Repo,
   database: Path.join(test_dir, "pesque.db"),

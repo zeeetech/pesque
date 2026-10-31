@@ -15,6 +15,7 @@ defmodule Pesque.Accounts do
   alias Pesque.Identity
   alias Pesque.Keys
   alias Pesque.OAuth
+  alias Pesque.Password
   alias Pesque.Repo
   alias Pesque.RepoServer
   alias Pesque.RepoStore
@@ -70,7 +71,7 @@ defmodule Pesque.Accounts do
          :ok <- check_email(email),
          :ok <- check_available(identity, email),
          {:ok, account} <- claim_account(identity),
-         {:ok, password_hash} <- hash_password(password) do
+         {:ok, password_hash} <- Password.hash(password) do
       insert(
         account.identity,
         email,
@@ -115,7 +116,7 @@ defmodule Pesque.Accounts do
          {:ok, identity} <- imported_identity_for(handle, did),
          :ok <- check_available(identity, email),
          {:ok, key} <- claim_key(identity),
-         {:ok, password_hash} <- hash_password(password) do
+         {:ok, password_hash} <- Password.hash(password) do
       insert(
         identity,
         email,
@@ -494,7 +495,7 @@ defmodule Pesque.Accounts do
   # reset that did not land.
   defp apply_reset(%User{} = user, password, spend) do
     with :ok <- check_password(password),
-         {:ok, password_hash} <- hash_password(password) do
+         {:ok, password_hash} <- Password.hash(password) do
       result =
         Repo.transaction(fn ->
           with :ok <- spend.() do
@@ -989,11 +990,11 @@ defmodule Pesque.Accounts do
   def verify_login(identifier, password) do
     case find_by_identifier(identifier) do
       nil ->
-        no_user_verify()
+        Password.dummy_verify()
         :error
 
       user ->
-        if verify_pass(password, user.password_hash), do: {:ok, user}, else: :error
+        if Password.verify(password, user.password_hash), do: {:ok, user}, else: :error
     end
   end
 
@@ -1010,11 +1011,11 @@ defmodule Pesque.Accounts do
   def verify_session_credentials(identifier, password) do
     case find_by_identifier(identifier) do
       nil ->
-        no_user_verify()
+        Password.dummy_verify()
         :error
 
       user ->
-        if verify_pass(password, user.password_hash) do
+        if Password.verify(password, user.password_hash) do
           {:ok, user, nil}
         else
           case verify_app_password(user.did, password) do
@@ -1139,100 +1140,6 @@ defmodule Pesque.Accounts do
   end
 
   def revoke_app_password(%User{}, _name), do: {:error, :app_password_name_required}
-
-  # A non-string password raises ArgumentError out of the NIF, and only on the
-  # branch that found an account: {"identifier":"nosuch","password":[]} is a
-  # clean 401 and the same body with a real handle is a 500, which is an
-  # unauthenticated oracle for which handles exist on a closed server. The
-  # controller answers 400 for it, and this is the second lock on the same
-  # door for every other caller.
-  defp verify_pass(password, hash) when is_binary(password) do
-    with_hash_permit(fn -> Argon2.verify_pass(password, hash) end)
-  end
-
-  defp verify_pass(_password, _hash), do: false
-
-  # The one place argon2 options are read. Both the real hash and the dummy
-  # verify have to run at the same cost or the timing defence is not one, so
-  # no_user_verify gets the same opts (Comeonin.no_user_verify/1 is
-  # hash_pwd_salt("", opts)). m_cost is an exponent of KiB, so m_cost 16 is
-  # 65536 KiB per hash: configurable because the right number is a function
-  # of the box, and anything above about m_cost 15 wants the permit count
-  # looked at again.
-  @doc false
-  def argon2_opts, do: Application.get_env(:pesque, :argon2_opts, [])
-
-  # argon2 is memory-hard: one verify holds 64 MiB at the defaults, and
-  # nothing above this module bounds how many logins a client has in flight
-  # (Bandit takes no connection cap, and the session rate limit bounds volume
-  # rather than concurrency), so a hundred concurrent createSession calls is
-  # several GiB of RSS. A counting semaphore via :atomics, not a pool of
-  # workers: a permit costs one atomic add, and there is nothing to supervise
-  # and no mailbox to serialise. The waiter sleeps between attempts rather
-  # than spinning; the hashes want the cores. Sized against the schedulers,
-  # floored at 2 for a one-core box, and capped so a many-core machine does
-  # not size the gate by hardware instead of by memory.
-  @argon2_permit_floor 2
-  @argon2_permit_ceiling 8
-  @argon2_permit_retry_ms 5
-  @argon2_permits {__MODULE__, :argon2_permits}
-
-  @doc false
-  def argon2_permit_limit,
-    do: min(@argon2_permit_ceiling, max(@argon2_permit_floor, System.schedulers_online()))
-
-  defp with_hash_permit(fun) do
-    acquire_hash_permit()
-    # Released in an after, so a raise out of the NIF cannot leak a permit and
-    # wedge the gate for every login after it.
-    try do
-      fun.()
-    after
-      :atomics.sub(hash_permits(), 1, 1)
-    end
-  end
-
-  defp acquire_hash_permit do
-    permits = hash_permits()
-    limit = argon2_permit_limit()
-
-    if :atomics.add_get(permits, 1, 1) <= limit do
-      :ok
-    else
-      # Handed straight back rather than held while waiting, so a caller that
-      # lost the race does not shrink the gate for everyone queued behind it.
-      :atomics.sub(permits, 1, 1)
-      Process.sleep(@argon2_permit_retry_ms)
-      acquire_hash_permit()
-    end
-  end
-
-  # A plain put plus a re-read rather than put_new/2, which is OTP 28 and up.
-  # Two processes racing install equivalent counters and the value read back is
-  # the one that won, so every later caller converges on a single budget.
-  defp hash_permits do
-    case :persistent_term.get(@argon2_permits, nil) do
-      nil ->
-        :persistent_term.put(@argon2_permits, :atomics.new(1, signed: false))
-        :persistent_term.get(@argon2_permits)
-
-      permits ->
-        permits
-    end
-  end
-
-  # The dummy verify for an identifier no row names. Same options as the real
-  # hash, same gate, for the same reason: it has to be indistinguishable from
-  # a real one in both cost and timing.
-  defp no_user_verify, do: with_hash_permit(fn -> Argon2.no_user_verify(argon2_opts()) end)
-
-  # No non-binary clause: check_password/1 runs first in the create_account/4
-  # chain and answers one, so a non-string cannot reach here. That is the
-  # reason the raise is gone from this path rather than merely caught.
-  defp hash_password(password) when is_binary(password) do
-    hash = with_hash_permit(fn -> Argon2.hash_pwd_salt(password, argon2_opts()) end)
-    {:ok, hash}
-  end
 
   @doc """
   Issues an access/refresh pair and registers the refresh jti as live.
@@ -1412,12 +1319,12 @@ defmodule Pesque.Accounts do
   defp check_did(%User{did: did}, did), do: :ok
   defp check_did(_user, _did), do: {:error, :wrong_account_did}
 
-  # Through verify_pass/2, so a delete is a gated hash like every other one on a
-  # request path: deleteAccount carries no rate limit, and an ungated verify
+  # Through Password.verify/2, so a delete is a gated hash like every other one
+  # on a request path: deleteAccount carries no rate limit, and an ungated verify
   # here is 64 MiB per request bought with nothing. The non-binary password is
   # answered there too, so no second clause is needed.
   defp check_account_password(%User{password_hash: hash}, password) do
-    if verify_pass(password, hash), do: :ok, else: {:error, :invalid_password}
+    if Password.verify(password, hash), do: :ok, else: {:error, :invalid_password}
   end
 
   defp purge(user, token_row) do

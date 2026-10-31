@@ -11,6 +11,7 @@ defmodule Pesque.Application do
     Pesque.Secret.load!()
     Pesque.Identity.load!()
     Pesque.OAuth.Keys.load!()
+    Pesque.Password.init()
     Pesque.Lexicon.Registry.reload()
 
     endpoint = Application.get_env(:pesque, PesqueWeb.Endpoint, [])

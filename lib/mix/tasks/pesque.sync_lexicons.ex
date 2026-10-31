@@ -11,11 +11,13 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
   publishes (`site`, `internal`, `place`, `social`) is a third-party schema this
   server does not validate against, so shipping it would only add files nobody
   reads. A file already on disk with the same NSID is replaced, and files
-  upstream no longer publishes are left alone. Downloads with `:httpc`, so this
-  task starts `:inets` itself.
+  upstream no longer publishes are left alone. Downloads go through
+  `Pesque.HTTP`, which needs `:inets`, so this task starts it itself.
   """
 
   use Mix.Task
+
+  alias Pesque.HTTP
 
   @repo "bluesky-social/atproto"
   @branch "main"
@@ -95,14 +97,18 @@ defmodule Mix.Tasks.Pesque.SyncLexicons do
   end
 
   defp get(url) do
-    case :httpc.request(
-           :get,
-           {String.to_charlist(url), []},
-           [timeout: 30_000, connect_timeout: 10_000],
-           body_format: :binary
-         ) do
-      {:ok, {{_, 200, _}, _headers, body}} -> {:ok, body}
-      {:ok, {{_, status, _}, _headers, body}} -> {:error, "HTTP #{status}: #{body}"}
+    with {:ok, uri} <- URI.new(url),
+         {:ok, status, _headers, body} <-
+           HTTP.request(uri, :get, [], nil,
+             timeout: 30_000,
+             connect_timeout: 10_000,
+             autoredirect: true
+           ) do
+      case status do
+        200 -> {:ok, body}
+        status -> {:error, "HTTP #{status}: #{body}"}
+      end
+    else
       {:error, reason} -> {:error, inspect(reason)}
     end
   end

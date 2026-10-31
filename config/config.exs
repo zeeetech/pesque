@@ -39,6 +39,8 @@ config :pesque, PesqueWeb.Endpoint,
 
 config :pesque, ecto_repos: [Pesque.Repo]
 
+config :pesque, argon2_opts: [t_cost: 3, m_cost: 12]
+
 # The browser-facing pages only. Protocol text stays English, so gettext never
 # touches the XRPC surface. Portuguese is the default because the server is
 # self-hosted in Brazil, and English is the translation that keeps a page

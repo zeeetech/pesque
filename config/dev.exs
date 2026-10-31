@@ -1,14 +1,9 @@
 import Config
 
-config :pesque, Pesque.Repo,
-  database: "data/pesque.db",
-  journal_mode: :wal,
-  busy_timeout: 5_000,
-  migration_lock: nil,
-  pool_size: 4
+config :pesque, Pesque.Repo, database: "data/pesque.db", pool_size: 4
 
 config :pesque, PesqueWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4000],
+  http: [ip: {0, 0, 0, 0}, port: 4000],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

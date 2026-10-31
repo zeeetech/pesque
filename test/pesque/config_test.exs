@@ -57,14 +57,32 @@ defmodule Pesque.ConfigTest do
       assert {:ok, settings} = Config.effective(file())
 
       assert settings.url_scheme == :https
-      assert settings.hostname.path == "pds.example.com"
+      assert settings.hostname == "pds.example.com"
       assert settings.port == 4000
       assert settings.data_dir == "/data"
       assert settings.mode == :single
       assert settings.registration == :closed
-      assert settings.handle_domain.path == "pds.example.com"
+      assert settings.handle_domain == "pds.example.com"
       assert settings.crawler == []
       assert settings.admin_dids == []
+    end
+
+    test "stores hostname and handle domain as strings while accepting URL forms" do
+      path =
+        file(
+          "url_scheme = https\nhostname = https://pds.example.com/path\nhandle_domain = https://handles.example.com/path\nport = 4000\ndata_dir = /data\n"
+        )
+
+      assert {:ok, settings} = Config.effective(path)
+      assert settings.hostname == "pds.example.com"
+      assert settings.handle_domain == "handles.example.com"
+    end
+
+    test "rejects a hostname the previous URI type could not cast" do
+      path = file("url_scheme = https\nhostname = not a uri\nport = 4000\ndata_dir = /data\n")
+
+      assert {:error, errors} = Config.effective(path)
+      assert errors.hostname =~ "line 2"
     end
 
     test "refuses a missing file" do

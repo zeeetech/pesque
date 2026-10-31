@@ -29,9 +29,14 @@ defmodule Pesque.OAuth.Fetch do
   (a redirect is a second URL the attacker chose, and would skip the address
   check entirely), a short timeout, and a byte cap on the response.
 
-  `:inets` and `:ssl` rather than a client library: it is OTP, and the request
-  is one GET of one small JSON document.
+  The raw send is `Pesque.HTTP.request/5`, the one outbound transport this
+  server has, so this module is the scheme and address policy plus the
+  interpretation of one response rather than a second transport. `:inets` and
+  `:ssl` rather than a client library: it is OTP, and the request is one GET of
+  one small JSON document.
   """
+
+  alias Pesque.HTTP
 
   @connect_timeout 5_000
   @timeout 5_000
@@ -50,7 +55,7 @@ defmodule Pesque.OAuth.Fetch do
   def json(%URI{} = uri, max_bytes) do
     with :ok <- check_scheme(uri),
          :ok <- check_address(uri.host) do
-      request(uri, max_bytes)
+      fetch_document(uri, max_bytes)
     end
   end
 
@@ -98,54 +103,14 @@ defmodule Pesque.OAuth.Fetch do
   def request(%URI{} = uri, method, headers, body, opts \\ []) do
     with :ok <- check_scheme(uri),
          :ok <- check_address(uri.host) do
-      send(uri, method, headers, body, Keyword.get(opts, :max_bytes, @default_max_bytes), opts)
+      HTTP.request(
+        uri,
+        method,
+        headers,
+        body,
+        Keyword.put_new(opts, :max_bytes, @default_max_bytes)
+      )
     end
-  end
-
-  defp send(uri, method, headers, body, max_bytes, opts) do
-    {content_type, headers} = split_content_type(headers)
-
-    request =
-      case method do
-        :get -> {URI.to_string(uri), charlist_headers(headers)}
-        :post -> {URI.to_string(uri), charlist_headers(headers), to_charlist(content_type), body}
-      end
-
-    options = httpc_options(opts)
-
-    # max_body_size is a request option, the fourth argument to :httpc, not an
-    # HTTP option in the third: passed there it is silently ignored, and the
-    # transport reads a response of any size into memory before the post-hoc
-    # check below refuses it.
-    case :httpc.request(method, request, options, max_body_size: max_bytes) do
-      {:ok, {{_v, status, _r}, resp_headers, resp_body}} ->
-        body = IO.iodata_to_binary(resp_body)
-
-        if byte_size(body) > max_bytes,
-          do: {:error, :body_too_large},
-          else: {:ok, status, normalize_headers(resp_headers), body}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # The content-type is a header like any other to :httpc's tuple form, which
-  # takes it as the third element of a POST. It is pulled out here rather than
-  # added by the caller so one header list works for both verbs.
-  defp split_content_type(headers) do
-    case List.keyfind(headers, "content-type", 0) do
-      {_name, value} -> {value, List.keydelete(headers, "content-type", 0)}
-      nil -> {"application/json", headers}
-    end
-  end
-
-  defp charlist_headers(headers) do
-    Enum.map(headers, fn {name, value} -> {to_charlist(name), to_charlist(value)} end)
-  end
-
-  defp normalize_headers(headers) do
-    Enum.map(headers, fn {name, value} -> {to_string(name), to_string(value)} end)
   end
 
   defp hardened(uri) do
@@ -158,16 +123,14 @@ defmodule Pesque.OAuth.Fetch do
   end
 
   defp post(uri, body) do
-    case :httpc.request(
-           :post,
-           {URI.to_string(uri), [{~c"accept", ~c"application/json"}], ~c"application/json", body},
-           httpc_options(),
-           []
+    case HTTP.request(uri, :post, [{"accept", "application/json"}], body,
+           connect_timeout: @connect_timeout,
+           timeout: @timeout
          ) do
-      {:ok, {{_version, status, _reason}, _headers, _body}} when status in 200..299 ->
+      {:ok, status, _headers, _body} when status in 200..299 ->
         :ok
 
-      {:ok, {{_version, status, _reason}, _headers, _body}} ->
+      {:ok, status, _headers, _body} ->
         {:error, {:plc_status, status}}
 
       {:error, reason} ->
@@ -176,55 +139,40 @@ defmodule Pesque.OAuth.Fetch do
   end
 
   defp raw_get(uri, max_bytes) do
-    case :httpc.request(
-           :get,
-           {URI.to_string(uri), [{~c"accept", ~c"application/json"}]},
-           httpc_options(),
-           []
+    case HTTP.request(uri, :get, [{"accept", "application/json"}], nil,
+           connect_timeout: @connect_timeout,
+           timeout: @timeout,
+           max_bytes: max_bytes
          ) do
-      {:ok, {{_version, status, _reason}, headers, body}} ->
-        body = IO.iodata_to_binary(body)
+      {:ok, status, headers, body} ->
+        {:ok, status, headers, body}
 
-        if byte_size(body) > max_bytes do
-          {:error, :client_metadata_too_large}
-        else
-          {:ok, status, headers, body}
-        end
+      {:error, :body_too_large} ->
+        {:error, :client_metadata_too_large}
 
       {:error, reason} ->
         {:error, {:client_metadata_unreachable, reason}}
     end
   end
 
-  defp request(uri, max_bytes) do
-    case :httpc.request(
-           :get,
-           {URI.to_string(uri), [{~c"accept", ~c"application/json"}]},
-           httpc_options(),
-           []
+  defp fetch_document(uri, max_bytes) do
+    case HTTP.request(uri, :get, [{"accept", "application/json"}], nil,
+           connect_timeout: @connect_timeout,
+           timeout: @timeout,
+           max_bytes: max_bytes
          ) do
-      {:ok, {{_version, 200, _reason}, _headers, body}} ->
-        decode(IO.iodata_to_binary(body), max_bytes)
+      {:ok, 200, _headers, body} ->
+        decode(body, max_bytes)
 
-      {:ok, {{_version, status, _reason}, _headers, _body}} ->
+      {:ok, status, _headers, _body} ->
         {:error, {:client_metadata_status, status}}
 
+      {:error, :body_too_large} ->
+        {:error, :client_metadata_too_large}
+
       {:error, reason} ->
         {:error, {:client_metadata_unreachable, reason}}
     end
-  end
-
-  # The one request shape every outbound call uses: TLS verified, no redirect
-  # followed (a redirect is a second URL the attacker chose, and would skip the
-  # address check entirely), and a short timeout. `opts` widens the two
-  # timeouts for a caller that needs to; the zero-arity form is the default.
-  defp httpc_options(opts \\ []) do
-    [
-      connect_timeout: Keyword.get(opts, :connect_timeout, @connect_timeout),
-      timeout: Keyword.get(opts, :timeout, @timeout),
-      ssl: ssl_options(),
-      autoredirect: false
-    ]
   end
 
   defp decode(body, max_bytes) do
@@ -286,15 +234,4 @@ defmodule Pesque.OAuth.Fetch do
   defp public?({224, _, _, _}), do: false
   defp public?({240, _, _, _}), do: false
   defp public?({_, _, _, _}), do: true
-
-  defp ssl_options do
-    [
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      depth: 3,
-      customize_hostname_check: [
-        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
-      ]
-    ]
-  end
 end
