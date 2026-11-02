@@ -3,13 +3,13 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    elixir-overlay.url = "github:zoedsoupe/elixir-overlay";
+    beam-overlay.url = "github:zeeetech/beam-overlay";
   };
 
   outputs = {
     self,
     nixpkgs,
-    elixir-overlay,
+    beam-overlay,
   }: let
     inherit (nixpkgs.lib) genAttrs;
     inherit (nixpkgs.lib.systems) flakeExposed;
@@ -18,7 +18,7 @@
       genAttrs flakeExposed (system: let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [elixir-overlay.overlays.default];
+          overlays = [beam-overlay.overlays.default];
         };
       in
         f pkgs);
@@ -36,9 +36,11 @@
         name = "pesque-dev";
 
         # Elixir 1.19+ on OTP 28, which is what mix.exs and .tool-versions pin.
-        # elixir-with-otp pairs the two so the Elixir build targets this OTP.
+        # mkToolchain selects a compatible Elixir and OTP pair.
         packages = with pkgs; [
-          (elixir-with-otp erlang_28).latest
+          (pkgs.beam-overlay.mkToolchain {
+            elixir.version = "1.20.4";
+          })
           erlang_28
           sqlite
         ];
