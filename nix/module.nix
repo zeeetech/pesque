@@ -3,13 +3,13 @@
   lib,
   pkgs,
   ...
-}:
-let
+}: let
   cfg = config.services.pesque;
-  inherit (lib)
+  container = config.services.beam.containers.pesque;
+  inherit
+    (lib)
     mkIf
     mkOption
-    mkEnableOption
     types
     optional
     concatStringsSep
@@ -21,13 +21,13 @@ let
     [
       "url_scheme = ${cfg.scheme}"
       "hostname = ${cfg.hostname}"
-      "port = ${toString cfg.port}"
+      "port = ${toString container.port}"
       "data_dir = /data"
       "mode = ${cfg.mode}"
       "registration = ${cfg.registration}"
     ]
     ++ optional (cfg.handleDomain != null) "handle_domain = ${cfg.handleDomain}"
-    ++ optional (cfg.crawler != [ ]) "crawler = ${concatStringsSep "," cfg.crawler}"
+    ++ optional (cfg.crawler != []) "crawler = ${concatStringsSep "," cfg.crawler}"
     ++ mapAttrsToList (key: value: "${key} = ${value}") cfg.settings;
 
   confFile = pkgs.writeText "pesque.conf" (concatStringsSep "\n" confLines + "\n");
@@ -44,24 +44,16 @@ let
   ];
   collisions = builtins.filter (key: builtins.hasAttr key cfg.settings) deploymentKeys;
 
-  userSpec = "${toString config.users.users.pesque.uid}:${toString config.users.groups.pesque.gid}";
-  imageName = lib.last (lib.splitString "/" cfg.image);
-  imagePinned = (lib.hasInfix ":" imageName) && !(lib.hasSuffix ":latest" cfg.image);
-  requiredMounts = cfg.requiredMounts ++ [
-    cfg.dataDir
-    cfg.backupDir
-  ];
+  userSpec = "${toString container.uid}:${toString container.gid}";
+  requiredMounts =
+    container.requiredMounts
+    ++ [
+      container.dataDir
+      cfg.backupDir
+    ];
 
   storageCommands = concatStringsSep "\n" (
-    map (path: "  require_mount ${escapeShellArg (toString path)}") cfg.requiredMounts
-  );
-  storagePreStart = concatStringsSep "\n" (
-    map (path: ''
-      if ! ${pkgs.util-linux}/bin/mountpoint -q ${escapeShellArg (toString path)}; then
-        echo "required mount is not available: ${toString path}" >&2
-        exit 1
-      fi
-    '') cfg.requiredMounts
+    map (path: "  require_mount ${escapeShellArg (toString path)}") container.requiredMounts
   );
 
   operator = pkgs.writeShellApplication {
@@ -71,7 +63,8 @@ let
       config.systemd.package
       pkgs.util-linux
     ];
-    text = lib.replaceStrings
+    text =
+      lib.replaceStrings
       [
         "@IMAGE@"
         "@CONTAINER@"
@@ -83,10 +76,10 @@ let
         "@STORAGE_CHECKS@"
       ]
       [
-        (escapeShellArg cfg.image)
+        (escapeShellArg container.image)
         (escapeShellArg "pesque")
         (escapeShellArg "pesque")
-        (escapeShellArg cfg.dataDir)
+        (escapeShellArg container.dataDir)
         (escapeShellArg confFile)
         (escapeShellArg cfg.backupDir)
         (escapeShellArg userSpec)
@@ -94,20 +87,8 @@ let
       ]
       (builtins.readFile ./operator.sh);
   };
-in
-{
+in {
   options.services.pesque = {
-    enable = mkEnableOption "pesque, a self-hostable ATProto PDS";
-
-    image = mkOption {
-      type = types.str;
-      example = "ghcr.io/zeeetech/pesque:1.14.2";
-      description = ''
-        The shared Pesque OCI image. Select an explicit release tag or digest;
-        `latest` is refused so a NixOS rebuild cannot silently change servers.
-      '';
-    };
-
     hostname = mkOption {
       type = types.str;
       example = "pds.example.com";
@@ -121,7 +102,7 @@ in
       type = types.enum ["http" "https"];
       example = "https";
       description = ''
-      The desired URL scheme
+        The desired URL scheme
       '';
     };
 
@@ -155,35 +136,14 @@ in
 
     crawler = mkOption {
       type = types.listOf types.str;
-      default = [ ];
-      example = [ "https://bsky.network" ];
+      default = [];
+      example = ["https://bsky.network"];
       description = "Relays to announce this server to at boot.";
-    };
-
-    port = mkOption {
-      type = types.port;
-      default = 4000;
-      description = ''
-        Port the process binds and the container port published on the host.
-        This is an internal port: the public origin is scheme://hostname on the
-        scheme's default port (443 or 80). A loopback or private hostname keeps
-        this port in the advertised URL instead.
-      '';
-    };
-
-    listenAddress = mkOption {
-      type = types.str;
-      default = "127.0.0.1";
-      example = "0.0.0.0";
-      description = ''
-        Host address the container port is published on. Loopback is the safe
-        default because a TLS proxy is expected on the same host.
-      '';
     };
 
     settings = mkOption {
       type = types.attrsOf types.str;
-      default = { };
+      default = {};
       example = {
         blob_upload_limit = "104857600";
         admin_dids = "did:plc:...,did:plc:...";
@@ -196,117 +156,52 @@ in
       '';
     };
 
-    uid = mkOption {
-      type = types.int;
-      example = 33333;
-      description = ''
-        Stable host UID shared by the service user and the container. Set this
-        to the current data owner when adopting an existing installation. The
-        module never changes ownership of existing state.
-      '';
-    };
-
-    gid = mkOption {
-      type = types.int;
-      example = 33333;
-      description = ''
-        Stable host GID shared by the service group and the container. Set this
-        to the current data group when adopting an existing installation.
-      '';
-    };
-
-    requiredMounts = mkOption {
-      type = types.listOf types.path;
-      default = [ ];
-      example = [ "/var/lib/pesque" ];
-      description = ''
-        Paths that must already be mountpoints before the service or a one-off
-        command uses the data. Set this for datasets that could otherwise be
-        hidden by an empty directory, such as a ZFS dataset. No automatic mount
-        or ownership changes are performed.
-      '';
-    };
-
-    dataDir = mkOption {
-      type = types.path;
-      default = "/var/lib/pesque";
-      description = ''
-        Host directory holding the entire server state, mounted at /data. This
-        is the host storage path; the container's own data_dir is always /data.
-      '';
-    };
-
     backupDir = mkOption {
       type = types.path;
-      default = "${cfg.dataDir}/backups";
-      defaultText = lib.literalExpression ''"''${config.services.pesque.dataDir}/backups"'';
+      default = "${container.dataDir}/backups";
+      defaultText = lib.literalExpression ''"''${config.services.beam.containers.pesque.dataDir}/backups"'';
       description = "Host directory for backup archives, mounted at /backups.";
     };
   };
 
-  config = mkIf cfg.enable {
-    assertions = [
-      {
-        assertion = imagePinned;
-        message = "services.pesque.image must select an explicit release tag or digest, not latest.";
-      }
-      {
-        assertion = collisions == [ ];
-        message = "services.pesque.settings must not set module-owned keys: ${concatStringsSep ", " collisions}.";
-      }
-    ];
-
-    users.users.pesque = {
-      isSystemUser = true;
-      group = "pesque";
-      uid = cfg.uid;
-      home = cfg.dataDir;
-      description = "pesque ATProto PDS";
-    };
-    users.groups.pesque.gid = cfg.gid;
-
-    systemd.tmpfiles.rules = [
-      "d '${cfg.dataDir}' 0700 pesque pesque -"
-      "d '${cfg.backupDir}' 0700 pesque pesque -"
-    ];
-
-    virtualisation.docker.enable = lib.mkDefault true;
-    virtualisation.oci-containers.backend = "docker";
-    virtualisation.oci-containers.containers.pesque = {
-      image = cfg.image;
-      serviceName = "pesque";
-      entrypoint = "/app/bin/server";
-      cmd = [ ];
-      user = userSpec;
-      workdir = "/data";
-      environment = {
-        PDS_CONFIG = "/data/pesque.conf";
-        HOME = "/data";
+  config = lib.mkMerge [
+    {
+      services.beam.containers.pesque = {
+        entrypoint = "/app/bin/server";
+        cmd = [];
+        environment.PDS_CONFIG = "/data/pesque.conf";
+        volumes = [
+          "${confFile}:/data/pesque.conf:ro"
+          "${cfg.backupDir}:/backups"
+        ];
       };
-      volumes = [
-        "${cfg.dataDir}:/data"
-        "${confFile}:/data/pesque.conf:ro"
-        "${cfg.backupDir}:/backups"
+    }
+    (mkIf container.enable {
+      assertions = [
+        {
+          assertion = container.port != null;
+          message = "services.beam.containers.pesque.port must be set.";
+        }
+        {
+          assertion = collisions == [];
+          message = "services.pesque.settings must not set module-owned keys: ${concatStringsSep ", " collisions}.";
+        }
       ];
-      ports = [ "${cfg.listenAddress}:${toString cfg.port}:${toString cfg.port}" ];
-      log-driver = "journald";
-      pull = "missing";
-    };
 
-    systemd.services.pesque = {
-      unitConfig.RequiresMountsFor = lib.unique requiredMounts;
-      preStart = storagePreStart;
-    };
+      systemd.tmpfiles.rules = [
+        "d '${cfg.backupDir}' 0700 pesque pesque -"
+      ];
 
-    systemd.services.pesque-backup = {
-      description = "Pesque backup";
-      unitConfig.RequiresMountsFor = lib.unique requiredMounts;
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${operator}/bin/pesque backup";
+      systemd.services.pesque-backup = {
+        description = "Pesque backup";
+        unitConfig.RequiresMountsFor = lib.unique requiredMounts;
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${operator}/bin/pesque backup";
+        };
       };
-    };
 
-    environment.systemPackages = [ operator ];
-  };
+      environment.systemPackages = [operator];
+    })
+  ];
 }

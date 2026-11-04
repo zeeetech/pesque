@@ -23,12 +23,17 @@
       in
         f pkgs);
   in {
-    # NixOS runs the same pinned OCI image as Docker Compose. The module owns
-    # the generated configuration, state and backup mounts, systemd lifecycle,
-    # and the configured `pesque` operator command. See nix/module.nix.
+    # NixOS deployment is shared through beam-overlay. This module owns the
+    # generated Pesque configuration, backup mounts and operator command;
+    # services.beam.containers owns the image and container lifecycle.
     nixosModules = {
-      pesque = ./nix/module.nix;
-      default = ./nix/module.nix;
+      pesque = {
+        imports = [
+          beam-overlay.nixosModules.beam-containers
+          ./nix/module.nix
+        ];
+      };
+      default = self.nixosModules.pesque;
     };
 
     devShells = forAllSystems (pkgs: {

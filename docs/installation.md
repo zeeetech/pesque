@@ -125,17 +125,20 @@ configuration, and puts a configured `pesque` command on PATH:
 {
   imports = [ pesque.nixosModules.default ];
 
-  services.pesque = {
+  services.beam.containers.pesque = {
     enable = true;
-    image = "ghcr.io/zeeetech/pesque:1.15.6";  # explicit tag or digest; latest is refused
+    image = "ghcr.io/zeeetech/pesque:1.15.6";
+    port = 4000;
+    uid = 33333;
+    gid = 33333;
+  };
+
+  services.pesque = {
     scheme = "https";
     hostname = "pds.example.com";
-    port = 4000;
     mode = "multi";
     handleDomain = "example.com";
     crawler = [ "https://bsky.network" ];
-    uid = 33333;                               # no defaults; the container runs as these
-    gid = 33333;
 
     settings = {
       blob_upload_limit = "104857600";
@@ -145,25 +148,29 @@ configuration, and puts a configured `pesque` command on PATH:
 ```
 
 `scheme`, `hostname`, `mode`, `handleDomain`, `registration` and `crawler`
-are the common application settings and are translated into the generated
-`pesque.conf`. `services.pesque.settings` takes the rest verbatim
-(`blob_upload_limit`, legal links, `admin_dids` and so on). `port` is the
-container's listening port and the host port published on `listenAddress`; it
-is not advertised. The public origin is `scheme://hostname` on the scheme's
-default port (443 for `https`, 80 for `http`), so a TLS proxy forwarding to
-`port` publishes the right URL without a `:4000`. A loopback or private
-hostname keeps `port` in the origin, which is what source development uses.
+are translated into the generated `pesque.conf`. `services.pesque.settings`
+takes the remaining application settings verbatim (`blob_upload_limit`, legal
+links, `admin_dids` and so on).
 
-`services.pesque.dataDir` (default `/var/lib/pesque`) is the **host** storage
-path mounted at `/data`; the container's own `data_dir` is always `/data`.
-`backupDir` (default `dataDir/backups`) holds the archives. `uid` and `gid`
-have no defaults: set them to the current data owner when adopting an existing
-installation, because the module never changes ownership of existing state.
-`services.pesque.requiredMounts` names paths that must already be mountpoints,
-for datasets that could otherwise be hidden by an empty directory (a ZFS
-dataset is the case it exists for); the service and every one-off command
-check them before touching data, and nothing is mounted or chowned
-automatically.
+`services.beam.containers` comes from `beam-overlay` and owns the image,
+UID/GID, storage, published port, and systemd lifecycle. The image must use an
+explicit tag or digest; `latest` is refused. `port` is the container's listening
+port and the host port published on `listenAddress`; it is not advertised. The
+public origin is `scheme://hostname` on the scheme's default port (443 for
+`https`, 80 for `http`), so a TLS proxy forwarding to `port` publishes the
+right URL without a `:4000`. A loopback or private hostname keeps `port` in the
+origin, which is what source development uses.
+
+`services.beam.containers.pesque.dataDir` (default `/var/lib/pesque`) is the
+**host** storage path mounted at `/data`; the container's own `data_dir` is
+always `/data`. `services.pesque.backupDir` (default `dataDir/backups`) holds
+the archives. `uid` and `gid` have no defaults: set them to the current data
+owner when adopting an existing installation, because the module never changes
+ownership of existing state. `services.beam.containers.pesque.requiredMounts`
+names paths that must already be mountpoints, for datasets that could otherwise
+be hidden by an empty directory (a ZFS dataset is the case it exists for); the
+service and every one-off command check them before touching data, and nothing
+is mounted or chowned automatically.
 
 Docker is required; `virtualisation.docker.enable` is defaulted on.
 Lifecycle belongs to systemd:
@@ -187,10 +194,10 @@ sudo pesque backup                   # writes into backupDir
 sudo systemctl start pesque-backup   # the same backup as a oneshot, for timers
 ```
 
-Updates are manual: raise `image` to a new pinned tag and
-`nixos-rebuild switch`. Exactly as in Docker, the server speaks plain HTTP
-and expects a TLS proxy; `listenAddress` defaults to `127.0.0.1`, so the port
-is reachable only by the proxy on the same host or a tunnel.
+Updates are manual: raise `services.beam.containers.pesque.image` to a new
+pinned tag and `nixos-rebuild switch`. Exactly as in Docker, the server speaks
+plain HTTP and expects a TLS proxy; `listenAddress` defaults to `127.0.0.1`, so
+the port is reachable only by the proxy on the same host or a tunnel.
 
 ## From source
 
