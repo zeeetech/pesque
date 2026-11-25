@@ -72,4 +72,62 @@ defmodule Pesque.CommitTest do
     assert {root, _} = Mst.build(prepared.entries)
     assert root == prepared.root_cid
   end
+
+  test "a record may reach but not exceed the CBOR size limit" do
+    limit = Commit.max_record_bytes()
+    {text_size, change} = change_with_data_size("boundary", limit)
+
+    assert byte_size(change.data) == limit
+    assert {:error, :record_too_large} = write_result("boundary", text_size + 1)
+  end
+
+  test "individually valid records cannot produce an oversized commit CAR" do
+    changes =
+      for n <- 1..3 do
+        {_text_size, change} = change_with_data_size("car#{n}", 900_000)
+        change
+      end
+
+    assert {:ok, prepared} = Commit.commit(state(%{}), changes)
+    assert {:error, :commit_too_large} = Commit.frame(prepared, 1, changes)
+  end
+
+  test "a frame cannot exceed the operation limit" do
+    changes = for n <- 1..201, do: change("com.example.record/#{n}", n)
+
+    assert {:ok, prepared} = Commit.commit(state(%{}), changes)
+    assert {:error, :too_many_ops} = Commit.frame(prepared, 1, changes)
+  end
+
+  test "the encoded frame has a defensive size limit" do
+    assert {:ok, prepared} = Commit.commit(state(%{}), [])
+    prepared = %{prepared | did: String.duplicate("d", Commit.max_frame_bytes())}
+
+    assert {:error, :frame_too_large} = Commit.frame(prepared, 1, [])
+  end
+
+  defp change_with_data_size(key, target) do
+    {:ok, empty} = write_result(key, 0)
+    adjust_write(key, target, target - byte_size(empty.data) - 16)
+  end
+
+  defp adjust_write(key, target, text_size) do
+    {:ok, change} = write_result(key, text_size)
+
+    case target - byte_size(change.data) do
+      0 -> {text_size, change}
+      delta -> adjust_write(key, target, text_size + delta)
+    end
+  end
+
+  defp write_result(key, text_size) do
+    record = %{
+      "$type" => "app.bsky.feed.post",
+      "key" => key,
+      "text" => String.duplicate("x", text_size),
+      "createdAt" => "2024-01-01T00:00:00.000Z"
+    }
+
+    Commit.encode_write(%{}, :create, "app.bsky.feed.post/" <> key, record)
+  end
 end

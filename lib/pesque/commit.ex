@@ -11,12 +11,11 @@ defmodule Pesque.Commit do
   rebuild from the entry map, and `mst` in the result says which happened so the
   caller can log the fallback.
 
-  The seq number and the block set a frame carries can only be known
-  inside that transaction, so the protocol runs in two steps: commit/2
-  turns the current entries/rev/tid plus writes into the new
-  entries/rev/tid, the commit's CIDs and blocks, and the result map, and
-  frames/4 turns that plus the claimed seq and the blocks the transaction
-  will actually insert into the frames the stream puts out.
+  The seq number can only be known inside that transaction, so the protocol
+  runs in two steps: commit/2 prepares the new entries/rev/tid, CIDs, blocks,
+  and result map, and frame/3 validates and encodes the firehose event. The
+  CAR is a self-contained diff: it includes every block a consumer needs even
+  when storage already holds the CID, as happens when a record is recreated.
   """
 
   alias Pesque.CBOR
@@ -27,11 +26,15 @@ defmodule Pesque.Commit do
   alias Pesque.Secp256k1
   alias Pesque.Tid
 
-  # The lexicon's own limits on a #commit diff. Over either one the diff does
-  # not fit in a frame, so the frame says so and the #sync behind it is what
-  # tells a consumer to re-fetch the repo instead of applying the diff.
+  @max_record_bytes 1_000_000
   @max_blocks_bytes 2_000_000
   @max_ops 200
+  @max_frame_bytes 5_000_000
+
+  def max_record_bytes, do: @max_record_bytes
+  def max_blocks_bytes, do: @max_blocks_bytes
+  def max_ops, do: @max_ops
+  def max_frame_bytes, do: @max_frame_bytes
 
   @doc """
   Encodes one checked record into the change a commit consumes.
@@ -45,17 +48,22 @@ defmodule Pesque.Commit do
     case Lexicon.from_json(record) do
       {:ok, internal} ->
         data = CBOR.encode(internal)
-        cid = CID.from_data(data)
-        action = write_action(action, entries, key)
 
-        {:ok,
-         %{
-           action: action,
-           key: key,
-           cid: cid,
-           data: data,
-           prev_cid: if(action == "create", do: nil, else: Map.fetch!(entries, key))
-         }}
+        if byte_size(data) > @max_record_bytes do
+          {:error, :record_too_large}
+        else
+          cid = CID.from_data(data)
+          action = write_action(action, entries, key)
+
+          {:ok,
+           %{
+             action: action,
+             key: key,
+             cid: cid,
+             data: data,
+             prev_cid: if(action == "create", do: nil, else: Map.fetch!(entries, key))
+           }}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -168,48 +176,25 @@ defmodule Pesque.Commit do
   end
 
   @doc """
-  The firehose frames one commit puts on the stream, as `{seq, frame}` pairs
-  in the order they go out.
+  Builds one validated `#commit` frame. The CAR carries the blocks produced by
+  this commit, including record blocks that storage may already have held.
 
-  The first is always the `#commit` envelope over the CAR of the blocks this
-  frame carries. `blocks` is the commit's whole block map, keyed by `%CID{}`,
-  and `already` is the CID strings storage already holds; the frame carries the
-  blocks that are not in `already`, which is the set this commit added rather
-  than the whole commit closure, because a frame sized to the closure reports
-  `tooBig` forever on a repo past the blocks limit. Storage does not depend on
-  it, so a block that is in the frame or not is written either way.
-
-  A commit whose CAR is over the lexicon's 2,000,000-byte `blocks` limit, or
-  whose op count is over its limit of 200, is over what a consumer is meant to
-  apply in one frame. Those go out as `#commit` with `tooBig: true`, followed by
-  a `#sync` carrying the same commit and nothing else: the consumer cannot apply
-  the diff, so the sync tells it the repo moved and to re-fetch it wholesale.
-  The seq of the sync follows the seq of the commit it recovers, and both are
-  claimed inside the same transaction.
-
-  This is the only place the server emits `#sync`. A cursor gap is a `#info`
-  `OutdatedCursor`, which already says the consumer is behind, and every write
-  here is a commit with a diff, so there is no repo update without one.
+  Returns `{:ok, {seq, binary}}`, or `{:error, reason}` with `:too_many_ops`,
+  `:record_too_large`, `:commit_too_large`, or `:frame_too_large`.
   """
-  def frames(
+  def frame(
         %{
           did: did,
           prev_rev: prev_rev,
           rev: rev,
           commit_cid: commit_cid,
-          prev_root: prev_root
-        } = prepared,
+          prev_root: prev_root,
+          all_blocks: all_blocks
+        },
         seq,
-        blocks,
-        already,
         changes
       ) do
-    new_blocks =
-      blocks
-      |> Enum.reject(fn {cid, _bytes} -> MapSet.member?(already, CID.to_string(cid)) end)
-      |> Map.new()
-
-    car = Car.encode([commit_cid], new_blocks)
+    car = Car.encode([commit_cid], all_blocks)
 
     ops =
       Enum.map(changes, fn c ->
@@ -217,15 +202,12 @@ defmodule Pesque.Commit do
         if c.action == "create", do: op, else: Map.put(op, "prev", c.prev_cid)
       end)
 
-    too_big = byte_size(car) > @max_blocks_bytes or length(ops) > @max_ops
-    time = now()
-
     body =
       with_prev_data(
         %{
           "seq" => seq,
           "rebase" => false,
-          "tooBig" => too_big,
+          "tooBig" => false,
           "repo" => did,
           "commit" => commit_cid,
           "rev" => rev,
@@ -233,20 +215,24 @@ defmodule Pesque.Commit do
           "blocks" => %CBOR.Bytes{data: car},
           "ops" => ops,
           "blobs" => [],
-          "time" => time
+          "time" => now()
         },
         prev_root
       )
 
-    commit =
-      {seq, CBOR.encode(%{"op" => 1, "t" => "#commit"}) <> CBOR.encode(body)}
+    frame = {seq, CBOR.encode(%{"op" => 1, "t" => "#commit"}) <> CBOR.encode(body)}
 
-    if too_big do
-      [commit, sync_frame(prepared, seq + 1, time)]
-    else
-      [commit]
+    cond do
+      length(ops) > @max_ops -> {:error, :too_many_ops}
+      Enum.any?(changes, &oversized_record?/1) -> {:error, :record_too_large}
+      byte_size(car) > @max_blocks_bytes -> {:error, :commit_too_large}
+      byte_size(elem(frame, 1)) > @max_frame_bytes -> {:error, :frame_too_large}
+      true -> {:ok, frame}
     end
   end
+
+  defp oversized_record?(%{data: data}),
+    do: is_binary(data) and byte_size(data) > @max_record_bytes
 
   # prevData is the previous commit's MST root, which is the field the
   # inductive firehose applies its diff on top of. A genesis commit has no
@@ -254,24 +240,6 @@ defmodule Pesque.Commit do
   # absent rather than null.
   defp with_prev_data(body, nil), do: body
   defp with_prev_data(body, prev_root), do: Map.put(body, "prevData", prev_root)
-
-  defp sync_frame(
-         %{did: did, rev: rev, commit_cid: commit_cid, all_blocks: all_blocks},
-         seq,
-         time
-       ) do
-    commit_bytes = Map.fetch!(all_blocks, commit_cid)
-
-    {seq,
-     CBOR.encode(%{"op" => 1, "t" => "#sync"}) <>
-       CBOR.encode(%{
-         "seq" => seq,
-         "did" => did,
-         "blocks" => %CBOR.Bytes{data: Car.encode([commit_cid], %{commit_cid => commit_bytes})},
-         "rev" => rev,
-         "time" => time
-       })}
-  end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 

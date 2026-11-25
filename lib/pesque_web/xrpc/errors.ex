@@ -9,7 +9,7 @@ defmodule PesqueWeb.Xrpc.Errors do
   answer no client can act on.
   """
 
-  alias Pesque.Blob
+  alias Pesque.{Blob, Commit}
 
   # Every way a DPoP proof fails to answer for a request. They share a status,
   # a name and a message, and a client is not told which part was wrong: a
@@ -52,6 +52,20 @@ defmodule PesqueWeb.Xrpc.Errors do
     do: {400, "InvalidSwap", "swapCommit does not match the current repo commit"}
 
   def to_xrpc(:invalid_writes), do: {400, "InvalidRequest", "writes must be an array"}
+
+  def to_xrpc(:too_many_ops),
+    do:
+      {400, "InvalidRequest", "a commit cannot contain more than #{Commit.max_ops()} operations"}
+
+  def to_xrpc(:record_too_large),
+    do: {400, "InvalidRequest", "record is larger than #{Commit.max_record_bytes()} bytes"}
+
+  def to_xrpc(:commit_too_large),
+    do:
+      {400, "InvalidRequest", "commit blocks are larger than #{Commit.max_blocks_bytes()} bytes"}
+
+  def to_xrpc(:frame_too_large),
+    do: {400, "InvalidRequest", "commit frame is larger than #{Commit.max_frame_bytes()} bytes"}
 
   def to_xrpc(:invalid_write),
     do: {400, "InvalidRequest", "a write is not a create, update or delete"}

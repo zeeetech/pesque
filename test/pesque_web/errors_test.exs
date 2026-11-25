@@ -18,4 +18,16 @@ defmodule PesqueWeb.ErrorsTest do
     assert Errors.to_xrpc(:use_dpop_nonce) ==
              {401, "use_dpop_nonce", "the DPoP proof needs the server nonce"}
   end
+
+  test "sync size limits answer InvalidRequest with the enforced bound" do
+    for {reason, limit} <- [
+          too_many_ops: 200,
+          record_too_large: 1_000_000,
+          commit_too_large: 2_000_000,
+          frame_too_large: 5_000_000
+        ] do
+      assert {400, "InvalidRequest", message} = Errors.to_xrpc(reason)
+      assert message =~ Integer.to_string(limit)
+    end
+  end
 end

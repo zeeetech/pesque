@@ -173,19 +173,15 @@ defmodule Pesque.RepoServer do
   defp genesis(%{rev: rev} = state) when not is_nil(rev), do: state
 
   defp genesis(state) do
-    {state, result} = commit(state, [])
+    {next_state, result} = commit(state, [])
 
     case result do
       {:ok, _prepared} ->
-        state
+        next_state
 
       {:error, reason} ->
-        # The transaction rolled back whole, so nothing of the commit landed
-        # and the state is the one commit/2 handed back. What is left is a repo
-        # with no head, which is a broken account rather than an empty one:
-        # getLatestCommit and describeRepo read the head from meta and find
-        # nothing, and nothing else would ever retry it. So the failure is
-        # logged with the DID it belongs to, and retried.
+        # With no head, getLatestCommit and describeRepo have nothing to read,
+        # and no other path would retry genesis.
         Logger.error("genesis commit rolled back, retrying",
           did: state.did,
           reason: inspect(reason),
@@ -205,10 +201,7 @@ defmodule Pesque.RepoServer do
   # exactly the empty commit with a new rev the spec asks for when an account
   # becomes active. A repo with no head yet answers with genesis, which is the
   # head the account needed anyway.
-  def handle_call(:announce, _from, state) do
-    {state, result} = commit(state, [])
-    {:reply, result, state}
-  end
+  def handle_call(:announce, _from, state), do: reply_commit(state, state, [])
 
   # The single write is the batch of one: same validation, same encoding, same
   # commit, so createRecord and a batch create cannot drift apart. The op type
@@ -218,8 +211,7 @@ defmodule Pesque.RepoServer do
   def handle_call({:write, action, collection, rkey, record, opts}, _from, state) do
     case prepare_single(action, collection, rkey, record, opts, state) do
       {:ok, next_state, changes} ->
-        {state, result} = commit(next_state, changes)
-        {:reply, result, state}
+        reply_commit(state, next_state, changes)
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -240,8 +232,7 @@ defmodule Pesque.RepoServer do
           prev_cid: Map.fetch!(state.entries, key)
         }
 
-        {state, result} = commit(state, [change])
-        {:reply, result, state}
+        reply_commit(state, state, [change])
       else
         {:reply, {:error, :record_not_found}, state}
       end
@@ -262,8 +253,7 @@ defmodule Pesque.RepoServer do
   def handle_call({:apply_writes, writes, opts}, _from, state) do
     with :ok <- check_swap(state, Keyword.get(opts, :swap_commit)),
          {:ok, next_state, changes} <- prepare(writes, state, opts) do
-      {state, result} = commit(next_state, changes)
-      {:reply, result, state}
+      reply_commit(state, next_state, changes)
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -314,19 +304,23 @@ defmodule Pesque.RepoServer do
   # there. Nothing here touches the database: a batch that fails halfway leaves
   # the live state untouched because the running one was never it.
   defp prepare(writes, state, opts) when is_list(writes) do
-    opts = [validate: Keyword.get(opts, :validate, true)]
+    if length(writes) > Commit.max_ops() do
+      {:error, :too_many_ops}
+    else
+      opts = [validate: Keyword.get(opts, :validate, true)]
 
-    writes
-    |> Enum.with_index(1)
-    |> Enum.reduce_while({:ok, [], state}, fn {write, index}, {:ok, acc, state} ->
-      case prepare_write(write, state, opts) do
-        {:ok, change, state} -> {:cont, {:ok, [change | acc], state}}
-        {:error, reason} -> {:halt, {:error, {:write_failed, index, reason}}}
+      writes
+      |> Enum.with_index(1)
+      |> Enum.reduce_while({:ok, [], state}, fn {write, index}, {:ok, acc, state} ->
+        case prepare_write(write, state, opts) do
+          {:ok, change, state} -> {:cont, {:ok, [change | acc], state}}
+          {:error, reason} -> {:halt, {:error, {:write_failed, index, reason}}}
+        end
+      end)
+      |> case do
+        {:ok, acc, state} -> {:ok, state, Enum.reverse(acc)}
+        {:error, reason} -> {:error, reason}
       end
-    end)
-    |> case do
-      {:ok, acc, state} -> {:ok, state, Enum.reverse(acc)}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -411,6 +405,15 @@ defmodule Pesque.RepoServer do
     end
   end
 
+  defp reply_commit(state, next_state, changes) do
+    {committed_state, result} = commit(next_state, changes)
+
+    case result do
+      {:ok, _} -> {:reply, result, committed_state}
+      {:error, _} -> {:reply, result, state}
+    end
+  end
+
   defp commit(state, changes) do
     {:ok, prepared} = Commit.commit(state, changes)
 
@@ -421,68 +424,48 @@ defmodule Pesque.RepoServer do
     # accounts committing at the same time is enough to hit it.
     case Repo.transaction(
            fn ->
-             # The seq comes first because the frame carries it, and the event
-             # row is inserted with its payload already encoded, so a crash can
-             # never leave an empty-payload row behind. What guards the seq
-             # against a second writer is insert_event!/3 rolling back on the
-             # primary key, inside the transaction the claim was made in.
              seq = RepoStore.claim_event_seq()
 
-             blocks =
-               Map.new(prepared.all_blocks, fn {cid, bytes} -> {CID.to_string(cid), bytes} end)
+             case Commit.frame(prepared, seq, changes) do
+               {:ok, {^seq, frame}} ->
+                 blocks =
+                   Map.new(prepared.all_blocks, fn {cid, bytes} ->
+                     {CID.to_string(cid), bytes}
+                   end)
 
-             # Read only to size the frame. It is sound here only because the
-             # transaction took the write lock at BEGIN: nothing can commit
-             # between this read and the insert below. If that ever goes back
-             # to deferred, this read stops being a consistent snapshot.
-             already = RepoStore.existing_cids(state.did, Map.keys(blocks))
+                 # Inserts are idempotent so a sweep between identical commits
+                 # cannot collect a block named by the new head.
+                 RepoStore.insert_blocks!(state.did, blocks)
 
-             # Every block goes in, including the ones this repo already holds:
-             # the insert is a no-op on the ones it does, and a sweep landing
-             # between the two commits of an identical block would otherwise
-             # collect a block the head names.
-             RepoStore.insert_blocks!(state.did, blocks)
+                 Enum.each(changes, fn
+                   %{action: "delete", key: key} ->
+                     [collection, rkey] = String.split(key, "/", parts: 2)
+                     RepoStore.delete_record!(state.did, collection, rkey)
 
-             Enum.each(changes, fn
-               %{action: "delete", key: key} ->
-                 [collection, rkey] = String.split(key, "/", parts: 2)
-                 RepoStore.delete_record!(state.did, collection, rkey)
+                   %{key: key, cid: cid, data: data} ->
+                     [collection, rkey] = String.split(key, "/", parts: 2)
+                     RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
+                 end)
 
-               %{key: key, cid: cid, data: data} ->
-                 [collection, rkey] = String.split(key, "/", parts: 2)
-                 RepoStore.put_record!(state.did, collection, rkey, CID.to_string(cid), data)
-             end)
+                 RepoStore.put_head!(state.did, prepared)
+                 RepoStore.insert_event!(state.did, seq, frame)
+                 frame
 
-             RepoStore.put_head!(state.did, prepared)
-
-             # A commit over the lexicon's limits goes out as a #commit followed
-             # by the #sync that tells a consumer to re-fetch. Both rows are
-             # written here so a cursor replay hands them back in seq order.
-             # The frame carries only what this commit added. A frame over the
-             # whole closure would report tooBig on every commit for a repo
-             # past the 2MB blocks limit, and emit a #sync after each one.
-             frames = Commit.frames(prepared, seq, prepared.all_blocks, already, changes)
-
-             Enum.each(frames, fn {frame_seq, frame} ->
-               RepoStore.insert_event!(state.did, frame_seq, frame)
-             end)
-
-             frames
+               {:error, reason} ->
+                 Repo.rollback(reason)
+             end
            end,
            mode: :immediate
          ) do
-      {:ok, frames} ->
-        Enum.each(frames, fn {_frame_seq, frame} ->
-          Pesque.Events.broadcast(frame)
-        end)
-
+      {:ok, frame} ->
+        Pesque.Events.broadcast(frame)
         {next_state(state, prepared), {:ok, prepared.result}}
 
       {:error, :event_seq_taken} ->
-        # Another commit took the seq between the claim and the insert. The
-        # transaction rolled back whole, so nothing of this one landed and the
-        # state is untouched; the caller retries.
         {state, {:error, :busy}}
+
+      {:error, reason} ->
+        {state, {:error, reason}}
     end
   end
 

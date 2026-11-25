@@ -267,6 +267,10 @@ firehose promptly.
 | Blob upload | 5 MiB (`blob_upload_limit`), in `describeServer.blobUploadLimit` | `Pesque.Blob` |
 | Repo import | 100 MiB (`repo_import_limit`) | `PesqueWeb.Xrpc.RepoController` |
 | Request body | 8 MB | `Plug.Parsers` |
+| Record block | 1,000,000 bytes of CBOR | `Pesque.Commit` |
+| Commit CAR | 2,000,000 bytes | `Pesque.Commit` |
+| Commit operations | 200 per write | `Pesque.Commit` |
+| Firehose frame | 5,000,000 bytes | `Pesque.Commit` |
 | Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
 | Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
 

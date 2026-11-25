@@ -3,11 +3,10 @@ defmodule PesqueWeb.CommitFramesTest do
   What one commit puts on the wire: the chain its commit object names, and the
   frames a consumer reads it from.
 
-  Two claims are pinned here that a mirror would otherwise take on trust. The
-  commit object names the commit before it, so history can be walked back from
-  a head without asking this server anything, and the signature covers that
-  `prev` along with everything else. And a commit too big to apply in one frame
-  says so and is followed by the `#sync` that tells a consumer to re-fetch.
+  The commit object names the commit before it, so history can be walked back
+  from a head without asking this server anything, and the signature covers
+  that `prev` along with everything else. Frames are complete, bounded diffs;
+  writes that cannot produce one are rejected without moving the repository.
   """
 
   use PesqueWeb.ConnCase, async: false
@@ -126,55 +125,89 @@ defmodule PesqueWeb.CommitFramesTest do
     assert Map.has_key?(blocks, frame["commit"])
   end
 
-  # Over the lexicon's limits the diff is not something a consumer can apply in
-  # one frame. The #commit says so with tooBig, and the #sync behind it carries
-  # the commit alone: the repo is at this rev, re-fetch it.
-  test "an oversized commit is tooBig and is followed by a #sync carrying the commit", ctx do
+  test "200 operations produce one applicable commit", ctx do
     cursor = RepoStore.max_seq()
 
-    {:ok, _} = RepoServer.apply_writes(ctx.pid, bulk_writes(201))
-
-    assert [{commit_header, commit_body}, {sync_header, sync_body}] =
-             decode(RepoStore.events_after(cursor))
-
-    assert commit_header == %{"op" => 1, "t" => "#commit"}
-    assert sync_header == %{"op" => 1, "t" => "#sync"}
-
-    assert commit_body["tooBig"] == true
-    assert length(commit_body["ops"]) == 201
-
-    assert sync_body["seq"] == commit_body["seq"] + 1
-    assert sync_body["did"] == ctx.alice.did
-    assert sync_body["rev"] == commit_body["rev"]
-
-    # The sync carries the commit and nothing else, rooted at it, which is what
-    # lets a consumer read it as "the repo moved, re-fetch it" rather than as a
-    # diff it could try to apply.
-    {roots, blocks} = Car.decode(sync_body["blocks"].data)
-    commit_cid = commit_body["commit"]
-
-    assert roots == [commit_cid]
-    assert map_size(blocks) == 1
-    assert CBOR.decode!(blocks[commit_cid])["rev"] == sync_body["rev"]
+    assert {:ok, _} = RepoServer.apply_writes(ctx.pid, bulk_writes(200))
+    assert [payload] = RepoStore.events_after(cursor)
+    assert byte_size(payload) <= 5_000_000
+    assert [{header, body}] = decode([payload])
+    assert header == %{"op" => 1, "t" => "#commit"}
+    assert body["tooBig"] == false
+    assert length(body["ops"]) == 200
+    assert byte_size(body["blocks"].data) <= 2_000_000
   end
 
-  # The recovery frame has to survive the cursor, or a consumer reconnecting in
-  # the middle of a bulk write sees a #commit it cannot apply and no frame
-  # telling it what to do about it.
-  test "the #sync of an oversized commit replays from a cursor", ctx do
+  test "201 operations leave the repo unchanged and the next write is clean", ctx do
     cursor = RepoStore.max_seq()
-    {:ok, _} = RepoServer.apply_writes(ctx.pid, bulk_writes(201))
+    before = RepoServer.entries(ctx.pid)
+    head = head(ctx.alice.did)
 
-    assert {:push, [{:binary, replayed_commit}, {:binary, replayed_sync}], _state} =
-             PesqueWeb.Firehose.init(%{cursor: cursor})
+    assert {:error, :too_many_ops} = RepoServer.apply_writes(ctx.pid, bulk_writes(201))
+    assert RepoServer.entries(ctx.pid) == before
+    assert head(ctx.alice.did) == head
+    assert RepoStore.events_after(cursor) == []
 
-    assert [{%{"t" => "#commit"}, _}, {%{"t" => "#sync"}, _}] =
-             decode([replayed_commit, replayed_sync])
+    assert {:ok, _} = write(ctx, "after", "after")
+    assert Map.has_key?(RepoServer.entries(ctx.pid), collection() <> "/after")
+    refute Map.has_key?(RepoServer.entries(ctx.pid), collection() <> "/r201")
   end
 
-  # A commit inside the limits is a single #commit. A #sync on every write would
-  # make every consumer re-fetch every repo on the server.
-  test "a commit inside the limits emits no #sync", ctx do
+  test "an oversized record is rejected even without lexicon validation", ctx do
+    cursor = RepoStore.max_seq()
+    head = head(ctx.alice.did)
+    record = post_record(String.duplicate("x", 1_000_000))
+
+    assert {:error, :record_too_large} =
+             RepoServer.create_record(ctx.pid, collection(), "huge", record, validate: false)
+
+    assert head(ctx.alice.did) == head
+    assert RepoStore.events_after(cursor) == []
+    refute Map.has_key?(RepoServer.entries(ctx.pid), collection() <> "/huge")
+  end
+
+  test "an oversized commit CAR leaves no records or events behind", ctx do
+    cursor = RepoStore.max_seq()
+    before = RepoServer.entries(ctx.pid)
+    head = head(ctx.alice.did)
+
+    writes =
+      for n <- 1..3 do
+        %{
+          "$type" => "com.atproto.repo.applyWrites#create",
+          "collection" => collection(),
+          "rkey" => "car#{n}",
+          "value" => post_record(String.duplicate(Enum.at(["x", "y", "z"], n - 1), 900_000))
+        }
+      end
+
+    assert {:error, :commit_too_large} =
+             RepoServer.apply_writes(ctx.pid, writes, validate: false)
+
+    assert RepoServer.entries(ctx.pid) == before
+    assert head(ctx.alice.did) == head
+    assert RepoStore.events_after(cursor) == []
+
+    assert {:ok, _} = write(ctx, "after", "after")
+    assert Map.keys(RepoServer.entries(ctx.pid)) == [collection() <> "/after"]
+  end
+
+  test "a recreated record is carried by the commit CAR", ctx do
+    cursor = RepoStore.max_seq()
+    key = collection() <> "/recreated"
+
+    assert {:ok, _} = write(ctx, "recreated", "same")
+    cid = Map.fetch!(RepoServer.entries(ctx.pid), key)
+    assert {:ok, _} = RepoServer.delete_record(ctx.pid, collection(), "recreated")
+    assert {:ok, _} = write(ctx, "recreated", "same")
+
+    assert [_create, _delete, recreate] = RepoStore.events_after(cursor)
+    assert [{_header, frame}] = decode([recreate])
+    {_roots, blocks} = Car.decode(frame["blocks"].data)
+    assert Map.has_key?(blocks, cid)
+  end
+
+  test "a valid write emits one #commit", ctx do
     cursor = RepoStore.max_seq()
 
     {:ok, _} = write(ctx, "1", "hello")

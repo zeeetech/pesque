@@ -100,6 +100,40 @@ defmodule Pesque.RepoGenesisTest do
     refute log =~ "genesis"
   end
 
+  test "a rolled back batch keeps prepared entries and tids out of process state" do
+    did = did("batch-rollback")
+    {:ok, pid} = RepoSupervisor.ensure_started(did)
+    assert eventually(fn -> rev(pid) != nil end)
+    before = :sys.get_state(pid)
+    held = hold_the_next_seq()
+
+    assert {:error, :busy} = RepoServer.apply_writes(pid, [create(nil)])
+
+    after_rollback = :sys.get_state(pid)
+    assert after_rollback.entries == before.entries
+    assert after_rollback.rev == before.rev
+    assert after_rollback.tid_int == before.tid_int
+
+    release(held)
+
+    assert {:ok, _} = RepoServer.apply_writes(pid, [create("after")])
+    assert Map.has_key?(RepoServer.entries(pid), "app.bsky.feed.post/after")
+    assert rev(pid) != before.rev
+  end
+
+  defp create(rkey) do
+    %{
+      "$type" => "com.atproto.repo.applyWrites#create",
+      "collection" => "app.bsky.feed.post",
+      "rkey" => rkey,
+      "value" => %{
+        "$type" => "app.bsky.feed.post",
+        "text" => "after rollback",
+        "createdAt" => "2024-01-01T00:00:00.000Z"
+      }
+    }
+  end
+
   # The seq claim is a read of the mark plus one, and insert_event!/3 rolls the
   # transaction back when the log already holds it. Pinning the mark and
   # writing a row at the seq it claims is the same collision, from outside the
