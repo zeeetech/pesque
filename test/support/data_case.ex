@@ -40,6 +40,12 @@ defmodule Pesque.DataCase do
   def setup_database(tags) do
     Pesque.FakeStore.clear()
     owner = Sandbox.start_owner!(Repo, shared: not tags[:async])
+
+    unless tags[:async] do
+      :ok = Supervisor.terminate_child(Pesque.Supervisor, Pesque.Events)
+      {:ok, _pid} = Supervisor.restart_child(Pesque.Supervisor, Pesque.Events)
+    end
+
     keys = key_files()
     blobs = blob_dirs()
 

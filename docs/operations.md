@@ -272,6 +272,7 @@ firehose promptly.
 | Commit operations | 200 per write | `Pesque.Commit` |
 | Firehose frame | 5,000,000 bytes | `Pesque.Commit` |
 | Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
+| Firehose replay payload | 50 MiB per connect (`firehose_replay_limit`) | `PesqueWeb.Firehose` |
 | Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
 
 Each write updates the MST incrementally against the stored root; a tree

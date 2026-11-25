@@ -63,10 +63,12 @@ defmodule Pesque.EventSequenceTest do
 
     assert RepoStore.max_seq() == 0
     assert Repo.aggregate(Event, :count) == 0
+    assert RepoStore.event_cursor() == highest
 
     {:ok, _} = RepoServer.create_record(pid_carol, "app.bsky.feed.post", "3", post("3"))
 
     assert RepoStore.max_seq() > highest
+    assert RepoStore.event_cursor() == RepoStore.max_seq()
     assert events(0) == [RepoStore.max_seq()]
   end
 

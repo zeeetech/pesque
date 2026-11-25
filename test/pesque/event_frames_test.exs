@@ -66,6 +66,11 @@ defmodule Pesque.EventFramesTest do
     refute Map.has_key?(body, "status")
   end
 
+  test "sandbox setup restarts the dispatcher at the durable cursor" do
+    cursor = RepoStore.event_cursor()
+    assert %{last_seq: ^cursor} = :sys.get_state(Events)
+  end
+
   test "creating an account announces an activated #account frame" do
     Registry.register(Pesque.EventRegistry, :firehose, [])
 

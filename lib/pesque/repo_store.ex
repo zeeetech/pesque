@@ -328,6 +328,14 @@ defmodule Pesque.RepoStore do
   end
 
   @doc """
+  The durable firehose cursor, including events removed by retention.
+
+  Older databases without the sequence metadata fall back to the event table's
+  maximum seq.
+  """
+  def event_cursor, do: event_seq_mark()
+
+  @doc """
   The next event sequence number: one past the mark.
 
   The mark is read and written inside the same transaction that inserts the
@@ -382,6 +390,34 @@ defmodule Pesque.RepoStore do
         order_by: e.seq,
         limit: ^limit,
         select: e.payload
+    )
+  end
+
+  @doc """
+  The count and combined payload size for the event interval after `cursor`
+  through `target_seq`. Neither aggregate reads payload values into the caller.
+  """
+  def event_stats(cursor, target_seq) do
+    {count, bytes} =
+      Repo.one(
+        from e in Event,
+          where: e.seq > ^cursor and e.seq <= ^target_seq,
+          select: {count(), sum(fragment("length(?)", e.payload))}
+      )
+
+    {count, bytes || 0}
+  end
+
+  @doc """
+  The event rows in `(cursor, target_seq]`, ordered by seq and capped at limit.
+  """
+  def event_rows_between(cursor, target_seq, limit) do
+    Repo.all(
+      from e in Event,
+        where: e.seq > ^cursor and e.seq <= ^target_seq,
+        order_by: e.seq,
+        limit: ^limit,
+        select: {e.seq, e.payload}
     )
   end
 

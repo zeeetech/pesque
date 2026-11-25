@@ -41,9 +41,11 @@ defmodule Pesque.EventConcurrencyTest do
     :ok = Sandbox.mode(Repo, :manual)
 
     {:ok, mark, highest} = baseline()
+    reset_dispatcher()
 
     on_exit(fn ->
       :ok = restore(mark, highest)
+      :ok = reset_dispatcher()
     end)
 
     %{highest: highest}
@@ -90,6 +92,23 @@ defmodule Pesque.EventConcurrencyTest do
     assert Enum.sort(Enum.map(rows, & &1.did)) == Enum.sort(Enum.map(frames, &field(&1, "did")))
   end
 
+  test "a no-listener broadcast advances from the caller's persisted cursor", ctx do
+    assert Registry.lookup(Pesque.EventRegistry, :firehose) == []
+    events_pid = Process.whereis(Events)
+    assert is_pid(events_pid)
+
+    did = account("solo")
+    :ok = Sandbox.checkout(Repo, sandbox: false)
+    result = Events.emit_identity(did, handle(did))
+    Sandbox.checkin(Repo)
+
+    assert {:ok, frame} = result
+    assert field(frame, "seq") == ctx.highest + 1
+    assert Process.whereis(Events) == events_pid
+    assert Process.alive?(events_pid)
+    assert :sys.get_state(Events).last_seq == ctx.highest + 1
+  end
+
   defp baseline do
     :ok = Sandbox.checkout(Repo, sandbox: false)
     mark = RepoStore.get_meta(@seq_key)
@@ -112,6 +131,22 @@ defmodule Pesque.EventConcurrencyTest do
     end
 
     Sandbox.checkin(Repo)
+    :ok
+  end
+
+  defp reset_dispatcher do
+    :ok = Sandbox.checkout(Repo, sandbox: false)
+
+    try do
+      # Events.init must read the cursor through this test-owned connection.
+      :ok = Sandbox.mode(Repo, {:shared, self()})
+      :ok = Supervisor.terminate_child(Pesque.Supervisor, Pesque.Events)
+      {:ok, _pid} = Supervisor.restart_child(Pesque.Supervisor, Pesque.Events)
+    after
+      :ok = Sandbox.mode(Repo, :manual)
+      Sandbox.checkin(Repo)
+    end
+
     :ok
   end
 

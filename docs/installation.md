@@ -348,6 +348,7 @@ The file supports these settings:
 | `lexicon_aggregator` | empty | HTTPS base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored |
 | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
+| `firehose_replay_limit` | `52428800` (50 MiB) | Combined event payload size replayed to one firehose connection |
 | `proxy_timeout` | `15000` | How long a proxied call may take before it is answered 504, in milliseconds |
 | `proxy_response_limit` | `10485760` (10 MiB) | Largest body a proxied call may return |
 | `admin_dids` | empty | Comma-separated DIDs allowed to call `createInviteCodes` under `multi` |

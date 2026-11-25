@@ -28,6 +28,7 @@ defmodule Pesque.Application do
         Pesque.RateLimit,
         Pesque.OAuth.PermissionSets.Cache,
         {Registry, keys: :duplicate, name: Pesque.EventRegistry},
+        Pesque.Events,
         {Registry, keys: :unique, name: Pesque.RepoRegistry},
         {Registry, keys: :unique, name: Pesque.Migrate.Registry},
         {Task.Supervisor, name: Pesque.Migrate.Supervisor},

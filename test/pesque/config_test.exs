@@ -65,6 +65,16 @@ defmodule Pesque.ConfigTest do
       assert settings.handle_domain == "pds.example.com"
       assert settings.crawler == []
       assert settings.admin_dids == []
+      assert settings.firehose_replay_limit == 52_428_800
+    end
+
+    test "configures the firehose replay byte budget" do
+      path =
+        file(
+          "url_scheme = https\nhostname = pds.example.com\nport = 4000\ndata_dir = /data\nfirehose_replay_limit = 1234\n"
+        )
+
+      assert Config.source_config!(path)[:firehose_replay_max_bytes] == 1234
     end
 
     test "stores hostname and handle domain as strings while accepting URL forms" do

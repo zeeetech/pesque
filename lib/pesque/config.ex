@@ -25,6 +25,7 @@ defmodule Pesque.Config do
           lexicon_aggregator: URI.t() | nil,
           blob_upload_limit: integer,
           repo_import_limit: integer,
+          firehose_replay_limit: integer,
           proxy_timeout: integer,
           proxy_response_limit: integer,
           admin_dids: list(String.t()) | nil,
@@ -62,7 +63,7 @@ defmodule Pesque.Config do
 
   @required ~w(url_scheme hostname port data_dir)a
 
-  @fields ~w(mode handle_domain registration crawler plc_directory lexicon_aggregator blob_upload_limit repo_import_limit proxy_timeout proxy_response_limit admin_dids privacy_policy_url terms_of_service_url)a ++
+  @fields ~w(mode handle_domain registration crawler plc_directory lexicon_aggregator blob_upload_limit repo_import_limit firehose_replay_limit proxy_timeout proxy_response_limit admin_dids privacy_policy_url terms_of_service_url)a ++
             @required
 
   @keys Enum.map(@fields, &to_string/1)
@@ -80,6 +81,7 @@ defmodule Pesque.Config do
     field :lexicon_aggregator, __MODULE__.URI
     field :blob_upload_limit, :integer, default: 5_242_880
     field :repo_import_limit, :integer, default: 104_857_600
+    field :firehose_replay_limit, :integer, default: 52_428_800
     field :proxy_timeout, :integer, default: 15_000
     field :proxy_response_limit, :integer, default: 10_485_760
     field :admin_dids, {:array, :string}, default: []
@@ -190,6 +192,7 @@ defmodule Pesque.Config do
       lexicon_aggregator: url(settings.lexicon_aggregator),
       blob_upload_limit: settings.blob_upload_limit,
       repo_import_limit: settings.repo_import_limit,
+      firehose_replay_limit: settings.firehose_replay_limit,
       proxy_timeout: settings.proxy_timeout,
       proxy_response_limit: settings.proxy_response_limit,
       admin_dids: settings.admin_dids || [],
@@ -265,6 +268,7 @@ defmodule Pesque.Config do
       crawlers: Enum.map(settings.crawler, &url/1),
       blob_max_bytes: settings.blob_upload_limit,
       repo_import_max_bytes: settings.repo_import_limit,
+      firehose_replay_max_bytes: settings.firehose_replay_limit,
       proxy_timeout: settings.proxy_timeout,
       proxy_response_limit: settings.proxy_response_limit,
       privacy_policy_url: url(settings.privacy_policy_url) || "",
@@ -335,6 +339,7 @@ defmodule Pesque.Config do
     )
     |> validate_number(:blob_upload_limit, greater_than: 0)
     |> validate_number(:repo_import_limit, greater_than: 0)
+    |> validate_number(:firehose_replay_limit, greater_than: 0)
     |> validate_number(:proxy_timeout, greater_than: 0)
     |> validate_number(:proxy_response_limit, greater_than: 0)
     |> validate_change(:lexicon_aggregator, fn

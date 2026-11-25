@@ -1,21 +1,21 @@
 defmodule PesqueWeb.Firehose do
   @moduledoc """
   The firehose socket. Server-push only: clients never send frames.
-  Replays history for the given cursor, then forwards live commit frames.
+  Replays history for the given cursor, then forwards live event frames.
 
   The state is `%{replayed_through: seq}` while the socket is still catching
   up and `%{replayed_through: nil}` once it is live: the seq is the last one
-  the replay already sent, and nil means nothing can arrive twice any more.
+  covered by replay (or the requested cursor when it loaded no events), and nil
+  means nothing can arrive twice any more.
   """
 
   @behaviour WebSock
 
   alias Pesque.CBOR
+  alias Pesque.Commit
   alias Pesque.RepoStore
 
-  # How much history one connect hands back. The storage layer has a default of
-  # the same size, but it is passed explicitly here because the two have to
-  # agree for a full page to mean "this is all there was".
+  # The event-count cap is checked before the bounded payload query.
   @replay_page_size 10_000
 
   @impl true
@@ -25,13 +25,11 @@ defmodule PesqueWeb.Firehose do
   end
 
   def init(%{cursor: cursor}) do
-    # Registered before the log is read, not after. RepoServer dispatches to
-    # this registry as soon as a commit is written, so a commit landing while
-    # the replay query runs would go to no listener at all and would not be in
-    # the query result either. What arrives in the window is already sitting in
-    # this process mailbox when init/1 returns, so it is handled after the
-    # replay was pushed and no self-send or continuation is needed to order it.
+    # Register before reading the log. A commit arriving while the replay query
+    # runs may be in both the bounded query and this process mailbox; its seq
+    # lets handle_info/2 discard the copy the replay already sent.
     Registry.register(Pesque.EventRegistry, :firehose, [])
+    Process.monitor(Pesque.Events)
 
     case replay(cursor) do
       {:ok, frames, replayed_through} ->
@@ -43,99 +41,146 @@ defmodule PesqueWeb.Firehose do
   end
 
   @impl true
-  def handle_in(_message, state), do: {:stop, :normal, 1003, state}
+  # Event Stream is server-push; the protocol requires ignoring client frames.
+  def handle_in(_message, state), do: {:ok, state}
 
   @impl true
-  def handle_info({:firehose_frame, frame}, %{replayed_through: nil} = state) do
-    {:push, [{:binary, frame}], state}
-  end
+  def handle_info({:firehose_frame, frame}, state) do
+    case frame_seq(frame) do
+      {:ok, seq} ->
+        handle_frame(frame, seq, state)
 
-  # A commit written between the registration and the replay query is in the
-  # replay *and* in this mailbox. Its seq is what tells the two apart: anything
-  # at or below what the replay carried was already sent, and sending it again
-  # hands the consumer the same commit twice. The first frame past the replay
-  # closes the window, since a frame that is not one of the replay's cannot be
-  # followed by one that is: dispatches leave in commit order per repo, and two
-  # repos committing at once only reorder against each other inside the window.
-  def handle_info({:firehose_frame, frame}, %{replayed_through: through} = state) do
-    case seq_of(frame) do
-      # A frame with no readable seq cannot be shown to be one the replay
-      # already sent, and dropping it would be the gap this window exists to
-      # close.
-      nil -> push(frame, %{state | replayed_through: nil})
-      seq when seq <= through -> {:ok, state}
-      _seq -> push(frame, %{state | replayed_through: nil})
+      {:error, :frame_too_large} ->
+        {:stop, :normal, 1009, state}
+
+      {:error, :invalid_frame} ->
+        {:stop, :normal, 1002, state}
     end
   end
 
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state),
+    do: {:stop, :normal, 1012, state}
+
   def handle_info(_message, state), do: {:ok, state}
+
+  defp handle_frame(frame, _seq, %{replayed_through: nil} = state), do: push(frame, state)
+
+  # A commit written between registration and the replay query can be in the
+  # replay and in this mailbox. The seq tells the two apart without relying on
+  # dispatcher arrival order.
+  defp handle_frame(frame, seq, %{replayed_through: through} = state) do
+    if seq <= through do
+      {:ok, state}
+    else
+      push(frame, %{state | replayed_through: nil})
+    end
+  end
 
   defp push(frame, state), do: {:push, [{:binary, frame}], state}
 
   defp replay(nil), do: {:ok, [], nil}
 
   defp replay(cursor) when is_integer(cursor) do
-    if cursor > RepoStore.max_seq() do
+    target_seq = RepoStore.event_cursor()
+
+    if cursor > target_seq do
       {:error, :future_cursor}
     else
-      # One frame past the page, so a replay that ran into the cap is visible
-      # as one. Without it a consumer too far behind to be served gets the
-      # first page of history, goes live, and silently misses everything in
-      # between: a full page is a page, not the whole log.
-      case RepoStore.events_after(cursor, @replay_page_size + 1) do
-        frames when length(frames) > @replay_page_size ->
-          {:error, :too_far_behind}
+      {count, bytes} = RepoStore.event_stats(cursor, target_seq)
 
-        frames ->
-          oldest = RepoStore.oldest_seq()
+      if count > @replay_page_size or bytes > Pesque.firehose_replay_max_bytes() do
+        {:error, :too_far_behind}
+      else
+        rows = RepoStore.event_rows_between(cursor, target_seq, @replay_page_size)
 
-          # The info frame carries no seq of its own, so what the replay
-          # covered is read off the log frames it goes in front of.
-          {:ok, replayed(frames, cursor, oldest), replayed_through(frames)}
+        case validate_replay_rows(rows) do
+          {:ok, frames} ->
+            oldest = RepoStore.oldest_seq()
+            payloads = Enum.map(frames, &elem(&1, 1))
+
+            # The info frame carries no seq of its own, so what the replay
+            # covered is read off the log frames it goes in front of.
+            {:ok, replayed(payloads, cursor, oldest, target_seq),
+             replayed_through(frames, cursor)}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     end
   end
 
-  defp replayed(frames, cursor, oldest) do
-    if oldest != nil and cursor < oldest - 1 do
+  defp validate_replay_rows(rows) do
+    Enum.reduce_while(rows, {:ok, []}, fn {seq, frame}, {:ok, acc} ->
+      case frame_seq(frame) do
+        {:ok, ^seq} -> {:cont, {:ok, [{seq, frame} | acc]}}
+        {:ok, _other_seq} -> {:halt, {:error, :invalid_frame}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, frames} -> {:ok, Enum.reverse(frames)}
+      error -> error
+    end
+  end
+
+  defp replayed(frames, cursor, oldest, target_seq) do
+    if (oldest == nil and cursor < target_seq) or
+         (oldest != nil and cursor < oldest - 1) do
       [info_frame("OutdatedCursor", "requested cursor predates retained history") | frames]
     else
       frames
     end
   end
 
-  defp replayed_through([]), do: nil
-  defp replayed_through(frames), do: seq_of(List.last(frames))
+  defp replayed_through([], cursor), do: cursor
+  defp replayed_through(frames, _cursor), do: frames |> List.last() |> elem(0)
 
-  # Every frame the firehose emits carries its seq in its body, which is what
-  # makes the catch-up window decidable without trusting arrival order.
-  defp seq_of(frame) do
-    {_header, rest} = CBOR.decode(frame)
-    {body, ""} = CBOR.decode(rest)
-    body["seq"]
+  defp frame_seq(frame) when is_binary(frame) do
+    if byte_size(frame) > Commit.max_frame_bytes() do
+      {:error, :frame_too_large}
+    else
+      try do
+        with {%{"op" => 1, "t" => type}, rest} when is_binary(type) <- CBOR.decode(frame),
+             {%{"seq" => seq}, ""} when is_integer(seq) and seq >= 0 <- CBOR.decode(rest) do
+          {:ok, seq}
+        else
+          _other -> {:error, :invalid_frame}
+        end
+      rescue
+        _exception -> {:error, :invalid_frame}
+      catch
+        _kind, _reason -> {:error, :invalid_frame}
+      end
+    end
   end
 
+  defp frame_seq(_frame), do: {:error, :invalid_frame}
+
   defp close(reason) do
-    frame =
-      case reason do
-        :future_cursor ->
-          error_frame("FutureCursor", "cursor is ahead of the current sequence")
-
-        :too_far_behind ->
-          # The #info shape rather than an error frame, because that is what the
-          # retention branch already answers a lost cursor with: a consumer that
-          # resyncs on OutdatedCursor resyncs on this too.
-          info_frame(
-            "OutdatedCursor",
-            "more than #{@replay_page_size} frames of history behind this cursor"
-          )
-      end
-
     # The registration happened first, so an error branch has to take it back:
     # otherwise the socket stays on the registry and keeps receiving frames for
-    # a consumer that was just told to resync.
+    # a consumer that was just told to leave.
     Registry.unregister(Pesque.EventRegistry, :firehose)
-    {:stop, :normal, 1000, [{:binary, frame}], %{}}
+
+    if reason in [:frame_too_large, :invalid_frame] do
+      code = if reason == :frame_too_large, do: 1009, else: 1002
+      {:stop, :normal, code, [], %{}}
+    else
+      frame =
+        case reason do
+          :future_cursor ->
+            error_frame("FutureCursor", "cursor is ahead of the current sequence")
+
+          :too_far_behind ->
+            info_frame(
+              "OutdatedCursor",
+              "replay exceeds #{@replay_page_size} events or #{Pesque.firehose_replay_max_bytes()} bytes"
+            )
+        end
+
+      {:stop, :normal, 1000, [{:binary, frame}], %{}}
+    end
   end
 
   defp error_frame(name, message) do
