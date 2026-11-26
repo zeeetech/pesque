@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.16.0](https://github.com/zeeetech/pesque/compare/pesque-v1.15.8...pesque-v1.16.0) (2026-11-26)
+
+
+### Features
+
+* squash migrations ([7634bb7](https://github.com/zeeetech/pesque/commit/7634bb7a46d070a8a93a3b6d1ea3caa5a3367415))
+* **sync:** complete repository sync endpoints ([851097d](https://github.com/zeeetech/pesque/commit/851097d228a7c260a40a5b04fdb0a612cacbedc8))
+* **sync:** disconnect slow firehose consumers ([e95b31c](https://github.com/zeeetech/pesque/commit/e95b31ca774b17deec062489a839dd75e6308504))
+* **sync:** limit firehose connections ([96a38d7](https://github.com/zeeetech/pesque/commit/96a38d7d199a2878d2355bdf46371efef0e7eef9))
+
+
+### Bug Fixes
+
+* **accounts:** initialize repo genesis on creation ([d973dac](https://github.com/zeeetech/pesque/commit/d973dac75ecadf6ee97df713f8c75ee364c9b5ab))
+* **compose:** keep backups readable by operator ([157f5d0](https://github.com/zeeetech/pesque/commit/157f5d0613424c9979a927289241b30d2318308b))
+* **runtime:** restrict private data permissions ([7ff8c21](https://github.com/zeeetech/pesque/commit/7ff8c21d5fd3c5c15f965e38e691803b9f86dd01))
+* **sync:** bound firehose replay and preserve ordering ([bfba673](https://github.com/zeeetech/pesque/commit/bfba673616b05635c47605ae30aa38af6967fb5c))
+* **sync:** emit sync frames for imports and activation ([6f33391](https://github.com/zeeetech/pesque/commit/6f33391ecb721ae9664d172e371bee7e1c7d4801))
+* **sync:** enforce valid commit frames ([41f49fc](https://github.com/zeeetech/pesque/commit/41f49fc0518ac233cdc5086f4cd17e2efdfabe74))
+* **test:** isolate default data directory ([f9f7090](https://github.com/zeeetech/pesque/commit/f9f709010722aef4e1504000331eea4eec37409b))
+
 ## [1.15.8](https://github.com/zeeetech/pesque/compare/pesque-v1.15.7...pesque-v1.15.8) (2026-10-29)
 
 
