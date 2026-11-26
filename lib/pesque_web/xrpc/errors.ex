@@ -67,6 +67,9 @@ defmodule PesqueWeb.Xrpc.Errors do
   def to_xrpc(:frame_too_large),
     do: {400, "InvalidRequest", "commit frame is larger than #{Commit.max_frame_bytes()} bytes"}
 
+  def to_xrpc(:sync_too_large),
+    do: {400, "InvalidRequest", "sync CAR is larger than 10000 bytes"}
+
   def to_xrpc(:invalid_write),
     do: {400, "InvalidRequest", "a write is not a create, update or delete"}
 
@@ -268,6 +271,7 @@ defmodule PesqueWeb.Xrpc.Errors do
   # treat the write as lost; the commit either happened or it did not, and
   # neither answer is knowable from here.
   def to_xrpc(:busy), do: {503, "InternalServerError", "the repo is busy, retry the request"}
+  def to_xrpc(:event_seq_taken), do: to_xrpc(:busy)
 
   # The Registry reaps a dead process's entry asynchronously, and
   # RepoSupervisor.ensure_started/1 gives up waiting on that gap rather than

@@ -1,7 +1,7 @@
 defmodule Pesque.EventFrames do
   @moduledoc """
-  The firehose frames that are not commits: the `#identity` and `#account`
-  events the spec puts next to `#commit` on the same stream.
+  The firehose frames that are not commits: the `#identity`, `#account` and
+  `#sync` events the spec puts next to `#commit` on the same stream.
 
   Pure, like `Pesque.Commit.frame/3`: they turn the seq the log hands them
   plus what the event is about into bytes. `Pesque.Events` is what decides
@@ -9,6 +9,11 @@ defmodule Pesque.EventFrames do
   """
 
   alias Pesque.CBOR
+  alias Pesque.CID
+  alias Pesque.Car
+  alias Pesque.Commit
+
+  @sync_max_car_bytes 10_000
 
   @statuses [
     :activated,
@@ -44,6 +49,30 @@ defmodule Pesque.EventFrames do
   """
   def account(seq, did, status) when status in @statuses do
     frame("#account", body(seq, did, status))
+  end
+
+  @doc """
+  Builds a `#sync` frame carrying only the signed head commit block.
+
+  The CAR root is the commit CID, and the CAR contains no MST or record blocks.
+  """
+  def sync(seq, did, rev, %CID{} = commit_cid, commit_bytes) when is_binary(commit_bytes) do
+    car = Car.encode([commit_cid], %{commit_cid => commit_bytes})
+
+    encoded =
+      frame("#sync", %{
+        "seq" => seq,
+        "did" => did,
+        "blocks" => %CBOR.Bytes{data: car},
+        "rev" => rev,
+        "time" => now()
+      })
+
+    cond do
+      byte_size(car) > @sync_max_car_bytes -> {:error, :sync_too_large}
+      byte_size(encoded) > Commit.max_frame_bytes() -> {:error, :frame_too_large}
+      true -> {:ok, encoded}
+    end
   end
 
   defp body(seq, did, :activated) do

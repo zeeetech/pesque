@@ -1,6 +1,6 @@
 defmodule Pesque.EventFramesTest do
   @moduledoc """
-  The two firehose frames that are not commits, and the log they share with
+  The firehose frames that are not commits, and the log they share with
   them: a cursor replaying from before an account existed has to hand back the
   #account frame in seq order with the commits around it.
   """
@@ -10,7 +10,9 @@ defmodule Pesque.EventFramesTest do
   import Ecto.Query
 
   alias Pesque.Accounts
+  alias Pesque.Car
   alias Pesque.CBOR
+  alias Pesque.CID
   alias Pesque.EventFrames
   alias Pesque.Events
   alias Pesque.Repo
@@ -64,6 +66,26 @@ defmodule Pesque.EventFramesTest do
     assert body["did"] == "did:web:localhost"
     assert body["active"]
     refute Map.has_key?(body, "status")
+  end
+
+  test "a #sync frame carries only its head commit block in the CAR" do
+    did = "did:web:localhost"
+    rev = "3jzfcijpj2z2a"
+    commit_bytes = CBOR.encode(%{"did" => did, "rev" => rev})
+    commit_cid = CID.from_data(commit_bytes)
+
+    assert {:ok, frame} = EventFrames.sync(9, did, rev, commit_cid, commit_bytes)
+    {header, body} = decode(frame)
+
+    assert header == %{"op" => 1, "t" => "#sync"}
+    assert body["seq"] == 9
+    assert body["did"] == did
+    assert body["rev"] == rev
+    assert {:ok, _, 0} = DateTime.from_iso8601(body["time"])
+
+    {roots, blocks} = Car.decode(body["blocks"].data)
+    assert roots == [commit_cid]
+    assert blocks == %{commit_cid => commit_bytes}
   end
 
   test "sandbox setup restarts the dispatcher at the durable cursor" do

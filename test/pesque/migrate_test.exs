@@ -11,8 +11,8 @@ defmodule Pesque.MigrateTest do
   use Pesque.DataCase, async: false
 
   alias Pesque.Accounts
-  alias Pesque.CBOR
   alias Pesque.Car
+  alias Pesque.CBOR
   alias Pesque.CID
   alias Pesque.Migrate
   alias Pesque.RepoStore
@@ -66,6 +66,40 @@ defmodule Pesque.MigrateTest do
 
     assert last["active"]
     refute last["status"]
+  end
+
+  test "replay from zero reaches the imported head through sync without an empty commit" do
+    did = old_did()
+    handle = unique("migrated") <> ".localhost"
+
+    configure_happy_path(did, handle)
+
+    assert :ok = run(handle)
+
+    assert {:push, replay, _state} = PesqueWeb.Firehose.init(%{cursor: 0})
+
+    did_events =
+      replay
+      |> Enum.map(fn {:binary, frame} -> decode(frame) end)
+      |> Enum.filter(fn {_header, body} -> body["did"] == did or body["repo"] == did end)
+
+    {_header, sync} =
+      did_events
+      |> Enum.filter(fn {header, _body} -> header["t"] == "#sync" end)
+      |> List.last()
+
+    head = RepoStore.get_meta("commit:" <> did)
+    rev = RepoStore.get_meta("rev:" <> did)
+    head_cid = CID.parse(head)
+    assert sync["rev"] == rev
+
+    {roots, blocks} = Car.decode(sync["blocks"].data)
+    assert roots == [head_cid]
+    assert blocks == %{head_cid => RepoStore.get_block(did, head).data}
+
+    refute Enum.any?(did_events, fn {header, body} ->
+             header["t"] == "#commit" and body["repo"] == did and body["ops"] == []
+           end)
   end
 
   # The spec pairs the identity update with an #identity event, so a consumer

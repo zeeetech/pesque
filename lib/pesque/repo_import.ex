@@ -8,8 +8,11 @@ defmodule Pesque.RepoImport do
   row in one transaction.
   """
 
+  alias Pesque.Accounts.User
   alias Pesque.CID
   alias Pesque.Commit
+  alias Pesque.EventFrames
+  alias Pesque.Events
   alias Pesque.Keys
   alias Pesque.Repo
   alias Pesque.RepoServer
@@ -62,6 +65,8 @@ defmodule Pesque.RepoImport do
     result =
       Repo.transaction(
         fn ->
+          active? = match?(%User{active: true}, Repo.get_by(User, did: did))
+
           RepoStore.delete_records!(did)
           RepoStore.delete_blocks!(did)
           RepoStore.insert_blocks!(did, Map.merge(imported.blocks, new_blocks))
@@ -72,14 +77,36 @@ defmodule Pesque.RepoImport do
           end)
 
           RepoStore.put_head!(did, prepared)
-          :ok
+
+          if active? do
+            seq = RepoStore.claim_event_seq()
+            commit_bytes = Map.fetch!(prepared.all_blocks, prepared.commit_cid)
+
+            case EventFrames.sync(seq, did, prepared.rev, prepared.commit_cid, commit_bytes) do
+              {:ok, frame} ->
+                RepoStore.insert_event!(did, seq, frame)
+                frame
+
+              {:error, reason} ->
+                Repo.rollback(reason)
+            end
+          else
+            nil
+          end
         end,
         mode: :immediate
       )
 
     case result do
-      {:ok, :ok} -> {:ok, did}
-      {:error, reason} -> {:error, reason}
+      {:ok, frame} when is_binary(frame) ->
+        _ = Events.broadcast(frame)
+        {:ok, did}
+
+      {:ok, nil} ->
+        {:ok, did}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 end

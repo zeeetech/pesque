@@ -10,6 +10,7 @@ defmodule Pesque.Events do
   use GenServer
 
   alias Pesque.Commit
+  alias Pesque.CID
   alias Pesque.EventFrames
   alias Pesque.Repo
   alias Pesque.RepoStore
@@ -30,6 +31,47 @@ defmodule Pesque.Events do
   @doc "Announces a change to whether the account has a repo here."
   def emit_account(did, status) do
     emit(did, &EventFrames.account(&1, did, status))
+  end
+
+  @doc """
+  Announces an active account followed by a sync of its current repo head.
+
+  Both events share one transaction, so the sync has the immediately following
+  durable sequence number. If the head cannot be synced, the account event is
+  still persisted and broadcast.
+  """
+  def emit_account_and_sync(did) do
+    result =
+      Repo.transaction(
+        fn ->
+          account_seq = RepoStore.claim_event_seq()
+          account_frame = EventFrames.account(account_seq, did, :activated)
+          RepoStore.insert_event!(did, account_seq, account_frame)
+
+          case current_head_sync(did) do
+            {:ok, sync_seq, sync_frame} ->
+              RepoStore.insert_event!(did, sync_seq, sync_frame)
+              {:complete, account_frame, sync_frame}
+
+            {:error, reason} ->
+              {:account_only, account_frame, reason}
+          end
+        end,
+        mode: :immediate
+      )
+
+    case result do
+      {:ok, {:complete, account_frame, sync_frame}} ->
+        _ = broadcast(account_frame)
+        {:ok, [account_frame, sync_frame]}
+
+      {:ok, {:account_only, account_frame, reason}} ->
+        _ = broadcast(account_frame)
+        {:error, {:sync_failed, reason}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc "Signals an already-persisted frame for ordered dispatch."
@@ -91,6 +133,20 @@ defmodule Pesque.Events do
         # Nothing was persisted, so there is nothing to push: a frame a
         # consumer sees and a replay does not is worse than no frame.
         {:error, reason}
+    end
+  end
+
+  defp current_head_sync(did) do
+    with head when is_binary(head) <- RepoStore.get_meta("commit:" <> did),
+         rev when is_binary(rev) <- RepoStore.repo_rev(did),
+         {:ok, commit_cid} <- CID.safe_parse(head),
+         %{data: commit_bytes} when is_binary(commit_bytes) <- RepoStore.get_block(did, head),
+         seq <- RepoStore.claim_event_seq(),
+         {:ok, frame} <- EventFrames.sync(seq, did, rev, commit_cid, commit_bytes) do
+      {:ok, seq, frame}
+    else
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :repo_head_unavailable}
     end
   end
 
