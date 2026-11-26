@@ -1,6 +1,14 @@
 import Config
 
-partition = System.get_env("MIX_TEST_PARTITION", "")
+partition =
+  case System.get_env("MIX_TEST_PARTITION") do
+    value when value in [nil, ""] ->
+      "pesque-test-#{System.system_time(:microsecond)}-#{System.unique_integer([:positive])}"
+
+    value ->
+      value
+  end
+
 test_dir = Path.join(System.tmp_dir!(), partition)
 
 config :pesque, Pesque.Repo,
