@@ -151,6 +151,10 @@ backup_directory_usable() {
 
   [ "$gid" = "$host_gid" ] || return 1
   case "$mode" in
+    [2367]???) ;;
+    *) return 1 ;;
+  esac
+  case "$mode" in
     *0) return 0 ;;
     *) return 1 ;;
   esac
@@ -159,7 +163,7 @@ backup_directory_usable() {
 repair_backup_directory() {
   host_gid=$1
 
-  # Only the backup mount is changed; the server and one-off commands stay
+  # Only the backup mount is changed; the server and backup CLI stay
   # non-root. The container user owns the directory, the operator's primary
   # group can list and read it, and setgid makes new archives inherit that
   # group.
@@ -197,6 +201,10 @@ backup() {
   prepare_backup_directory
   printf 'Backups: %s on host, /backups in container\n' "$backup_dir"
   run_once backup --out /backups
+  # 0640 is the Compose host-reader contract; others retain no access.
+  compose run --rm --no-deps --user 0 --entrypoint /bin/sh pesque \
+    -c 'chmod 0640 /backups/pesque-backup-*.tar.gz' ||
+    die 3 "could not set Compose backup archive permissions"
 }
 
 restore() {

@@ -80,6 +80,21 @@ check_backup_permissions
 
 set -- "$bundle"/backups/pesque-backup-*.tar.gz
 [ -f "$1" ] || { printf 'error: no host-visible backup was created\n' >&2; exit 1; }
+if stat -c '%a %g' "$1" >/dev/null 2>&1; then
+  archive_state=$(stat -c '%a %g' "$1")
+else
+  archive_state=$(stat -f '%Lp %g' "$1")
+fi
+archive_mode=${archive_state%% *}
+archive_gid=${archive_state#* }
+[ "$archive_mode" = 640 ] || {
+  printf 'error: backup archive mode is %s, expected 640\n' "$archive_mode" >&2
+  exit 1
+}
+[ "$archive_gid" = "$(id -g)" ] || {
+  printf 'error: backup archive group %s does not match the operator group %s\n' "$archive_gid" "$(id -g)" >&2
+  exit 1
+}
 tar -tzf "$1" >/dev/null
 archive=${1##*/}
 

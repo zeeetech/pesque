@@ -49,9 +49,11 @@ data/
 └── blobs/<digest>/<cid>         # blob bytes
 ```
 
-`server.secret`, key files and backup archives are mode `0600`; the data
-directory and `keys/` are `0700`. Under Compose the data is the `pesque-data`
-volume; under NixOS it is `dataDir`, owned by the configured UID/GID.
+`server.secret` and key files are mode `0600`; the data directory and `keys/`
+are `0700`. Backup archives are `0600` by default; Compose deliberately changes
+them to `0640` with the operator group so the host can read them while others
+have no access. Under Compose the data is the `pesque-data` volume; under NixOS
+it is `dataDir`, owned by the configured UID/GID.
 
 Protect the directory: leaks can forge legacy sessions (`server.secret`), OAuth
 tokens (`oauth.p256.key`), PLC identities (rotation keys), or commits (signing
