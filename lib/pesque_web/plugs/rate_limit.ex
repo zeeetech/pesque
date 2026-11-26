@@ -61,9 +61,12 @@ defmodule PesqueWeb.Plugs.RateLimit do
   # so a new class is limited per account by default rather than by address
   # alone until someone remembers to add it here.
   @default_account_params ~w(identifier handle inviteCode repo did)
+  @address_only_buckets [:firehose]
 
   @doc """
   Options: `:bucket` names the limit class, `:limit` and `:window` size it.
+  A zero-arity function can be used for `:limit` when its value must be read
+  at request time.
 
   `:window` is in milliseconds and defaults to an hour, which is what the
   spec's limits are written against.
@@ -76,7 +79,9 @@ defmodule PesqueWeb.Plugs.RateLimit do
     }
   end
 
-  def call(conn, %{bucket: bucket, limit: limit, window: window}) do
+  def call(conn, %{bucket: bucket, limit: configured_limit, window: window}) do
+    limit = if is_function(configured_limit, 0), do: configured_limit.(), else: configured_limit
+
     # Counted once and then read, rather than counted per key and counted
     # again to build the headers: a passing request that incremented its
     # counter twice would spend the caller's budget at half the advertised rate.
@@ -89,11 +94,18 @@ defmodule PesqueWeb.Plugs.RateLimit do
   end
 
   defp keys(conn, bucket) do
-    address = {:address, bucket, address(conn)}
+    address = {:address, bucket, client_address(conn)}
 
-    case Map.get(conn.assigns, :did) do
-      nil -> [address | account_keys(conn, bucket)]
-      did -> [{:account, bucket, digest(did)}, address]
+    if bucket in @address_only_buckets do
+      [address]
+    else
+      case Map.get(conn.assigns, :did) do
+        nil ->
+          [address | account_keys(conn, bucket)]
+
+        did ->
+          [{:account, bucket, digest(did)}, address]
+      end
     end
   end
 
@@ -124,7 +136,8 @@ defmodule PesqueWeb.Plugs.RateLimit do
   # carry ten kilobytes. Sliced rather than hashed because an address is short
   # enough that no two real ones can share a prefix this long, so slicing cannot
   # merge two callers into one budget, and it is the cheaper of the two.
-  defp address(conn) do
+  @doc false
+  def client_address(conn) do
     case get_req_header(conn, "x-forwarded-for") do
       [forwarded | _] ->
         forwarded

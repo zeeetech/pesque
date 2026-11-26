@@ -273,6 +273,8 @@ firehose promptly.
 | Firehose frame | 5,000,000 bytes | `Pesque.Commit` |
 | Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
 | Firehose replay payload | 50 MiB per connect (`firehose_replay_limit`) | `PesqueWeb.Firehose` |
+| Firehose connection attempts | 5 per IP per minute (`firehose_connection_rate_limit`) | `subscribeRepos` |
+| Concurrent firehose connections | 4 per IP (`firehose_ip_connection_limit`), 64 global (`firehose_global_connection_limit`) | `subscribeRepos` |
 | Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
 
 Each write updates the MST incrementally against the stored root; a tree
@@ -282,9 +284,14 @@ streams the CAR in batches.
 ## Rate limits and the proxy
 
 Buckets: sessions (100/hour), reads (3000/5 min), writes (600/5 min), OAuth
-(100/hour). Two keys per request: the account and the address. The tighter
-of the two answers, and `ratelimit-*` and `retry-after` are set on both
-paths.
+(100/hour), and firehose connection attempts (5/minute). The ordinary request
+buckets count the account and address; the tighter of the two answers.
+Firehose attempts are address-only, as a connection does not name an account.
+`ratelimit-*` and `retry-after` describe firehose attempt-rate refusals.
+
+Firehose also has concurrent connection caps: 4 per address and 64 across the
+server. A saturated per-address cap returns 429; a full server-wide cap returns
+503. These are live connections, not replay limits.
 
 The address comes from `x-forwarded-for`, necessary behind a proxy and fatal
 without one: **a directly reachable server has a per-address limit worth

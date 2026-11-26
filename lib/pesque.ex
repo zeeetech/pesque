@@ -90,6 +90,18 @@ defmodule Pesque do
   def firehose_replay_max_bytes,
     do: Application.get_env(:pesque, :firehose_replay_max_bytes, 50 * 1024 * 1024)
 
+  @doc "Maximum new firehose connections from one IP per minute."
+  def firehose_connection_rate_limit,
+    do: Application.get_env(:pesque, :firehose_connection_rate_limit, 5)
+
+  @doc "Maximum concurrent firehose connections from one IP."
+  def firehose_ip_connection_limit,
+    do: Application.get_env(:pesque, :firehose_ip_connection_limit, 4)
+
+  @doc "Maximum concurrent firehose connections across the server."
+  def firehose_global_connection_limit,
+    do: Application.get_env(:pesque, :firehose_global_connection_limit, 64)
+
   @doc """
   The operator's privacy policy URL, or "" when none is configured.
 

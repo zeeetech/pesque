@@ -26,6 +26,7 @@ defmodule Pesque.Application do
       [
         Pesque.Repo,
         Pesque.RateLimit,
+        Pesque.FirehoseConnections,
         Pesque.OAuth.PermissionSets.Cache,
         {Registry, keys: :duplicate, name: Pesque.EventRegistry},
         Pesque.Events,

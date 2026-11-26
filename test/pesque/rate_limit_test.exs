@@ -10,6 +10,11 @@ defmodule Pesque.RateLimitTest do
   @limits Plug.init(bucket: :test, limit: 2, window: 60_000)
   @session_limits Plug.init(bucket: :session, limit: 2, window: 60_000)
   @read_limits Plug.init(bucket: :read, limit: 2, window: 60_000)
+  @firehose_limits Plug.init(
+                     bucket: :firehose,
+                     limit: &Pesque.firehose_connection_rate_limit/0,
+                     window: 60_000
+                   )
 
   # The counter table is named, not owned, so a test can measure what a request
   # put into it.
@@ -148,6 +153,68 @@ defmodule Pesque.RateLimitTest do
     assert read_call("203.0.113.36", params).halted
   end
 
+  test "five firehose attempts pass and the sixth is a 429 with rate limit headers" do
+    address = "firehose-" <> Base.encode16(:crypto.strong_rand_bytes(8))
+
+    for attempt <- 1..5 do
+      conn =
+        request(address)
+        |> assign(:did, "did:web:#{attempt}")
+        |> Plug.call(@firehose_limits)
+
+      refute conn.halted
+    end
+
+    conn =
+      request(address)
+      |> assign(:did, "did:web:sixth")
+      |> Plug.call(@firehose_limits)
+
+    assert conn.halted
+    assert conn.status == 429
+    assert get_resp_header(conn, "ratelimit-limit") == ["5"]
+    assert get_resp_header(conn, "ratelimit-remaining") == ["0"]
+    assert get_resp_header(conn, "ratelimit-reset") != []
+    assert get_resp_header(conn, "retry-after") != []
+    assert JSON.decode!(conn.resp_body)["error"] == "RateLimitExceeded"
+    refute Plug.call(request(address), @read_limits).halted
+
+    keys = for {{key, _window}, _count, _window_ms} <- :ets.tab2list(@table), do: key
+    assert {:address, :firehose, address} in keys
+    refute Enum.any?(keys, &match?({:account, :firehose, _digest}, &1))
+  end
+
+  test "a configured rate limit function is resolved for each request" do
+    key = make_ref()
+    Process.put(key, 1)
+    limits = Plug.init(bucket: :runtime_limit, limit: fn -> Process.get(key) end, window: 60_000)
+    address = "runtime-" <> Base.encode16(:crypto.strong_rand_bytes(8))
+
+    refute Plug.call(request(address), limits).halted
+
+    Process.put(key, 2)
+    refute Plug.call(request(address), limits).halted
+    assert Plug.call(request(address), limits).status == 429
+  end
+
+  test "subscribeRepos has its own pipeline and read routes keep theirs" do
+    assert %{pipe_through: [:firehose_limits]} =
+             Phoenix.Router.route_info(
+               PesqueWeb.Router,
+               "GET",
+               "/xrpc/com.atproto.sync.subscribeRepos",
+               "localhost"
+             )
+
+    assert %{pipe_through: [:read_limits]} =
+             Phoenix.Router.route_info(
+               PesqueWeb.Router,
+               "GET",
+               "/xrpc/com.atproto.sync.getLatestCommit",
+               "localhost"
+             )
+  end
+
   # Each param is its own budget, so naming the account a different way does not
   # buy another window's worth of requests on the first.
   test "an identifier and a handle are separate budgets" do
@@ -233,7 +300,7 @@ defmodule Pesque.RateLimitTest do
     |> put_req_header("x-forwarded-for", address)
   end
 
-  defp request(address, opts) do
+  defp request(address, opts \\ []) do
     conn(:get, "/")
     |> put_req_header("x-forwarded-for", address)
     |> then(fn conn ->

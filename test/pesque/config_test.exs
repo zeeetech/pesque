@@ -66,6 +66,9 @@ defmodule Pesque.ConfigTest do
       assert settings.crawler == []
       assert settings.admin_dids == []
       assert settings.firehose_replay_limit == 52_428_800
+      assert settings.firehose_connection_rate_limit == 5
+      assert settings.firehose_ip_connection_limit == 4
+      assert settings.firehose_global_connection_limit == 64
     end
 
     test "configures the firehose replay byte budget" do
@@ -75,6 +78,75 @@ defmodule Pesque.ConfigTest do
         )
 
       assert Config.source_config!(path)[:firehose_replay_max_bytes] == 1234
+    end
+
+    test "configures firehose connection limits" do
+      path =
+        file("""
+        url_scheme = https
+        hostname = pds.example.com
+        port = 4000
+        data_dir = /data
+        firehose_connection_rate_limit = 9
+        firehose_ip_connection_limit = 3
+        firehose_global_connection_limit = 20
+        """)
+
+      settings = Config.source_config!(path)
+
+      assert Keyword.take(settings, [
+               :firehose_connection_rate_limit,
+               :firehose_ip_connection_limit,
+               :firehose_global_connection_limit
+             ]) == [
+               firehose_connection_rate_limit: 9,
+               firehose_ip_connection_limit: 3,
+               firehose_global_connection_limit: 20
+             ]
+    end
+
+    test "firehose connection accessors read runtime application settings" do
+      keys = [
+        firehose_connection_rate_limit: 8,
+        firehose_ip_connection_limit: 2,
+        firehose_global_connection_limit: 10
+      ]
+
+      previous =
+        Enum.map(keys, fn {key, _value} -> {key, Application.fetch_env(:pesque, key)} end)
+
+      on_exit(fn ->
+        Enum.each(previous, fn
+          {key, {:ok, value}} -> Application.put_env(:pesque, key, value)
+          {key, :error} -> Application.delete_env(:pesque, key)
+        end)
+      end)
+
+      Enum.each(keys, fn {key, value} -> Application.put_env(:pesque, key, value) end)
+
+      assert Pesque.firehose_connection_rate_limit() == 8
+      assert Pesque.firehose_ip_connection_limit() == 2
+      assert Pesque.firehose_global_connection_limit() == 10
+    end
+
+    test "refuses non-positive firehose connection limits" do
+      for key <-
+            ~w(firehose_connection_rate_limit firehose_ip_connection_limit firehose_global_connection_limit) do
+        field = String.to_existing_atom(key)
+
+        path =
+          file("""
+          url_scheme = https
+          hostname = pds.example.com
+          port = 4000
+          data_dir = /data
+          #{key} = 0
+          """)
+
+        assert {:error, errors} = Config.effective(path)
+        assert Map.has_key?(errors, field)
+        assert Map.fetch!(errors, field) =~ "greater than 0"
+      end
     end
 
     test "stores hostname and handle domain as strings while accepting URL forms" do
