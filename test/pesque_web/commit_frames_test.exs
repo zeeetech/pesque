@@ -11,13 +11,17 @@ defmodule PesqueWeb.CommitFramesTest do
 
   use PesqueWeb.ConnCase, async: false
 
+  import Bitwise
+
   alias Pesque.CBOR
   alias Pesque.Car
   alias Pesque.CID
   alias Pesque.Keys
+  alias Pesque.Mst
   alias Pesque.RepoServer
   alias Pesque.RepoStore
   alias Pesque.Secp256k1
+  alias Pesque.Tid
 
   setup do
     alice = insert_repo_account("alice")
@@ -48,15 +52,167 @@ defmodule PesqueWeb.CommitFramesTest do
   test "prev survives a repo restart", ctx do
     {:ok, _} = write(ctx, "1", "first")
     before = head(ctx.alice.did)
+    entries = RepoServer.entries(ctx.pid)
 
     stopped = await_stopped(ctx.pid, ctx.alice.did)
     {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
-    RepoServer.entries(pid)
 
     refute pid == stopped
+    refute Map.has_key?(:sys.get_state(pid), :entries)
+    assert RepoServer.entries(pid) == entries
     assert {:ok, _} = RepoServer.create_record(pid, collection(), "2", post_record("second"))
 
     assert CID.to_string(commit(ctx.alice.did)["prev"]) == before
+  end
+
+  test "generated rkeys are checked against database rows after restart", ctx do
+    assert {:ok, first} =
+             RepoServer.create_record(ctx.pid, collection(), nil, post_record("first"))
+
+    [first_change] = first["changes"]
+    first_key = String.replace_prefix(first_change["uri"], "at://#{ctx.alice.did}/", "")
+
+    _stopped = await_stopped(ctx.pid, ctx.alice.did)
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
+
+    assert {:ok, second} =
+             RepoServer.create_record(pid, collection(), nil, post_record("second"))
+
+    [second_change] = second["changes"]
+    second_key = String.replace_prefix(second_change["uri"], "at://#{ctx.alice.did}/", "")
+
+    refute first_key == second_key
+    assert Map.has_key?(RepoServer.entries(pid), first_key)
+    assert Map.has_key?(RepoServer.entries(pid), second_key)
+  end
+
+  test "a generated rkey collision is found in the database", ctx do
+    future_tid_int = (System.system_time(:microsecond) + 3_600_000_000) <<< 10
+    RepoStore.put_meta!("tid_int:" <> ctx.alice.did, Integer.to_string(future_tid_int))
+
+    _stopped = await_stopped(ctx.pid, ctx.alice.did)
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
+
+    state = :sys.get_state(pid)
+    {rkey, _next_tid_int} = Tid.next(state.tid_int, state.clock_id)
+    cid = CID.from_data("preexisting generated-key collision")
+    RepoStore.put_record!(ctx.alice.did, collection(), rkey, CID.to_string(cid), "collision")
+    cursor = RepoStore.max_seq()
+    head = head(ctx.alice.did)
+
+    assert {:error, :record_exists} =
+             RepoServer.create_record(pid, collection(), nil, post_record("collision"))
+
+    assert RepoStore.events_after(cursor) == []
+    assert head(ctx.alice.did) == head
+    assert Process.alive?(pid)
+  end
+
+  test "batch overlay tracks delete recreation and each update prev CID", ctx do
+    key = collection() <> "/overlay"
+    assert {:ok, _} = write(ctx, "overlay", "initial")
+    initial_cid = Map.fetch!(RepoServer.entries(ctx.pid), key)
+
+    _stopped = await_stopped(ctx.pid, ctx.alice.did)
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(ctx.alice.did)
+    cursor = RepoStore.max_seq()
+
+    writes = [
+      update("overlay", "first update"),
+      update("overlay", "second update"),
+      delete("overlay"),
+      create_write("overlay", "recreated")
+    ]
+
+    assert {:ok, _} = RepoServer.apply_writes(pid, writes)
+    [payload] = RepoStore.events_after(cursor)
+    [{_header, frame}] = decode([payload])
+
+    [first_update, second_update, deletion, recreation] = frame["ops"]
+
+    assert %{
+             "action" => "update",
+             "prev" => ^initial_cid,
+             "path" => ^key,
+             "cid" => first_cid
+           } = first_update
+
+    assert %{
+             "action" => "update",
+             "prev" => ^first_cid,
+             "path" => ^key,
+             "cid" => second_cid
+           } = second_update
+
+    assert %{"action" => "delete", "prev" => ^second_cid, "path" => ^key, "cid" => nil} =
+             deletion
+
+    assert %{"action" => "create", "path" => ^key, "cid" => final_cid} = recreation
+
+    entries = RepoServer.entries(pid)
+    assert Map.fetch!(entries, key) == final_cid
+    {root, _blocks} = Mst.build(entries)
+    assert RepoStore.get_meta("root:" <> ctx.alice.did) == CID.to_string(root)
+  end
+
+  test "a failed batch leaves the original key and CID visible to the next write", ctx do
+    key = collection() <> "/atomic"
+    assert {:ok, _} = write(ctx, "atomic", "original")
+    original_cid = Map.fetch!(RepoServer.entries(ctx.pid), key)
+    original_head = head(ctx.alice.did)
+    cursor = RepoStore.max_seq()
+
+    assert {:error, {:write_failed, 2, :record_not_found}} =
+             RepoServer.apply_writes(ctx.pid, [
+               delete("atomic"),
+               update("atomic", "cannot update a tombstone")
+             ])
+
+    assert RepoServer.entries(ctx.pid) == %{key => original_cid}
+    assert head(ctx.alice.did) == original_head
+    assert RepoStore.events_after(cursor) == []
+
+    cursor = RepoStore.max_seq()
+    assert {:ok, _} = RepoServer.apply_writes(ctx.pid, [update("atomic", "after failure")])
+    [{_header, frame}] = decode(RepoStore.events_after(cursor))
+    assert [%{"action" => "update", "path" => ^key, "prev" => ^original_cid}] = frame["ops"]
+
+    entries = RepoServer.entries(ctx.pid)
+    {root, _blocks} = Mst.build(entries)
+    assert RepoStore.get_meta("root:" <> ctx.alice.did) == CID.to_string(root)
+  end
+
+  test "batch overlay chains create update delete and recreate", ctx do
+    key = collection() <> "/new-chain"
+    cursor = RepoStore.max_seq()
+
+    assert {:ok, _} =
+             RepoServer.apply_writes(ctx.pid, [
+               create_write("new-chain", "created"),
+               update("new-chain", "updated"),
+               delete("new-chain"),
+               create_write("new-chain", "recreated")
+             ])
+
+    [{_header, frame}] = decode(RepoStore.events_after(cursor))
+    [creation, update_op, deletion, recreation] = frame["ops"]
+
+    assert %{"action" => "create", "path" => ^key, "cid" => first_cid} = creation
+    refute Map.has_key?(creation, "prev")
+
+    assert %{"action" => "update", "path" => ^key, "prev" => ^first_cid, "cid" => second_cid} =
+             update_op
+
+    assert %{"action" => "delete", "path" => ^key, "prev" => ^second_cid, "cid" => nil} =
+             deletion
+
+    assert %{"action" => "create", "path" => ^key, "cid" => final_cid} = recreation
+    refute Map.has_key?(recreation, "prev")
+
+    entries = RepoServer.entries(ctx.pid)
+    assert Map.fetch!(entries, key) == final_cid
+    {root, _blocks} = Mst.build(entries)
+    assert RepoStore.get_meta("root:" <> ctx.alice.did) == CID.to_string(root)
   end
 
   # The genesis commit has nothing behind it. The field is present and null
@@ -238,6 +394,32 @@ defmodule PesqueWeb.CommitFramesTest do
         "value" => post_record("bulk #{i}")
       }
     end
+  end
+
+  defp create_write(rkey, text) do
+    %{
+      "$type" => "com.atproto.repo.applyWrites#create",
+      "collection" => collection(),
+      "rkey" => rkey,
+      "value" => post_record(text)
+    }
+  end
+
+  defp update(rkey, text) do
+    %{
+      "$type" => "com.atproto.repo.applyWrites#update",
+      "collection" => collection(),
+      "rkey" => rkey,
+      "value" => post_record(text)
+    }
+  end
+
+  defp delete(rkey) do
+    %{
+      "$type" => "com.atproto.repo.applyWrites#delete",
+      "collection" => collection(),
+      "rkey" => rkey
+    }
   end
 
   defp write(ctx, rkey, text),

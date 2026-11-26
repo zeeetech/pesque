@@ -26,6 +26,8 @@ defmodule Pesque.RepoGenesisTest do
   import Ecto.Query
   import ExUnit.CaptureLog
 
+  alias Pesque.CID
+  alias Pesque.Mst
   alias Pesque.Repo
   alias Pesque.RepoServer
   alias Pesque.RepoStore
@@ -100,7 +102,45 @@ defmodule Pesque.RepoGenesisTest do
     refute log =~ "genesis"
   end
 
-  test "a rolled back batch keeps prepared entries and tids out of process state" do
+  test "genesis builds its tree from records already in the database" do
+    did = did("genesis-existing-record")
+    key = "app.bsky.feed.post/preexisting"
+    data = "existing record bytes"
+    cid = CID.from_data(data)
+    RepoStore.put_record!(did, "app.bsky.feed.post", "preexisting", CID.to_string(cid), data)
+
+    {:ok, pid} = RepoSupervisor.ensure_started(did)
+
+    assert eventually(fn -> rev(pid) != nil end)
+    assert RepoServer.entries(pid) == %{key => cid}
+
+    {root, _blocks} = Mst.build(%{key => cid})
+    assert RepoStore.get_meta("root:" <> did) == CID.to_string(root)
+  end
+
+  test "single create returns a corrupt explicit-key CID error without stopping" do
+    did = did("corrupt-explicit-key")
+    {:ok, pid} = RepoSupervisor.ensure_started(did)
+    assert eventually(fn -> rev(pid) != nil end)
+
+    key = "app.bsky.feed.post/broken"
+    RepoStore.put_record!(did, "app.bsky.feed.post", "broken", "not-a-cid", <<>>)
+    cursor = RepoStore.max_seq()
+    head = RepoStore.get_meta("commit:" <> did)
+
+    assert {:error, {:corrupt_record, ^key}} =
+             RepoServer.create_record(pid, "app.bsky.feed.post", "broken", %{
+               "$type" => "app.bsky.feed.post",
+               "text" => "attempt",
+               "createdAt" => "2024-01-01T00:00:00.000Z"
+             })
+
+    assert Process.alive?(pid)
+    assert RepoStore.get_meta("commit:" <> did) == head
+    assert RepoStore.events_after(cursor) == []
+  end
+
+  test "a rolled back batch keeps overlays and tids out of process state" do
     did = did("batch-rollback")
     {:ok, pid} = RepoSupervisor.ensure_started(did)
     assert eventually(fn -> rev(pid) != nil end)
@@ -110,9 +150,8 @@ defmodule Pesque.RepoGenesisTest do
     assert {:error, :busy} = RepoServer.apply_writes(pid, [create(nil)])
 
     after_rollback = :sys.get_state(pid)
-    assert after_rollback.entries == before.entries
-    assert after_rollback.rev == before.rev
-    assert after_rollback.tid_int == before.tid_int
+    assert after_rollback == before
+    refute Map.has_key?(after_rollback, :entries)
 
     release(held)
 

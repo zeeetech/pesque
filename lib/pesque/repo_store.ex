@@ -22,12 +22,88 @@ defmodule Pesque.RepoStore do
 
   # records
 
+  @doc """
+  The CID for one record key, without reading its record bytes.
+
+  A missing key is `nil`. Stored CIDs are parsed at the storage boundary so
+  corruption is reported with the same key-specific error as a full repo read.
+  """
+  def record_cid(did, collection, rkey) do
+    case Repo.one(
+           from r in Record,
+             where: r.did == ^did and r.collection == ^collection and r.rkey == ^rkey,
+             select: r.cid
+         ) do
+      nil -> {:ok, nil}
+      cid -> parse_record_cid(did, collection, rkey, cid)
+    end
+  end
+
+  @doc """
+  The CIDs for an explicit set of at most 200 record keys.
+
+  The result is keyed by `collection/rkey`; absent keys are omitted. The
+  caller can add nil tombstones for requested keys to distinguish a known
+  absence from a key it has not looked up yet.
+  """
+  def record_cids(did, pairs) when is_list(pairs) and length(pairs) <= 200 do
+    pairs
+    |> Enum.uniq()
+    |> Enum.chunk_every(50)
+    |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
+      predicate =
+        Enum.reduce(chunk, dynamic([r], false), fn {collection, rkey}, expr ->
+          dynamic(
+            [r],
+            ^expr or (r.collection == ^collection and r.rkey == ^rkey)
+          )
+        end)
+
+      rows =
+        Repo.all(
+          from r in Record,
+            where: r.did == ^did,
+            where: ^predicate,
+            select: {r.collection, r.rkey, r.cid}
+        )
+
+      Enum.reduce_while(rows, {:ok, acc}, fn {collection, rkey, cid}, {:ok, acc} ->
+        case parse_record_cid(did, collection, rkey, cid) do
+          {:ok, parsed} ->
+            key = collection <> "/" <> rkey
+            {:cont, {:ok, Map.put(acc, key, parsed)}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:ok, next} -> {:cont, {:ok, next}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  def record_cids(_did, pairs) when is_list(pairs), do: {:error, :too_many_keys}
+
   def records_for(did) do
     Repo.all(
       from r in Record,
         where: r.did == ^did,
         select: %{collection: r.collection, rkey: r.rkey, cid: r.cid}
     )
+  end
+
+  defp parse_record_cid(did, collection, rkey, cid_string) do
+    case CID.safe_parse(cid_string) do
+      {:ok, cid} ->
+        {:ok, cid}
+
+      :error ->
+        key = collection <> "/" <> rkey
+        Logger.error("stored cid does not parse", did: did, key: key)
+        {:error, {:corrupt_record, key}}
+    end
   end
 
   def get_record(did, collection, rkey) do

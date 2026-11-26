@@ -43,11 +43,19 @@ defmodule Pesque.CommitTest do
 
   test "a write against a stored tree updates it incrementally" do
     state = state(%{"com.example.record/a" => value(1)})
+    change = change("com.example.record/b", 2)
+    caller = self()
 
-    assert {:ok, prepared} = Commit.commit(state, [change("com.example.record/b", 2)])
+    entries_source = fn ->
+      send(caller, :entries_source_called)
+      {:ok, state.entries}
+    end
+
+    assert {:ok, prepared} = Commit.commit(state, [change], entries_source)
 
     assert prepared.mst == :incremental
-    assert {root, _} = Mst.build(prepared.entries)
+    refute_received :entries_source_called
+    assert {root, _} = Mst.build(Map.put(state.entries, change.key, change.cid))
     assert root == prepared.root_cid
   end
 
@@ -55,12 +63,29 @@ defmodule Pesque.CommitTest do
     state = state(%{"com.example.record/a" => value(1)})
 
     broken = %{state | fetch: fn _cid -> {:error, {:missing_block, "gone"}} end}
+    change = change("com.example.record/b", 2)
+    caller = self()
 
-    assert {:ok, prepared} = Commit.commit(broken, [change("com.example.record/b", 2)])
+    entries_source = fn ->
+      send(caller, :entries_source_called)
+      {:ok, state.entries}
+    end
+
+    assert {:ok, prepared} = Commit.commit(broken, [change], entries_source)
 
     assert {:rebuild, {:missing_block, _}} = prepared.mst
-    assert {root, _} = Mst.build(prepared.entries)
+    assert_received :entries_source_called
+    assert {root, _} = Mst.build(Map.put(state.entries, change.key, change.cid))
     assert root == prepared.root_cid
+  end
+
+  test "a rebuild returns entries source errors" do
+    state = state(%{"com.example.record/a" => value(1)})
+    broken = %{state | fetch: fn _cid -> {:error, {:missing_block, "gone"}} end}
+    source = fn -> {:error, :entries_unavailable} end
+
+    assert {:error, :entries_unavailable} =
+             Commit.commit(broken, [change("com.example.record/b", 2)], source)
   end
 
   test "the genesis commit builds the tree" do
@@ -69,8 +94,23 @@ defmodule Pesque.CommitTest do
     assert {:ok, prepared} = Commit.commit(state, [change("com.example.record/a", 1)])
 
     assert prepared.mst == :genesis
-    assert {root, _} = Mst.build(prepared.entries)
+    assert {root, _} = Mst.build(%{"com.example.record/a" => value(1)})
     assert root == prepared.root_cid
+  end
+
+  test "put against an overlay tombstone encodes a create" do
+    key = "app.bsky.feed.post/tombstone"
+
+    record = %{
+      "$type" => "app.bsky.feed.post",
+      "key" => "tombstone",
+      "text" => "recreated",
+      "createdAt" => "2024-01-01T00:00:00.000Z"
+    }
+
+    assert {:ok, change} = Commit.encode_write(%{key => nil}, :put, key, record)
+    assert change.action == "create"
+    assert change.prev_cid == nil
   end
 
   test "a record may reach but not exceed the CBOR size limit" do

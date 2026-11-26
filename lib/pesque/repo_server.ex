@@ -1,8 +1,8 @@
 defmodule Pesque.RepoServer do
   @moduledoc """
-  One process per repository. Owns the in-memory entry map, the rev
-  counter, the account's signing key, and every commit. Writes are serialized
-  through the process, which is exactly the consistency model a PDS needs.
+  One process per repository. Owns the rev counter, the account's signing key,
+  and every commit. Writes are serialized through the process, which is exactly
+  the consistency model a PDS needs.
 
   The signing key is the account's, not the server's, so the process that
   owns a repo is the process that signs its commits.
@@ -38,7 +38,6 @@ defmodule Pesque.RepoServer do
     :commit_cid,
     :root_cid,
     :fetch,
-    entries: %{},
     tid_int: 0,
     rev: nil
   ]
@@ -72,10 +71,10 @@ defmodule Pesque.RepoServer do
   @doc """
   Stops the process for `did`, if one is running. Answers whether one was.
 
-  Deleting an account calls this before its rows go: a RepoServer caches the
-  entry map, rev and tid counter those rows hold, so a write landing after the
-  deletes would put the repo back and leave the account deleted but still
-  writable from a process nothing holds a token for.
+    Deleting an account calls this before its rows go: a RepoServer caches the
+    rev and tid counter those rows hold, so a write landing after the deletes
+    would put the repo back and leave the account deleted but still writable
+    from a process nothing holds a token for.
   """
   def stop(did) do
     case Registry.lookup(Pesque.RepoRegistry, did) do
@@ -90,29 +89,26 @@ defmodule Pesque.RepoServer do
 
   @impl true
   def init(did) do
-    with {:ok, entries} <- load_entries(did) do
-      case Keys.ensure(did) do
-        {:ok, key} ->
-          {:ok,
-           %__MODULE__{
-             did: did,
-             clock_id: :rand.uniform(1024) - 1,
-             priv: key.priv,
-             entries: entries,
-             # The head comes from meta, not from a process that may have died:
-             # a commit written before a restart still has to chain from it, and
-             # the commit object it writes names it in prev.
-             commit_cid: cid_meta("commit:" <> did),
-             root_cid: cid_meta("root:" <> did),
-             fetch: RepoStore.block_fetcher(did),
-             tid_int: int_meta("tid_int:" <> did, 0),
-             rev: RepoStore.get_meta("rev:" <> did)
-           }, {:continue, :genesis_if_needed}}
+    case Keys.ensure(did) do
+      {:ok, key} ->
+        {:ok,
+         %__MODULE__{
+           did: did,
+           clock_id: :rand.uniform(1024) - 1,
+           priv: key.priv,
+           # The head comes from meta, not from a process that may have died:
+           # a commit written before a restart still has to chain from it, and
+           # the commit object it writes names it in prev.
+           commit_cid: cid_meta("commit:" <> did),
+           root_cid: cid_meta("root:" <> did),
+           fetch: RepoStore.block_fetcher(did),
+           tid_int: int_meta("tid_int:" <> did, 0),
+           rev: RepoStore.get_meta("rev:" <> did)
+         }, {:continue, :genesis_if_needed}}
 
-        {:error, reason} ->
-          Logger.error("repo for #{did} cannot sign: #{inspect(reason)}")
-          {:stop, {:key_unavailable, reason}}
-      end
+      {:error, reason} ->
+        Logger.error("repo for #{did} cannot sign: #{inspect(reason)}")
+        {:stop, {:key_unavailable, reason}}
     end
   end
 
@@ -183,7 +179,15 @@ defmodule Pesque.RepoServer do
   end
 
   @impl true
-  def handle_call(:entries, _from, state), do: {:reply, state.entries, state}
+  def handle_call(:entries, _from, state) do
+    reply =
+      case load_entries(state.did) do
+        {:ok, entries} -> entries
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, reply, state}
+  end
 
   # The single write is the batch of one: same validation, same encoding, same
   # commit, so createRecord and a batch create cannot drift apart. The op type
@@ -202,16 +206,17 @@ defmodule Pesque.RepoServer do
 
   def handle_call({:delete, collection, rkey}, _from, state) do
     with :ok <- validate_collection(collection),
-         :ok <- validate_rkey_present(rkey) do
-      key = collection <> "/" <> rkey
+         :ok <- validate_rkey_present(rkey),
+         {:ok, prev_cid} <- RepoStore.record_cid(state.did, collection, rkey) do
+      if prev_cid do
+        key = collection <> "/" <> rkey
 
-      if Map.has_key?(state.entries, key) do
         change = %{
           action: "delete",
           key: key,
           cid: nil,
           data: nil,
-          prev_cid: Map.fetch!(state.entries, key)
+          prev_cid: prev_cid
         }
 
         reply_commit(state, state, [change])
@@ -224,10 +229,9 @@ defmodule Pesque.RepoServer do
   end
 
   # A batch is one commit or none. The writes are prepared against a running
-  # view of the entry map rather than the live one, so a create and a later
-  # write to the same key inside one batch see each other the way the lexicon
-  # says they should, and the state is only replaced once every write has been
-  # checked.
+  # key/CID overlay rather than the live rows, so a create and a later write to
+  # the same key inside one batch see each other the way the lexicon says they
+  # should, and the state is only replaced once every write has been checked.
   #
   # swapCommit is checked here, inside the same serialization the commit goes
   # through, because comparing it outside the process would compare against a
@@ -253,11 +257,11 @@ defmodule Pesque.RepoServer do
   end
 
   defp prepare_single(:put, collection, rkey, record, opts, state) do
-    with {:ok, rkey, state} <- ensure_rkey(rkey, state) do
-      key = collection <> "/" <> rkey
-
+    with :ok <- validate_collection(collection),
+         {:ok, rkey, state} <- ensure_rkey(rkey, state),
+         {:ok, prev_cid} <- RepoStore.record_cid(state.did, collection, rkey) do
       type =
-        if Map.has_key?(state.entries, key),
+        if prev_cid,
           do: "com.atproto.repo.applyWrites#update",
           else: "com.atproto.repo.applyWrites#create"
 
@@ -270,6 +274,7 @@ defmodule Pesque.RepoServer do
   # wraps it as write 1, and the caller of the single path never saw an index.
   defp unwrap_single({:ok, next_state, changes}), do: {:ok, next_state, changes}
   defp unwrap_single({:error, {:write_failed, 1, reason}}), do: {:error, reason}
+  defp unwrap_single({:error, reason}), do: {:error, reason}
 
   # swapCommit is compared against the stored head rather than the one this
   # process cached, so a head another writer moved while this repo was down is
@@ -291,22 +296,55 @@ defmodule Pesque.RepoServer do
     else
       opts = [validate: Keyword.get(opts, :validate, true)]
 
-      writes
-      |> Enum.with_index(1)
-      |> Enum.reduce_while({:ok, [], state}, fn {write, index}, {:ok, acc, state} ->
-        case prepare_write(write, state, opts) do
-          {:ok, change, state} -> {:cont, {:ok, [change | acc], state}}
-          {:error, reason} -> {:halt, {:error, {:write_failed, index, reason}}}
+      with {:ok, overlay} <- preload_overlay(writes, state.did) do
+        writes
+        |> Enum.with_index(1)
+        |> Enum.reduce_while({:ok, [], state, overlay}, fn
+          {write, index}, {:ok, acc, state, overlay} ->
+            case prepare_write(write, state, overlay, opts) do
+              {:ok, change, state, overlay} ->
+                {:cont, {:ok, [change | acc], state, overlay}}
+
+              {:error, reason} ->
+                {:halt, {:error, {:write_failed, index, reason}}}
+            end
+        end)
+        |> case do
+          {:ok, acc, state, _overlay} -> {:ok, state, Enum.reverse(acc)}
+          {:error, reason} -> {:error, reason}
         end
-      end)
-      |> case do
-        {:ok, acc, state} -> {:ok, state, Enum.reverse(acc)}
-        {:error, reason} -> {:error, reason}
       end
     end
   end
 
   defp prepare(_writes, _state, _opts), do: {:error, :invalid_writes}
+
+  defp preload_overlay(writes, did) do
+    pairs = explicit_record_keys(writes)
+
+    with {:ok, overlay} <- RepoStore.record_cids(did, pairs) do
+      overlay =
+        Enum.reduce(pairs, overlay, fn {collection, rkey}, acc ->
+          Map.put_new(acc, collection <> "/" <> rkey, nil)
+        end)
+
+      {:ok, overlay}
+    end
+  end
+
+  defp explicit_record_keys(writes) do
+    writes
+    |> Enum.reduce([], fn
+      %{"collection" => collection, "rkey" => rkey}, acc
+      when is_binary(collection) and is_binary(rkey) ->
+        [{collection, rkey} | acc]
+
+      _write, acc ->
+        acc
+    end)
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
 
   # rkey generation draws on the same TID counter createRecord does, so a
   # create without one here cannot collide with a key or rev this process has
@@ -314,6 +352,7 @@ defmodule Pesque.RepoServer do
   defp prepare_write(
          %{"$type" => "com.atproto.repo.applyWrites#create"} = write,
          state,
+         overlay,
          opts
        ) do
     with :ok <- validate_collection(write["collection"]),
@@ -321,10 +360,12 @@ defmodule Pesque.RepoServer do
          {:ok, rkey, state} <- ensure_rkey(write["rkey"], state) do
       key = write["collection"] <> "/" <> rkey
 
-      if Map.has_key?(state.entries, key) do
-        {:error, :record_exists}
-      else
-        encode(:create, key, record, state)
+      with {:ok, overlay} <- ensure_overlay_key(key, overlay, state.did) do
+        if overlay[key] do
+          {:error, :record_exists}
+        else
+          encode(:create, key, record, state, overlay)
+        end
       end
     end
   end
@@ -332,6 +373,7 @@ defmodule Pesque.RepoServer do
   defp prepare_write(
          %{"$type" => "com.atproto.repo.applyWrites#update"} = write,
          state,
+         overlay,
          opts
        ) do
     with :ok <- validate_collection(write["collection"]),
@@ -339,10 +381,12 @@ defmodule Pesque.RepoServer do
          {:ok, record} <- Record.check(write["collection"], write["value"], opts) do
       key = write["collection"] <> "/" <> write["rkey"]
 
-      if Map.has_key?(state.entries, key) do
-        encode(:put, key, record, state)
-      else
-        {:error, :record_not_found}
+      with {:ok, overlay} <- ensure_overlay_key(key, overlay, state.did) do
+        if overlay[key] do
+          encode(:put, key, record, state, overlay)
+        else
+          {:error, :record_not_found}
+        end
       end
     end
   end
@@ -350,40 +394,59 @@ defmodule Pesque.RepoServer do
   defp prepare_write(
          %{"$type" => "com.atproto.repo.applyWrites#delete"} = write,
          state,
+         overlay,
          _opts
        ) do
     with :ok <- validate_collection(write["collection"]),
          :ok <- validate_rkey_present(write["rkey"]) do
       key = write["collection"] <> "/" <> write["rkey"]
 
-      if Map.has_key?(state.entries, key) do
-        change = %{
-          action: "delete",
-          key: key,
-          cid: nil,
-          data: nil,
-          prev_cid: Map.fetch!(state.entries, key)
-        }
+      with {:ok, overlay} <- ensure_overlay_key(key, overlay, state.did) do
+        case Map.fetch!(overlay, key) do
+          nil ->
+            {:error, :record_not_found}
 
-        {:ok, change, %{state | entries: Map.delete(state.entries, key)}}
-      else
-        {:error, :record_not_found}
+          prev_cid ->
+            change = %{
+              action: "delete",
+              key: key,
+              cid: nil,
+              data: nil,
+              prev_cid: prev_cid
+            }
+
+            {:ok, change, state, Map.put(overlay, key, nil)}
+        end
       end
     end
   end
 
-  defp prepare_write(%{"$type" => type}, _state, _opts),
+  defp prepare_write(%{"$type" => type}, _state, _overlay, _opts),
     do: {:error, {:unsupported_write, type}}
 
-  defp prepare_write(_write, _state, _opts), do: {:error, :invalid_write}
+  defp prepare_write(_write, _state, _overlay, _opts), do: {:error, :invalid_write}
 
-  defp encode(action, key, record, state) do
-    case Commit.encode_write(state.entries, action, key, record) do
+  defp encode(action, key, record, state, overlay) do
+    case Commit.encode_write(overlay, action, key, record) do
       {:ok, change} ->
-        {:ok, change, %{state | entries: Map.put(state.entries, key, change.cid)}}
+        {:ok, change, state, Map.put(overlay, key, change.cid)}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp ensure_overlay_key(key, overlay, did) do
+    case Map.fetch(overlay, key) do
+      {:ok, _cid_or_tombstone} ->
+        {:ok, overlay}
+
+      :error ->
+        [collection, rkey] = String.split(key, "/", parts: 2)
+
+        with {:ok, cid} <- RepoStore.record_cid(did, collection, rkey) do
+          {:ok, Map.put(overlay, key, cid)}
+        end
     end
   end
 
@@ -397,8 +460,16 @@ defmodule Pesque.RepoServer do
   end
 
   defp commit(state, changes) do
-    {:ok, prepared} = Commit.commit(state, changes)
+    case Commit.commit(state, changes, fn -> load_entries(state.did) end) do
+      {:ok, prepared} ->
+        commit_prepared(state, changes, prepared)
 
+      {:error, reason} ->
+        {state, {:error, reason}}
+    end
+  end
+
+  defp commit_prepared(state, changes, prepared) do
     # immediate, because the first statement in here reads the seq mark and a
     # deferred transaction that read before another connection committed cannot
     # upgrade its snapshot to a write: SQLite answers SQLITE_BUSY_SNAPSHOT at
@@ -456,8 +527,7 @@ defmodule Pesque.RepoServer do
 
     %{
       state
-      | entries: prepared.entries,
-        tid_int: prepared.tid_int,
+      | tid_int: prepared.tid_int,
         rev: prepared.rev,
         commit_cid: prepared.commit_cid,
         root_cid: prepared.root_cid

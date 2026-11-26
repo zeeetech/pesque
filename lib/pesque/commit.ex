@@ -7,13 +7,13 @@ defmodule Pesque.Commit do
   transaction, and the registry fan-out.
 
   The tree is updated incrementally against the root CID in state, reading only
-  the nodes a change rewrites. A tree that cannot be walked falls back to a
-  rebuild from the entry map, and `mst` in the result says which happened so the
-  caller can log the fallback.
+  the nodes a change rewrites. Genesis and a tree that cannot be walked use an
+  entries source to rebuild; the source is not evaluated on an incremental
+  update. `mst` in the result says which happened so the caller can log fallback.
 
   The seq number can only be known inside that transaction, so the protocol
-  runs in two steps: commit/2 prepares the new entries/rev/tid, CIDs, blocks,
-  and result map, and frame/3 validates and encodes the firehose event. The
+  runs in two steps: commit/2 prepares the rev/tid, CIDs, blocks, and result
+  map, and frame/3 validates and encodes the firehose event. The
   CAR is a self-contained diff: it includes every block a consumer needs even
   when storage already holds the CID, as happens when a record is recreated.
   """
@@ -71,90 +71,89 @@ defmodule Pesque.Commit do
   end
 
   @doc """
-  Runs the protocol over `changes` and returns the new entries/rev/tid
-  plus everything the transaction and the frame need: root and commit
-  CIDs, every block the commit creates, and the result map.
+  Runs the protocol over `changes` and returns the new root/rev/tid plus
+  everything the transaction and the frame need: root and commit CIDs, every
+  block the commit creates, and the result map.
 
   `commit_cid` is the head this commit follows, which becomes its `prev`. It
   is nil for the genesis commit, and the commit object carries `prev: null`
   then, since the schema requires the field to be present.
   """
+  def commit(state, changes, entries_source \\ nil)
+
   def commit(
         %{
           did: did,
           clock_id: clock_id,
           priv: priv,
-          entries: entries,
           rev: prev_rev,
           tid_int: tid_int,
           commit_cid: prev_commit,
           root_cid: prev_root
         } = state,
-        changes
+        changes,
+        entries_source
       ) do
-    entries2 =
-      Enum.reduce(changes, entries, fn
-        %{action: "delete", key: key}, acc -> Map.delete(acc, key)
-        %{key: key, cid: cid}, acc -> Map.put(acc, key, cid)
-      end)
+    with {:ok, {root_cid, node_blocks, mst}} <- apply_mst(state, changes, entries_source) do
+      {rev, tid_int} = Tid.next(tid_int, clock_id)
 
-    {root_cid, node_blocks, mst} = apply_mst(state, entries2, changes)
-    {rev, tid_int} = Tid.next(tid_int, clock_id)
+      unsigned = %{
+        "did" => did,
+        "version" => 3,
+        "data" => root_cid,
+        "rev" => rev,
+        "prev" => prev_commit
+      }
 
-    unsigned = %{
-      "did" => did,
-      "version" => 3,
-      "data" => root_cid,
-      "rev" => rev,
-      "prev" => prev_commit
-    }
+      sig = Secp256k1.sign(priv, CBOR.encode(unsigned))
+      commit_obj = Map.put(unsigned, "sig", %CBOR.Bytes{data: sig})
+      commit_bytes = CBOR.encode(commit_obj)
+      commit_cid = CID.from_data(commit_bytes)
 
-    sig = Secp256k1.sign(priv, CBOR.encode(unsigned))
-    commit_obj = Map.put(unsigned, "sig", %CBOR.Bytes{data: sig})
-    commit_bytes = CBOR.encode(commit_obj)
-    commit_cid = CID.from_data(commit_bytes)
+      all_blocks =
+        node_blocks
+        |> Map.merge(
+          Map.new(for %{cid: cid, data: data} <- changes, data != nil, do: {cid, data})
+        )
+        |> Map.put(commit_cid, commit_bytes)
 
-    all_blocks =
-      node_blocks
-      |> Map.merge(Map.new(for %{cid: cid, data: data} <- changes, data != nil, do: {cid, data}))
-      |> Map.put(commit_cid, commit_bytes)
+      result = %{
+        "commit" => %{"cid" => CID.to_string(commit_cid), "rev" => rev},
+        "changes" =>
+          Enum.map(changes, fn c ->
+            %{
+              "uri" => "at://" <> did <> "/" <> c.key,
+              "cid" => if(c.cid, do: CID.to_string(c.cid)),
+              "action" => c.action
+            }
+          end)
+      }
 
-    result = %{
-      "commit" => %{"cid" => CID.to_string(commit_cid), "rev" => rev},
-      "changes" =>
-        Enum.map(changes, fn c ->
-          %{
-            "uri" => "at://" <> did <> "/" <> c.key,
-            "cid" => if(c.cid, do: CID.to_string(c.cid)),
-            "action" => c.action
-          }
-        end)
-    }
-
-    {:ok,
-     %{
-       did: did,
-       prev_rev: prev_rev,
-       entries: entries2,
-       rev: rev,
-       tid_int: tid_int,
-       root_cid: root_cid,
-       prev_root: prev_root,
-       commit_cid: commit_cid,
-       all_blocks: all_blocks,
-       mst: mst,
-       result: result
-     }}
+      {:ok,
+       %{
+         did: did,
+         prev_rev: prev_rev,
+         rev: rev,
+         tid_int: tid_int,
+         root_cid: root_cid,
+         prev_root: prev_root,
+         commit_cid: commit_cid,
+         all_blocks: all_blocks,
+         mst: mst,
+         result: result
+       }}
+    end
   end
 
   # The tree as stored, not as rebuilt. Only the nodes a change rewrites are
   # read, so a write costs the depth of the tree. A tree that cannot be walked
-  # (a missing or corrupt node) is rebuilt from the entry map, and the caller
-  # logs that: a silent rebuild would hide a storage problem behind correct
-  # output, which is the one way this fallback can go wrong.
-  defp apply_mst(%{root_cid: nil}, entries, _changes), do: build(entries, :genesis)
+  # is rebuilt from the entries source, and the caller logs that: a silent
+  # rebuild would hide a storage problem behind correct output.
+  defp apply_mst(%{root_cid: nil} = state, changes, entries_source),
+    do: rebuild(state, changes, entries_source, :genesis)
 
-  defp apply_mst(%{root_cid: root, fetch: fetch}, entries, changes) when is_function(fetch, 1) do
+  defp apply_mst(%{root_cid: root, fetch: fetch} = state, changes, entries_source)
+       when is_function(fetch, 1) do
     ops =
       Enum.map(changes, fn
         %{action: "delete", key: key} -> {:delete, key}
@@ -163,17 +162,44 @@ defmodule Pesque.Commit do
 
     case Mst.update_tree(root, ops, fetch) do
       {:ok, {new_root, blocks}} ->
-        {new_root, blocks, :incremental}
+        {:ok, {new_root, blocks, :incremental}}
 
       {:error, reason} ->
-        build(entries, {:rebuild, reason})
+        rebuild(state, changes, entries_source, {:rebuild, reason})
     end
   end
 
-  defp build(entries, path) do
-    {root, blocks} = Mst.build(entries)
-    {root, blocks, path}
+  defp rebuild(state, changes, entries_source, path) do
+    with {:ok, entries} <- entries_from_source(state, entries_source) do
+      entries =
+        Enum.reduce(changes, entries, fn
+          %{action: "delete", key: key}, acc -> Map.delete(acc, key)
+          %{key: key, cid: cid}, acc -> Map.put(acc, key, cid)
+        end)
+
+      {root, blocks} = Mst.build(entries)
+      {:ok, {root, blocks, path}}
+    end
   end
+
+  defp entries_from_source(state, nil) do
+    case Map.fetch(state, :entries) do
+      {:ok, entries} when is_map(entries) -> {:ok, entries}
+      _ -> {:error, :entries_unavailable}
+    end
+  end
+
+  defp entries_from_source(_state, entries) when is_map(entries), do: {:ok, entries}
+
+  defp entries_from_source(_state, source) when is_function(source, 0) do
+    case source.() do
+      {:ok, entries} when is_map(entries) -> {:ok, entries}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :invalid_entries_source}
+    end
+  end
+
+  defp entries_from_source(_state, _source), do: {:error, :invalid_entries_source}
 
   @doc """
   Builds one validated `#commit` frame. The CAR carries the blocks produced by
@@ -246,5 +272,5 @@ defmodule Pesque.Commit do
   defp write_action(:create, _entries, _key), do: "create"
 
   defp write_action(:put, entries, key),
-    do: if(Map.has_key?(entries, key), do: "update", else: "create")
+    do: if(Map.get(entries, key), do: "update", else: "create")
 end

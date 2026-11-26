@@ -42,14 +42,13 @@ defmodule Pesque.RepoImport do
           did: did,
           clock_id: :rand.uniform(1024) - 1,
           priv: key.priv,
-          entries: imported.entries,
           rev: nil,
           tid_int: 0,
           commit_cid: imported.commit_cid,
           root_cid: nil
         }
 
-        {:ok, prepared} = Commit.commit(state, [])
+        {:ok, prepared} = Commit.commit(state, [], imported.entries)
         RepoServer.stop(did)
         write_import(did, imported, prepared)
 
