@@ -144,7 +144,8 @@ defmodule PesqueWeb.RecordValidationTest do
   end
 
   test "putRecord requires rkey before starting an uninitialized RepoServer" do
-    carol = create_account("carol")
+    # A direct row models an uninitialized account; local creation initializes genesis.
+    carol = insert_account("carol")
     token = token(carol)
 
     assert Registry.lookup(Pesque.RepoRegistry, carol.did) == []

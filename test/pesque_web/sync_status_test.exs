@@ -97,6 +97,44 @@ defmodule PesqueWeb.SyncStatusTest do
     assert by_did[ctx.bob.did]["rev"] == status(ctx.bob.did)["rev"]
   end
 
+  test "local account creation returns with a durable genesis listed by listRepos" do
+    cursor = RepoStore.max_seq()
+    username = unique("carol")
+
+    assert {:ok, user} =
+             Accounts.create_account(
+               username <> ".localhost",
+               username <> "@localhost",
+               "hunter2hunter2"
+             )
+
+    head = RepoStore.get_meta("commit:" <> user.did)
+    root = RepoStore.get_meta("root:" <> user.did)
+    rev = RepoStore.get_meta("rev:" <> user.did)
+
+    assert is_binary(head)
+    assert is_binary(root)
+    assert is_binary(rev)
+    assert RepoStore.get_block(user.did, head)
+    assert RepoStore.get_block(user.did, root)
+
+    entry = Enum.find(repos()["repos"], &(&1["did"] == user.did))
+    assert entry["head"] == head
+    assert entry["rev"] == rev
+
+    events = RepoStore.events_after(cursor)
+    assert length(events) == 2
+
+    assert {:ok, :stopped} = RepoServer.stop(user.did)
+    {:ok, pid} = Pesque.RepoSupervisor.ensure_started(user.did)
+    assert is_map(RepoServer.entries(pid))
+
+    assert RepoStore.get_meta("commit:" <> user.did) == head
+    assert RepoStore.get_meta("root:" <> user.did) == root
+    assert RepoStore.get_meta("rev:" <> user.did) == rev
+    assert RepoStore.events_after(cursor) == events
+  end
+
   test "listRepos omits a headless account" do
     carol = provision("carol")
 
@@ -147,19 +185,10 @@ defmodule PesqueWeb.SyncStatusTest do
     refute second["cursor"]
   end
 
-  # Accounts.create_account/3 persists an active account without starting its
-  # repo, which is the headless state these endpoints report.
+  # These direct rows model synthetic headless import states. Normal local
+  # account creation initializes the repo before it returns.
   defp provision(name) do
-    username = unique(name)
-
-    {:ok, user} =
-      Accounts.create_account(
-        username <> ".localhost",
-        username <> "@localhost",
-        "hunter2hunter2"
-      )
-
-    user
+    insert_account(name)
   end
 
   defp write_post(user, text, token) do

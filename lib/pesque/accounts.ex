@@ -18,6 +18,7 @@ defmodule Pesque.Accounts do
   alias Pesque.Password
   alias Pesque.Repo
   alias Pesque.RepoServer
+  alias Pesque.RepoSupervisor
   alias Pesque.RepoStore
   alias Pesque.Storage
 
@@ -56,10 +57,12 @@ defmodule Pesque.Accounts do
   the account, so a code spent on an insert that failed is spendable again.
 
   The order below is load-bearing. RepoServer.init/1 loads the key for the
-  DID it is given, so the key file has to be claimed before the repo starts
-  and the user row has to be committed before that; a failed insert removes
-  the key file again, since an orphan there makes the next attempt at the
-  same handle fail on the exclusive create. The hash is computed outside the
+  DID it is given, so the key file has to be claimed and the user row committed
+  before the repo starts. insert/7 emits #account after the transaction; this
+  path then starts the repo and verifies its genesis metadata before returning.
+  A pending genesis retry is reported as an error. A failed insert removes the
+  key file again, since an orphan there makes the next attempt at the same
+  handle fail on the exclusive create. The hash is computed outside the
   transaction because argon2 would hold SQLite's single write lock for the
   whole hash, and a wrong invite code is answered before any hash is burned.
   """
@@ -71,16 +74,50 @@ defmodule Pesque.Accounts do
          :ok <- check_available(identity, email),
          {:ok, account} <- claim_account(identity),
          {:ok, password_hash} <- Password.hash(password) do
-      insert(
-        account.identity,
-        email,
-        password_hash,
-        account.key.pub_multibase,
-        Keyword.get(opts, :invite_code),
-        true,
-        account.plc_operation
-      )
+      with {:ok, user} <-
+             insert(
+               account.identity,
+               email,
+               password_hash,
+               account.key.pub_multibase,
+               Keyword.get(opts, :invite_code),
+               true,
+               account.plc_operation
+             ),
+           :ok <- initialize_local_repo(user.did) do
+        {:ok, user}
+      end
     end
+  end
+
+  # entries/1 confirms the initial handler ran; metadata distinguishes a
+  # completed genesis from one whose existing retry is still pending.
+  defp initialize_local_repo(did) do
+    with {:ok, pid} <- RepoSupervisor.ensure_started(did) do
+      try do
+        case RepoServer.entries(pid) do
+          entries when is_map(entries) ->
+            if genesis_metadata_present?(did), do: :ok, else: {:error, :genesis_pending}
+
+          {:error, reason} ->
+            {:error, reason}
+
+          other ->
+            {:error, other}
+        end
+      catch
+        :exit, reason -> {:error, reason}
+      end
+    end
+  end
+
+  defp genesis_metadata_present?(did) do
+    Enum.all?(["commit:", "root:", "rev:"], fn prefix ->
+      case RepoStore.get_meta(prefix <> did) do
+        value when is_binary(value) and value != "" -> true
+        _ -> false
+      end
+    end)
   end
 
   # The DID method a new account is minted with. An explicit :identity option

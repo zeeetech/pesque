@@ -4,11 +4,11 @@ defmodule PesqueWeb.ConnCase do
 
   `Pesque.DataCase` owns the database, the key files, the blobs and the live
   RepoServers. Account fixtures are deliberately split by what a test needs:
-  `create_account/1` exercises the real creation path without starting a repo,
-  `insert_account/2` inserts background state without PLC or Argon2, and
-  `start_repo/1` adds a signing key and genesis commit. `create_repo_account/1`
-  composes real creation with a running repo; `insert_repo_account/1` composes
-  a persisted row with a running repo.
+  `create_account/1` exercises the real local creation path, including repo
+  initialization, `insert_account/2` inserts background state without PLC or
+  Argon2, and `start_repo/1` idempotently ensures a signing key and genesis
+  commit. `create_repo_account/1` composes real creation with that helper;
+  `insert_repo_account/1` composes a persisted row with a running repo.
 
   Use the lightest fixture that proves the behavior. The direct fixture's
   password hash and public key are test-only constants; request-flow tests that
@@ -61,7 +61,7 @@ defmodule PesqueWeb.ConnCase do
   @collection "app.bsky.feed.post"
   @request_id "0123456789abcdef0123456789abcdef"
 
-  @doc "Creates an account through Accounts.create_account/4 without starting its repo."
+  @doc "Creates an account through Accounts.create_account/4, which initializes its repo."
   def create_account(name) do
     username = unique(name)
 
@@ -94,7 +94,7 @@ defmodule PesqueWeb.ConnCase do
     )
   end
 
-  @doc "Starts a repo for an account, ensuring it has a signing key first."
+  @doc "Ensures an account repo is started and genesis has run."
   def start_repo(user) do
     {:ok, key} = Keys.ensure(user.did)
 
@@ -115,7 +115,7 @@ defmodule PesqueWeb.ConnCase do
     user
   end
 
-  @doc "Creates an account through the domain, then starts its repo."
+  @doc "Creates an account through the domain and ensures its repo is started."
   def create_repo_account(name), do: name |> create_account() |> start_repo()
 
   @doc "Inserts a persisted account fixture with a key and starts its repo."
