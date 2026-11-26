@@ -54,6 +54,7 @@ defmodule Pesque.Backup do
       with :ok <- File.mkdir_p(out_dir),
            :ok <- required(data_dir),
            :ok <- File.mkdir_p(staging),
+           :ok <- File.chmod(staging, 0o700),
            :ok <-
              RepoStore.vacuum_into(
                Path.join(data_dir, @database),
@@ -99,7 +100,9 @@ defmodule Pesque.Backup do
     staged = Path.join(data_dir, ".pesque-restore-#{System.unique_integer([:positive])}")
 
     try do
-      with :ok <- extract(archive, staged),
+      with :ok <- File.mkdir_p(data_dir),
+           :ok <- File.chmod(data_dir, 0o700),
+           :ok <- extract(archive, staged),
            :ok <- verify(staged),
            # An answer about the lock is only good for a moment, so it is
            # asked as late as the swap allows, not while a size-proportional
@@ -166,9 +169,28 @@ defmodule Pesque.Backup do
         {String.to_charlist(name), String.to_charlist(path)}
       end
 
-    case :erl_tar.create(String.to_charlist(archive), entries, [:compressed]) do
-      :ok -> {:ok, archive}
-      {:error, reason} -> {:error, {:tar, reason}}
+    with :ok <- prepare_archive(archive) do
+      case :erl_tar.create(String.to_charlist(archive), entries, [:compressed]) do
+        :ok -> {:ok, archive}
+        {:error, reason} -> {:error, {:tar, reason}}
+      end
+    end
+  end
+
+  defp prepare_archive(archive) do
+    case :file.open(archive, [:write]) do
+      {:ok, device} ->
+        chmod_result = File.chmod(archive, 0o600)
+        close_result = :file.close(device)
+
+        case {chmod_result, close_result} do
+          {:ok, :ok} -> :ok
+          {{:error, reason}, _} -> {:error, {:tar, reason}}
+          {:ok, {:error, reason}} -> {:error, {:tar, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:tar, reason}}
     end
   end
 
@@ -198,7 +220,8 @@ defmodule Pesque.Backup do
 
   # Extraction lands inside the data directory, where the swap can rename.
   defp extract(archive, staged) do
-    with :ok <- File.mkdir_p(staged) do
+    with :ok <- File.mkdir_p(staged),
+         :ok <- File.chmod(staged, 0o700) do
       case :erl_tar.extract(String.to_charlist(archive), [
              :compressed,
              cwd: String.to_charlist(staged)

@@ -36,6 +36,9 @@ defmodule Pesque.BackupTest do
     assert {:ok, archive} = Backup.create(dir, out)
     assert String.ends_with?(archive, ".tar.gz")
 
+    assert %File.Stat{mode: mode} = File.stat!(archive)
+    assert Bitwise.band(mode, 0o777) == 0o600
+
     {:ok, names} = :erl_tar.table(String.to_charlist(archive), [:compressed])
     names = Enum.map(names, &to_string/1)
 
@@ -107,6 +110,9 @@ defmodule Pesque.BackupTest do
 
     target = fresh_dir("pesque-backup-dst")
     assert :ok = Backup.restore(target, archive)
+
+    assert %File.Stat{mode: mode} = File.stat!(target)
+    assert Bitwise.band(mode, 0o777) == 0o700
 
     assert File.read!(Path.join(target, "server.secret")) == "secret-1234"
     assert File.read!(Path.join([target, "keys", "signing.key"])) == "key-bytes"

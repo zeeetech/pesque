@@ -83,8 +83,8 @@ a filename. Sensitivity, highest first:
 | `pesque.db` | Emails, password hashes (Argon2), records, events |
 | `blobs/` | Public by protocol |
 
-Secrets are `0600` and `keys/` is `0700`; the data directory takes your
-umask. Under Docker this directory is the named volume `pesque-data`; under
+Secrets and backup archives are `0600`; the data directory and `keys/` are
+`0700`. Under Docker this directory is the named volume `pesque-data`; under
 NixOS it is `dataDir`, owned by the `uid`/`gid` you set.
 
 ## Accounts

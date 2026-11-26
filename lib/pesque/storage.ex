@@ -3,6 +3,7 @@ defmodule Pesque.Storage do
 
   def init! do
     File.mkdir_p!(Pesque.data_dir())
+    File.chmod!(Pesque.data_dir(), 0o700)
     File.mkdir_p!(keys_dir())
     File.chmod!(keys_dir(), 0o700)
     File.mkdir_p!(blobs_dir())
