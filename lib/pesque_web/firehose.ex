@@ -48,7 +48,11 @@ defmodule PesqueWeb.Firehose do
   def handle_info({:firehose_frame, frame}, state) do
     case frame_seq(frame) do
       {:ok, seq} ->
-        handle_frame(frame, seq, state)
+        if pending_within_limits?(frame) do
+          handle_frame(frame, seq, state)
+        else
+          stop_consumer_too_slow(state)
+        end
 
       {:error, :frame_too_large} ->
         {:stop, :normal, 1009, state}
@@ -77,6 +81,60 @@ defmodule PesqueWeb.Firehose do
   end
 
   defp push(frame, state), do: {:push, [{:binary, frame}], state}
+
+  defp pending_within_limits?(frame) do
+    frame_limit = Pesque.firehose_pending_frame_limit()
+    byte_limit = Pesque.firehose_pending_byte_limit()
+
+    if byte_size(frame) > byte_limit do
+      false
+    else
+      case Process.info(self(), :message_queue_len) do
+        {:message_queue_len, queue_len} when queue_len > frame_limit ->
+          false
+
+        {:message_queue_len, _queue_len} ->
+          {:messages, messages} = Process.info(self(), :messages)
+          pending_within_limits?(messages, frame_limit, byte_limit, 1, byte_size(frame), 0)
+      end
+    end
+  end
+
+  defp pending_within_limits?([], _frame_limit, _byte_limit, _count, _bytes, _scanned),
+    do: true
+
+  defp pending_within_limits?(
+         [_message | _rest],
+         frame_limit,
+         _byte_limit,
+         _count,
+         _bytes,
+         scanned
+       )
+       when scanned >= frame_limit,
+       do: false
+
+  defp pending_within_limits?([message | rest], frame_limit, byte_limit, count, bytes, scanned) do
+    {count, bytes} =
+      case message do
+        {:firehose_frame, pending_frame} when is_binary(pending_frame) ->
+          {count + 1, bytes + byte_size(pending_frame)}
+
+        _other ->
+          {count, bytes}
+      end
+
+    if count > frame_limit or bytes > byte_limit do
+      false
+    else
+      pending_within_limits?(rest, frame_limit, byte_limit, count, bytes, scanned + 1)
+    end
+  end
+
+  defp stop_consumer_too_slow(state) do
+    frame = info_frame("ConsumerTooSlow", "consumer is too slow")
+    {:stop, :normal, 1000, [{:binary, frame}], state}
+  end
 
   defp replay(nil), do: {:ok, [], nil}
 

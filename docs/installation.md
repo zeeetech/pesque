@@ -349,6 +349,8 @@ The file supports these settings:
 | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
 | `firehose_replay_limit` | `52428800` (50 MiB) | Combined event payload size replayed to one firehose connection |
+| `firehose_pending_frame_limit` | `100` | Maximum pending live frames plus the incoming frame per connection |
+| `firehose_pending_byte_limit` | `52428800` (50 MiB) | Maximum pending live frame bytes plus the incoming frame per connection |
 | `firehose_connection_rate_limit` | `5` | New `subscribeRepos` connections per IP per minute |
 | `firehose_ip_connection_limit` | `4` | Concurrent firehose connections per IP |
 | `firehose_global_connection_limit` | `64` | Concurrent firehose connections across the server |

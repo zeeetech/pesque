@@ -273,6 +273,7 @@ firehose promptly.
 | Firehose frame | 5,000,000 bytes | `Pesque.Commit` |
 | Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
 | Firehose replay payload | 50 MiB per connect (`firehose_replay_limit`) | `PesqueWeb.Firehose` |
+| Firehose live mailbox | 100 pending frames (`firehose_pending_frame_limit`) and 50 MiB (`firehose_pending_byte_limit`) per connection | `PesqueWeb.Firehose` |
 | Firehose connection attempts | 5 per IP per minute (`firehose_connection_rate_limit`) | `subscribeRepos` |
 | Concurrent firehose connections | 4 per IP (`firehose_ip_connection_limit`), 64 global (`firehose_global_connection_limit`) | `subscribeRepos` |
 | Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
@@ -292,6 +293,13 @@ Firehose attempts are address-only, as a connection does not name an account.
 Firehose also has concurrent connection caps: 4 per address and 64 across the
 server. A saturated per-address cap returns 429; a full server-wide cap returns
 503. These are live connections, not replay limits.
+
+The live mailbox budgets are inclusive: the frame that brings a connection
+exactly to either limit is accepted. If adding a frame would exceed either
+limit, the server sends `#info` with `ConsumerTooSlow` and closes without
+pushing that frame. These budgets cover live mailbox frames, not replay. Only
+binary firehose messages count in a mailbox scan; if the raw mailbox length
+already exceeds the frame limit, the connection is stopped without scanning.
 
 The address comes from `x-forwarded-for`, necessary behind a proxy and fatal
 without one: **a directly reachable server has a per-address limit worth

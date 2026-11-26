@@ -172,6 +172,106 @@ defmodule PesqueWeb.FirehoseTest do
              Firehose.handle_info({:firehose_frame, <<0xFF>>}, state)
   end
 
+  test "a live frame below the pending budgets is pushed" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(2, byte_size(frame) * 2)
+    state = %{replayed_through: nil}
+
+    assert {:push, [{:binary, ^frame}], ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+  end
+
+  test "a live frame at the inclusive pending frame limit is pushed" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(2, byte_size(frame) * 2)
+    send(self(), {:firehose_frame, frame})
+    state = %{replayed_through: nil}
+
+    assert {:push, [{:binary, ^frame}], ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+  end
+
+  test "a live frame over the pending frame limit stops with ConsumerTooSlow" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(1, byte_size(frame) * 2)
+    send(self(), {:firehose_frame, frame})
+
+    assert {:stop, :normal, 1000, [{:binary, info}], state} =
+             Firehose.handle_info({:firehose_frame, frame}, %{replayed_through: nil})
+
+    assert {%{"t" => "#info"}, %{"name" => "ConsumerTooSlow"}} = decode(info)
+    assert state == %{replayed_through: nil}
+  end
+
+  test "a live frame at the exact pending byte limit is accepted" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    size = byte_size(frame)
+    state = %{replayed_through: nil}
+
+    pending_limits(3, size * 2)
+    send(self(), {:firehose_frame, frame})
+
+    assert {:push, [{:binary, ^frame}], ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+  end
+
+  test "a live frame one byte over the pending byte limit stops" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    size = byte_size(frame)
+    state = %{replayed_through: nil}
+
+    pending_limits(3, size * 2 - 1)
+    send(self(), {:firehose_frame, frame})
+
+    assert {:stop, :normal, 1000, [{:binary, info}], ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+
+    assert {%{"t" => "#info"}, %{"name" => "ConsumerTooSlow"}} = decode(info)
+  end
+
+  test "the current live frame counts toward the pending frame budget" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(1, byte_size(frame) * 2)
+    send(self(), {:firehose_frame, frame})
+
+    assert {:stop, :normal, 1000, [{:binary, info}], _state} =
+             Firehose.handle_info({:firehose_frame, frame}, %{replayed_through: nil})
+
+    assert {%{"t" => "#info"}, %{"name" => "ConsumerTooSlow"}} = decode(info)
+  end
+
+  test "the current live frame counts toward the pending byte budget" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(3, byte_size(frame) - 1)
+
+    assert {:stop, :normal, 1000, [{:binary, info}], _state} =
+             Firehose.handle_info({:firehose_frame, frame}, %{replayed_through: nil})
+
+    assert {%{"t" => "#info"}, %{"name" => "ConsumerTooSlow"}} = decode(info)
+  end
+
+  test "unrelated mailbox messages do not count toward firehose budgets" do
+    frame = EventFrames.identity(1, @did, "seed.localhost")
+    pending_limits(4, byte_size(frame))
+    send(self(), {:DOWN, make_ref(), :process, self(), :normal})
+    send(self(), :binary.copy(<<0>>, byte_size(frame) * 2))
+    send(self(), {:firehose_frame, :not_a_binary})
+    state = %{replayed_through: nil}
+
+    assert {:push, [{:binary, ^frame}], ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+  end
+
+  test "an oversized current frame keeps its frame-too-large close before backpressure" do
+    pending_limits(1, 1)
+    send(self(), {:firehose_frame, EventFrames.identity(1, @did, "seed.localhost")})
+    state = %{replayed_through: nil}
+    frame = :binary.copy(<<0>>, Pesque.Commit.max_frame_bytes() + 1)
+
+    assert {:stop, :normal, 1009, ^state} =
+             Firehose.handle_info({:firehose_frame, frame}, state)
+  end
+
   test "an invalid stored frame closes the socket without being pushed" do
     now = DateTime.truncate(DateTime.utc_now(), :second)
     Repo.insert_all(Event, [%{seq: 1, did: @did, payload: <<0xFF>>, inserted_at: now}])
@@ -328,6 +428,25 @@ defmodule PesqueWeb.FirehoseTest do
         Application.put_env(:pesque, :firehose_replay_max_bytes, previous)
       end
     end)
+  end
+
+  defp pending_limits(frame_limit, byte_limit) do
+    keys = [
+      firehose_pending_frame_limit: frame_limit,
+      firehose_pending_byte_limit: byte_limit
+    ]
+
+    previous =
+      Enum.map(keys, fn {key, _value} -> {key, Application.fetch_env(:pesque, key)} end)
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:pesque, key, value)
+        {key, :error} -> Application.delete_env(:pesque, key)
+      end)
+    end)
+
+    Enum.each(keys, fn {key, value} -> Application.put_env(:pesque, key, value) end)
   end
 
   defp restart_dispatcher do

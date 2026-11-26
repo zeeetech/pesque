@@ -90,6 +90,14 @@ defmodule Pesque do
   def firehose_replay_max_bytes,
     do: Application.get_env(:pesque, :firehose_replay_max_bytes, 50 * 1024 * 1024)
 
+  @doc "Maximum pending live firehose frames per connection, 100 by default."
+  def firehose_pending_frame_limit,
+    do: Application.get_env(:pesque, :firehose_pending_frame_limit, 100)
+
+  @doc "Maximum pending live firehose frame bytes per connection, 50 MiB by default."
+  def firehose_pending_byte_limit,
+    do: Application.get_env(:pesque, :firehose_pending_byte_limit, 50 * 1024 * 1024)
+
   @doc "Maximum new firehose connections from one IP per minute."
   def firehose_connection_rate_limit,
     do: Application.get_env(:pesque, :firehose_connection_rate_limit, 5)
