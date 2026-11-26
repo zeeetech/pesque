@@ -208,6 +208,29 @@ defmodule PesqueWeb.ApplyWritesTest do
     refute stored?(ctx, "kept")
   end
 
+  test "update/put refuses a missing or empty rkey and rolls back the batch", ctx do
+    seed(ctx)
+
+    for rkey <- [:missing, ""] do
+      update = %{
+        "$type" => "com.atproto.repo.applyWrites#update",
+        "collection" => collection(),
+        "value" => post_record("must not land")
+      }
+
+      update = if rkey == :missing, do: update, else: Map.put(update, "rkey", rkey)
+
+      conn = apply_writes(ctx, %{"writes" => [create("kept"), update]}, ctx.token)
+
+      assert conn.status == 400
+      body = JSON.decode!(conn.resp_body)
+      assert body["error"] == "InvalidRecordKey"
+      assert body["message"] =~ "write 2"
+      refute stored?(ctx, "kept")
+      assert stored(ctx, "doomed")["text"] == "doomed"
+    end
+  end
+
   # swapCommit is the optimistic concurrency check: a caller that read a head,
   # decided, and then wants to be sure nobody moved it in between. Comparing it
   # outside the write's own serialization would compare against a head that

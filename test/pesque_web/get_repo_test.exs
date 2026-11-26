@@ -39,7 +39,7 @@ defmodule PesqueWeb.GetRepoTest do
 
   # The point of the streaming: the same bytes the buffered implementation sent,
   # which is what keeps every consumer that already fetched from this server
-  # working. Rebuilt here from the store with Car.encode/2, the way send_car/3
+  # working. Rebuilt here from the store with Car.encode/2, the way send_stored_car/3
   # still builds the getBlocks CAR, and compared as raw bytes.
   test "the streamed CAR is byte-identical to the buffered one for the same repo", ctx do
     for n <- 1..6, do: write_post(ctx.alice, ctx.token, "post #{n}", Integer.to_string(n))
@@ -103,7 +103,14 @@ defmodule PesqueWeb.GetRepoTest do
     assert xrpc_get(@get_repo).status == 400
   end
 
-  # getBlocks is the other CAR endpoint and still answers from send_car/3, so
+  test "since is explicitly rejected", ctx do
+    conn = xrpc_get("#{@get_repo}?did=#{enc(ctx.alice.did)}&since=3")
+
+    assert conn.status == 400
+    assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
+  end
+
+  # getBlocks is the other CAR endpoint and still answers from send_stored_car/3, so
   # the two framings are compared against each other here as well: same store,
   # same blocks, different entry point.
   test "getRepo and getBlocks agree on the framing of a shared block", ctx do

@@ -11,6 +11,12 @@ defmodule PesqueWeb.Xrpc.SyncController do
   alias PesqueWeb.Xrpc
   alias PesqueWeb.Xrpc.Params
 
+  @max_get_blocks_cids 1_000
+
+  def get_repo(conn, %{"since" => _since}) do
+    Xrpc.error(conn, 400, "InvalidRequest", "since is not supported")
+  end
+
   def get_repo(conn, %{"did" => did}) do
     case Accounts.repo_did(did) do
       {:ok, did} ->
@@ -135,9 +141,8 @@ defmodule PesqueWeb.Xrpc.SyncController do
     Xrpc.error(conn, 400, "InvalidRequest", "did and cid are required")
   end
 
-  # What a Relay or a crawling AppView asks before mirroring. The DID has
-  # already been resolved by Accounts.repo_did/1, so the account exists here
-  # and the only question left is whether it still has a repo behind it.
+  # What a Relay or a crawling AppView asks before mirroring: account activity
+  # and the rev, if the repo has been initialized.
   def get_repo_status(conn, %{"did" => did}) do
     case Accounts.repo_did(did) do
       {:ok, did} ->
@@ -152,17 +157,20 @@ defmodule PesqueWeb.Xrpc.SyncController do
     Xrpc.error(conn, 400, "InvalidRequest", "did is required")
   end
 
-  # active is not derived from the rev here: a repo with a rev that has been
-  # deactivated is still a repo, and a relay asking has to be told it is not
-  # being served. An account that never wrote keeps the same answer it had
-  # before, which is a different fact with the same honest shape.
+  # Account activity and repo initialization are independent facts. A
+  # headless active import placeholder is active without having a rev yet.
   defp repo_status(did) do
-    with rev when is_binary(rev) <- RepoStore.get_meta("rev:" <> did),
-         true <- Accounts.repo_active?(did) do
-      %{"did" => did, "rev" => rev, "active" => true}
-    else
-      _ -> %{"did" => did, "active" => false, "status" => "deactivated"}
-    end
+    active = Accounts.repo_active?(did)
+    rev = RepoStore.get_meta("rev:" <> did)
+
+    status =
+      if active do
+        %{"did" => did, "active" => true}
+      else
+        %{"did" => did, "active" => false, "status" => "deactivated"}
+      end
+
+    if is_binary(rev), do: Map.put(status, "rev", rev), else: status
   end
 
   # The whole-server enumeration. cursor is an offset the caller sends back
@@ -177,7 +185,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
     repos =
       dids
       |> Enum.take(limit)
-      |> Enum.map(&repo_entry(&1, heads, deactivated))
+      |> Enum.flat_map(&repo_entry(&1, heads, deactivated))
 
     reply =
       %{"repos" => repos}
@@ -186,13 +194,60 @@ defmodule PesqueWeb.Xrpc.SyncController do
     json(conn, reply)
   end
 
+  def list_repos_by_collection(conn, %{"collection" => collection} = params)
+      when is_binary(collection) and collection != "" do
+    limit =
+      case Map.fetch(params, "limit") do
+        :error ->
+          500
+
+        {:ok, value} ->
+          case Params.int(value) do
+            n when is_integer(n) -> n
+            _ -> 0
+          end
+      end
+      |> max(1)
+      |> min(2000)
+
+    cursor =
+      case params["cursor"] do
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+
+    dids = RepoStore.repos_by_collection(collection, cursor, limit + 1)
+    repos = Enum.take(dids, limit)
+
+    reply = %{"repos" => Enum.map(repos, &%{"did" => &1})}
+    reply = if length(dids) > limit, do: Map.put(reply, "cursor", List.last(repos)), else: reply
+
+    json(conn, reply)
+  end
+
+  def list_repos_by_collection(conn, _params) do
+    Xrpc.error(conn, 400, "InvalidRequest", "collection is required")
+  end
+
   defp repo_entry(did, heads, deactivated) do
-    case {Map.get(heads, did), MapSet.member?(deactivated, did)} do
-      {%{rev: rev, head: head}, false} when is_binary(rev) ->
-        %{"did" => did, "head" => head, "rev" => rev, "active" => true}
+    case Map.get(heads, did) do
+      %{rev: rev, head: head} when is_binary(rev) and is_binary(head) ->
+        if MapSet.member?(deactivated, did) do
+          [
+            %{
+              "did" => did,
+              "head" => head,
+              "rev" => rev,
+              "active" => false,
+              "status" => "deactivated"
+            }
+          ]
+        else
+          [%{"did" => did, "head" => head, "rev" => rev, "active" => true}]
+        end
 
       _ ->
-        %{"did" => did, "head" => nil, "rev" => nil, "active" => false, "status" => "deactivated"}
+        []
     end
   end
 
@@ -200,11 +255,15 @@ defmodule PesqueWeb.Xrpc.SyncController do
   # already public through the records that reference them, and a mirror asks
   # this to learn what it still has to fetch. `since` names a revision to list
   # from, which this server does not track blob insertion against, so it is
-  # accepted and ignored rather than refused.
+  # refused rather than silently ignored.
   #
   # A deactivated repo still resolves, because a caller has to be told it is
   # deactivated rather than not found: served_repo/1 answers both, and each is
   # the lexicon error the caller expects.
+  def list_blobs(conn, %{"since" => _since}) do
+    Xrpc.error(conn, 400, "InvalidRequest", "since is not supported")
+  end
+
   def list_blobs(conn, %{"did" => did} = params) do
     case served_repo(did) do
       {:ok, did} ->
@@ -248,7 +307,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
 
   # The CAR the lexicon names for every block endpoint, served exactly as
   # getRepo serves it: one content type, one body.
-  defp send_car(conn, root, stored) do
+  defp send_stored_car(conn, root, stored) do
     case parse_blocks(stored) do
       {:ok, blocks} ->
         conn
@@ -263,7 +322,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
   # getRepo streams: a repo is the one CAR whose size the server does not know
   # in advance, and building it in memory made every mirror a full copy of the
   # repo in one allocation. The blocks arrive in Car.stream/2's order from the
-  # same store call, so the bytes on the wire are what send_car/3 would have
+  # same store call, so the bytes on the wire are what send_stored_car/3 would have
   # written for the same repo.
   #
   # Everything that can be wrong is decided before the first chunk: an unknown
@@ -374,17 +433,42 @@ defmodule PesqueWeb.Xrpc.SyncController do
 
   defp serve_blocks(conn, did, cid_strings) do
     with {:ok, root} <- commit_root(did) do
-      stored = RepoStore.blocks_by_cids(did, cid_strings)
+      max_bytes = Pesque.sync_blocks_max_bytes()
+      stats = RepoStore.block_stats(did, cid_strings)
 
-      if map_size(stored) == length(cid_strings) do
-        send_car(conn, root, stored)
-      else
-        sync_error(conn, :block_not_found)
+      cond do
+        stats.count != length(cid_strings) ->
+          sync_error(conn, :block_not_found)
+
+        stats.bytes > max_bytes ->
+          get_blocks_too_large(conn)
+
+        true ->
+          stored = RepoStore.blocks_by_cids(did, cid_strings)
+
+          cond do
+            map_size(stored) != length(cid_strings) ->
+              sync_error(conn, :block_not_found)
+
+            block_payload_size(stored) > max_bytes ->
+              get_blocks_too_large(conn)
+
+            true ->
+              send_stored_car(conn, root, stored)
+          end
       end
     else
       {:error, reason} -> sync_error(conn, reason)
       :error -> Xrpc.error(conn, 500, "InternalServerError", "stored repo could not be decoded")
     end
+  end
+
+  defp get_blocks_too_large(conn) do
+    Xrpc.error(conn, 400, "InvalidRequest", "requested blocks exceed the byte limit")
+  end
+
+  defp block_payload_size(stored) do
+    Enum.reduce(stored, 0, fn {_cid, data}, size -> size + byte_size(data) end)
   end
 
   defp serve_record(conn, did, collection, rkey) do
@@ -395,7 +479,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
 
         %{cid: cid} ->
           case RepoStore.blocks_for_path(did, cid) do
-            {:ok, blocks} -> send_car(conn, root, blocks)
+            {:ok, blocks} -> send_stored_car(conn, root, Map.new(blocks))
             {:error, reason} -> sync_error(conn, reason)
           end
       end
@@ -412,7 +496,7 @@ defmodule PesqueWeb.Xrpc.SyncController do
     do: Xrpc.error(conn, 400, "RecordNotFound", "no record at that key")
 
   defp sync_error(conn, :block_not_found),
-    do: Xrpc.error(conn, 400, "BlockNotFound", "no stored block at one of the given CIDs")
+    do: Xrpc.error(conn, 404, "BlockNotFound", "no stored block at one of the given CIDs")
 
   defp sync_error(conn, :no_root),
     do: Xrpc.error(conn, 500, "InternalServerError", "the stored tree does not reach that record")
@@ -433,6 +517,9 @@ defmodule PesqueWeb.Xrpc.SyncController do
 
   defp sync_error(conn, :invalid_cids),
     do: Xrpc.error(conn, 400, "InvalidRequest", "cids must be an array of CID strings")
+
+  defp sync_error(conn, :too_many_cids),
+    do: Xrpc.error(conn, 400, "InvalidRequest", "cids must not contain more than 1000 entries")
 
   defp sync_error(conn, :corrupt),
     do: Xrpc.error(conn, 500, "InternalServerError", "stored repo could not be walked")
@@ -475,9 +562,17 @@ defmodule PesqueWeb.Xrpc.SyncController do
   end
 
   defp validate_cids(cids) do
-    if cids != [] and Enum.all?(cids, &(is_binary(&1) and &1 != "")),
-      do: {:ok, Enum.uniq(cids)},
-      else: {:error, :invalid_cids}
+    if cids != [] and Enum.all?(cids, &(is_binary(&1) and &1 != "")) do
+      unique_cids = Enum.uniq(cids)
+
+      if length(unique_cids) > @max_get_blocks_cids do
+        {:error, :too_many_cids}
+      else
+        {:ok, unique_cids}
+      end
+    else
+      {:error, :invalid_cids}
+    end
   end
 
   defp parse_blocks(stored) do

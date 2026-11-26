@@ -66,6 +66,8 @@ defmodule Pesque.ConfigTest do
       assert settings.handle_domain == "pds.example.com"
       assert settings.crawler == []
       assert settings.admin_dids == []
+      assert settings.sync_blocks_limit == 50_000_000
+      assert Config.source_config!(path)[:sync_blocks_max_bytes] == 50_000_000
       assert settings.firehose_replay_limit == 52_428_800
       assert settings.firehose_pending_frame_limit == 100
       assert settings.firehose_pending_byte_limit == 52_428_800
@@ -81,6 +83,25 @@ defmodule Pesque.ConfigTest do
         )
 
       assert Config.source_config!(path)[:firehose_replay_max_bytes] == 1234
+    end
+
+    test "configures the sync blocks byte budget" do
+      path =
+        file("""
+        url_scheme = https
+        hostname = pds.example.com
+        port = 4000
+        data_dir = /data
+        sync_blocks_limit = 67890
+        """)
+
+      assert Config.source_config!(path)[:sync_blocks_max_bytes] == 67890
+
+      {:ok, effective} = Config.effective(path)
+
+      assert Keyword.take(Config.settings(effective), [:sync_blocks_limit]) == [
+               sync_blocks_limit: 67890
+             ]
     end
 
     test "configures live firehose pending budgets" do
@@ -176,6 +197,24 @@ defmodule Pesque.ConfigTest do
       assert Pesque.firehose_pending_byte_limit() == 4096
     end
 
+    test "sync blocks accessor reads runtime application settings" do
+      previous = Application.fetch_env(:pesque, :sync_blocks_max_bytes)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:pesque, :sync_blocks_max_bytes, value)
+          :error -> Application.delete_env(:pesque, :sync_blocks_max_bytes)
+        end
+      end)
+
+      Application.delete_env(:pesque, :sync_blocks_max_bytes)
+      assert Pesque.sync_blocks_max_bytes() == 50_000_000
+
+      Application.put_env(:pesque, :sync_blocks_max_bytes, 1234)
+
+      assert Pesque.sync_blocks_max_bytes() == 1234
+    end
+
     test "refuses non-positive firehose connection limits" do
       for key <-
             ~w(firehose_connection_rate_limit firehose_ip_connection_limit firehose_global_connection_limit) do
@@ -213,6 +252,21 @@ defmodule Pesque.ConfigTest do
         assert Map.has_key?(errors, field)
         assert Map.fetch!(errors, field) =~ "greater than 0"
       end
+    end
+
+    test "refuses a non-positive sync blocks byte budget" do
+      path =
+        file("""
+        url_scheme = https
+        hostname = pds.example.com
+        port = 4000
+        data_dir = /data
+        sync_blocks_limit = 0
+        """)
+
+      assert {:error, errors} = Config.effective(path)
+      assert Map.has_key?(errors, :sync_blocks_limit)
+      assert errors.sync_blocks_limit =~ "greater than 0"
     end
 
     test "stores hostname and handle domain as strings while accepting URL forms" do

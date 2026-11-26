@@ -78,6 +78,33 @@ defmodule Pesque.RepoStore do
     Repo.all(from r in Record, where: r.did == ^did, distinct: true, select: r.collection)
   end
 
+  @doc """
+  Distinct repo DIDs with a record in `collection`, ordered for keyset paging.
+
+  The caller supplies one more row than the page size to determine whether a
+  next cursor is needed.
+  """
+  def repos_by_collection(collection, cursor, limit) do
+    query =
+      from r in Record,
+        where: r.collection == ^collection,
+        distinct: true,
+        order_by: [asc: r.did],
+        limit: ^limit,
+        select: r.did
+
+    query =
+      case cursor do
+        cursor when is_binary(cursor) and cursor != "" ->
+          from r in query, where: r.did > ^cursor
+
+        _ ->
+          query
+      end
+
+    Repo.all(query)
+  end
+
   def put_record!(did, collection, rkey, cid, data) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
@@ -170,6 +197,25 @@ defmodule Pesque.RepoStore do
       Repo.all(from b in Block, where: b.did == ^did and b.cid in ^chunk, select: {b.cid, b.data})
     end)
     |> Map.new()
+  end
+
+  @doc """
+  The count and total byte size of the requested stored blocks, without loading
+  their payloads.
+  """
+  def block_stats(did, cid_strings) do
+    cid_strings
+    |> Enum.chunk_every(500)
+    |> Enum.reduce(%{count: 0, bytes: 0}, fn chunk, stats ->
+      {count, bytes} =
+        Repo.one(
+          from b in Block,
+            where: b.did == ^did and b.cid in ^chunk,
+            select: {count(b.cid), fragment("COALESCE(SUM(length(?)), 0)", b.data)}
+        )
+
+      %{count: stats.count + count, bytes: stats.bytes + bytes}
+    end)
   end
 
   @doc """

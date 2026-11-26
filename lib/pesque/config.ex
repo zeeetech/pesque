@@ -25,6 +25,7 @@ defmodule Pesque.Config do
           lexicon_aggregator: URI.t() | nil,
           blob_upload_limit: integer,
           repo_import_limit: integer,
+          sync_blocks_limit: integer,
           firehose_replay_limit: integer,
           firehose_pending_frame_limit: integer,
           firehose_pending_byte_limit: integer,
@@ -68,7 +69,7 @@ defmodule Pesque.Config do
 
   @required ~w(url_scheme hostname port data_dir)a
 
-  @fields ~w(mode handle_domain registration crawler plc_directory lexicon_aggregator blob_upload_limit repo_import_limit firehose_replay_limit firehose_pending_frame_limit firehose_pending_byte_limit firehose_connection_rate_limit firehose_ip_connection_limit firehose_global_connection_limit proxy_timeout proxy_response_limit admin_dids privacy_policy_url terms_of_service_url)a ++
+  @fields ~w(mode handle_domain registration crawler plc_directory lexicon_aggregator blob_upload_limit repo_import_limit sync_blocks_limit firehose_replay_limit firehose_pending_frame_limit firehose_pending_byte_limit firehose_connection_rate_limit firehose_ip_connection_limit firehose_global_connection_limit proxy_timeout proxy_response_limit admin_dids privacy_policy_url terms_of_service_url)a ++
             @required
 
   @keys Enum.map(@fields, &to_string/1)
@@ -86,6 +87,7 @@ defmodule Pesque.Config do
     field :lexicon_aggregator, __MODULE__.URI
     field :blob_upload_limit, :integer, default: 5_242_880
     field :repo_import_limit, :integer, default: 104_857_600
+    field :sync_blocks_limit, :integer, default: 50_000_000
     field :firehose_replay_limit, :integer, default: 52_428_800
     field :firehose_pending_frame_limit, :integer, default: 100
     field :firehose_pending_byte_limit, :integer, default: 52_428_800
@@ -202,6 +204,7 @@ defmodule Pesque.Config do
       lexicon_aggregator: url(settings.lexicon_aggregator),
       blob_upload_limit: settings.blob_upload_limit,
       repo_import_limit: settings.repo_import_limit,
+      sync_blocks_limit: settings.sync_blocks_limit,
       firehose_replay_limit: settings.firehose_replay_limit,
       firehose_pending_frame_limit: settings.firehose_pending_frame_limit,
       firehose_pending_byte_limit: settings.firehose_pending_byte_limit,
@@ -283,6 +286,7 @@ defmodule Pesque.Config do
       crawlers: Enum.map(settings.crawler, &url/1),
       blob_max_bytes: settings.blob_upload_limit,
       repo_import_max_bytes: settings.repo_import_limit,
+      sync_blocks_max_bytes: settings.sync_blocks_limit,
       firehose_replay_max_bytes: settings.firehose_replay_limit,
       firehose_pending_frame_limit: settings.firehose_pending_frame_limit,
       firehose_pending_byte_limit: settings.firehose_pending_byte_limit,
@@ -359,6 +363,7 @@ defmodule Pesque.Config do
     )
     |> validate_number(:blob_upload_limit, greater_than: 0)
     |> validate_number(:repo_import_limit, greater_than: 0)
+    |> validate_number(:sync_blocks_limit, greater_than: 0)
     |> validate_number(:firehose_replay_limit, greater_than: 0)
     |> validate_number(:firehose_pending_frame_limit, greater_than: 0)
     |> validate_number(:firehose_pending_byte_limit, greater_than: 0)

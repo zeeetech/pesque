@@ -348,6 +348,7 @@ The file supports these settings:
 | `lexicon_aggregator` | empty | HTTPS base URL permission sets are fetched from when a client asks for one with `include:` and it is not vendored |
 | `blob_upload_limit` | `5242880` (5 MiB) | Largest blob `uploadBlob` accepts, reported in `describeServer.blobUploadLimit` |
 | `repo_import_limit` | `104857600` (100 MiB) | Largest `importRepo` body |
+| `sync_blocks_limit` | `50000000` (50,000,000 bytes) | Maximum combined block payload returned by `getBlocks` |
 | `firehose_replay_limit` | `52428800` (50 MiB) | Combined event payload size replayed to one firehose connection |
 | `firehose_pending_frame_limit` | `100` | Maximum pending live frames plus the incoming frame per connection |
 | `firehose_pending_byte_limit` | `52428800` (50 MiB) | Maximum pending live frame bytes plus the incoming frame per connection |

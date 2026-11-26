@@ -13,6 +13,7 @@ defmodule PesqueWeb.SyncBlocksTest do
   alias Pesque.Car
   alias Pesque.CID
   alias Pesque.RepoStore
+  alias PesqueWeb.Xrpc.SyncController
 
   setup do
     alice = insert_repo_account("alice")
@@ -44,7 +45,7 @@ defmodule PesqueWeb.SyncBlocksTest do
 
       conn = get_blocks(ctx.alice.did, [cid, unknown])
 
-      assert conn.status == 400
+      assert conn.status == 404
       assert JSON.decode!(conn.resp_body)["error"] == "BlockNotFound"
     end
 
@@ -56,7 +57,7 @@ defmodule PesqueWeb.SyncBlocksTest do
 
       conn = get_blocks(ctx.alice.did, [cid, unknown])
 
-      assert conn.status == 400
+      assert conn.status == 404
 
       assert conn.resp_body ==
                JSON.encode!(%{
@@ -69,6 +70,51 @@ defmodule PesqueWeb.SyncBlocksTest do
       cid = write_post(ctx.alice, ctx.token, "hello", "1")
 
       assert get_blocks(ctx.alice.did, [cid, cid]).status == 200
+    end
+
+    test "1001 duplicate CIDs are accepted as one requested block", ctx do
+      cid = write_post(ctx.alice, ctx.token, "hello", "1")
+
+      conn = get_blocks(ctx.alice.did, List.duplicate(cid, 1001))
+
+      assert conn.status == 200
+      {_roots, blocks} = Car.decode(conn.resp_body)
+      assert blocks[CID.parse(cid)] == block_bytes(ctx.alice.did, cid)
+    end
+
+    test "rejects more than 1000 distinct valid CIDs without looking them up", ctx do
+      cids = for n <- 1..1001, do: CID.to_string(CID.from_data("unstored block #{n}"))
+
+      conn =
+        SyncController.get_blocks(build_conn(), %{
+          "did" => ctx.alice.did,
+          "cids" => cids
+        })
+
+      assert conn.status == 400
+      assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
+    end
+
+    test "allows the exact payload byte budget and rejects one byte over", ctx do
+      put_sync_blocks_limit(65_536)
+      limit = Pesque.sync_blocks_max_bytes()
+      exact_cid = CID.to_string(CID.from_data("exact getBlocks payload"))
+      exact_payload = :binary.copy(<<0>>, limit)
+      RepoStore.insert_blocks!(ctx.alice.did, [{exact_cid, exact_payload}])
+
+      assert block_request_status(ctx.alice.did, exact_cid) == 200
+
+      extra_cid = CID.to_string(CID.from_data("one byte over the getBlocks payload budget"))
+      RepoStore.insert_blocks!(ctx.alice.did, [{extra_cid, <<0>>}])
+
+      conn = get_blocks(ctx.alice.did, [exact_cid, extra_cid])
+      assert conn.status == 400
+      assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
+
+      missing_cid = CID.to_string(CID.from_data("missing getBlocks payload"))
+      missing = get_blocks(ctx.alice.did, [exact_cid, extra_cid, missing_cid])
+      assert missing.status == 404
+      assert JSON.decode!(missing.resp_body)["error"] == "BlockNotFound"
     end
 
     test "a single cids parameter is accepted, being one CID", ctx do
@@ -175,6 +221,23 @@ defmodule PesqueWeb.SyncBlocksTest do
     query = Enum.map_join(cid_strings, "", &("&cids=" <> enc(&1)))
 
     xrpc_get("/xrpc/com.atproto.sync.getBlocks?did=#{enc(did)}" <> query)
+  end
+
+  defp block_request_status(did, cid) do
+    get_blocks(did, [cid]).status
+  end
+
+  defp put_sync_blocks_limit(bytes) do
+    previous = Application.fetch_env(:pesque, :sync_blocks_max_bytes)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:pesque, :sync_blocks_max_bytes, value)
+        :error -> Application.delete_env(:pesque, :sync_blocks_max_bytes)
+      end
+    end)
+
+    Application.put_env(:pesque, :sync_blocks_max_bytes, bytes)
   end
 
   defp get_record(did, collection, rkey) do

@@ -9,6 +9,8 @@ defmodule PesqueWeb.RecordValidationTest do
 
   use PesqueWeb.ConnCase, async: false
 
+  alias Pesque.RepoStore
+
   # No $type, which is the case the record module fills in.
   @post %{
     "text" => "hello",
@@ -139,6 +141,29 @@ defmodule PesqueWeb.RecordValidationTest do
 
     assert conn.status == 400
     assert stored(ctx, "k")["text"] == "updated"
+  end
+
+  test "putRecord requires rkey before starting an uninitialized RepoServer" do
+    carol = create_account("carol")
+    token = token(carol)
+
+    assert Registry.lookup(Pesque.RepoRegistry, carol.did) == []
+
+    params = %{
+      "repo" => carol.did,
+      "collection" => collection(),
+      "record" => @post
+    }
+
+    for request_params <- [params, Map.put(params, "rkey", "")] do
+      conn = xrpc_post("/xrpc/com.atproto.repo.putRecord", request_params, token)
+
+      assert conn.status == 400
+      assert JSON.decode!(conn.resp_body)["error"] == "InvalidRequest"
+    end
+
+    assert RepoStore.record_count(carol.did) == 0
+    assert Registry.lookup(Pesque.RepoRegistry, carol.did) == []
   end
 
   defp create_record(ctx, record), do: create(ctx, %{"record" => record})

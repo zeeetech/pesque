@@ -323,6 +323,7 @@ defmodule PesqueWeb.Router do
     get "/com.atproto.sync.getRecord", SyncController, :get_record
     get "/com.atproto.sync.getRepoStatus", SyncController, :get_repo_status
     get "/com.atproto.sync.listRepos", SyncController, :list_repos
+    get "/com.atproto.sync.listReposByCollection", SyncController, :list_repos_by_collection
     get "/com.atproto.sync.listBlobs", SyncController, :list_blobs
   end
 

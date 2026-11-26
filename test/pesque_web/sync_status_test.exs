@@ -6,6 +6,8 @@ defmodule PesqueWeb.SyncStatusTest do
 
   use PesqueWeb.ConnCase, async: false
 
+  alias Pesque.RepoStore
+
   setup do
     alice = insert_repo_account("alice")
     bob = insert_repo_account("bob")
@@ -23,17 +25,36 @@ defmodule PesqueWeb.SyncStatusTest do
     assert body["rev"]
   end
 
-  # An account whose repo has never been started has a users row and no
-  # commit, which is exactly the state a mirror has to be told about: the
-  # account exists, the repo is not being served yet.
-  test "getRepoStatus reports an account that has never written as deactivated" do
+  # Account activity is independent of whether an import has initialized its
+  # repo yet.
+  test "getRepoStatus reports an active account without a rev" do
     carol = provision("carol")
+
+    body = status(carol.did)
+
+    assert body["active"]
+    refute Map.has_key?(body, "rev")
+    refute Map.has_key?(body, "status")
+  end
+
+  test "getRepoStatus reports a deactivated headless account without a rev" do
+    carol = provision("carol")
+    assert {:ok, _} = Accounts.deactivate_account(carol)
 
     body = status(carol.did)
 
     refute body["active"]
     assert body["status"] == "deactivated"
-    assert body["rev"] == nil
+    refute Map.has_key?(body, "rev")
+  end
+
+  test "getRepoStatus reports a rev independently of an active head", ctx do
+    RepoStore.put_meta!("rev:" <> ctx.alice.did, "active-rev")
+
+    body = status(ctx.alice.did)
+
+    assert body["active"]
+    assert body["rev"] == "active-rev"
   end
 
   test "getRepoStatus answers for a handle as well as a did", ctx do
@@ -68,19 +89,30 @@ defmodule PesqueWeb.SyncStatusTest do
     by_did = Map.new(body["repos"], &{&1["did"], &1})
 
     assert map_size(by_did) == 2
+    assert by_did[ctx.alice.did]["active"]
+    assert by_did[ctx.bob.did]["active"]
+    assert Enum.all?(body["repos"], &(is_binary(&1["head"]) and is_binary(&1["rev"])))
     assert by_did[ctx.alice.did]["rev"] == status(ctx.alice.did)["rev"]
     assert by_did[ctx.alice.did]["head"] == Pesque.RepoStore.get_meta("commit:" <> ctx.alice.did)
     assert by_did[ctx.bob.did]["rev"] == status(ctx.bob.did)["rev"]
   end
 
-  test "listRepos reports an account with no repo as inactive" do
+  test "listRepos omits a headless account" do
     carol = provision("carol")
 
-    entry = Enum.find(repos()["repos"], &(&1["did"] == carol.did))
+    refute Enum.any?(repos()["repos"], &(&1["did"] == carol.did))
+  end
+
+  test "listRepos keeps a deactivated repo's head and rev", ctx do
+    write_post(ctx.alice, "hello", ctx.token)
+    assert {:ok, _} = Accounts.deactivate_account(ctx.alice)
+
+    entry = Enum.find(repos()["repos"], &(&1["did"] == ctx.alice.did))
 
     refute entry["active"]
     assert entry["status"] == "deactivated"
-    assert entry["rev"] == nil
+    assert is_binary(entry["head"])
+    assert is_binary(entry["rev"])
   end
 
   # The enumeration is public and takes no cursor from anybody, so whatever it
@@ -115,9 +147,8 @@ defmodule PesqueWeb.SyncStatusTest do
     refute second["cursor"]
   end
 
-  # create_account/1 in ConnCase starts the repo, which writes the genesis
-  # commit. Provisioning straight through Accounts leaves the repo unstarted,
-  # which is the state this endpoint has something to say about.
+  # Accounts.create_account/3 persists an active account without starting its
+  # repo, which is the headless state these endpoints report.
   defp provision(name) do
     username = unique(name)
 

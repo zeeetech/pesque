@@ -86,6 +86,10 @@ defmodule Pesque do
   def repo_import_max_bytes,
     do: Application.get_env(:pesque, :repo_import_max_bytes, 100 * 1024 * 1024)
 
+  @doc "Maximum combined getBlocks payload size, 50,000,000 bytes by default."
+  def sync_blocks_max_bytes,
+    do: Application.get_env(:pesque, :sync_blocks_max_bytes, 50_000_000)
+
   @doc "Largest combined payload the firehose replays to one connection, 50 MiB by default."
   def firehose_replay_max_bytes,
     do: Application.get_env(:pesque, :firehose_replay_max_bytes, 50 * 1024 * 1024)

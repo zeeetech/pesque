@@ -102,7 +102,12 @@ defmodule PesqueWeb.Xrpc.RepoController do
 
   defp write(conn, params, action) do
     with {:ok, _did} <- with_owned_repo(conn, params),
-         :ok <- require_params(params, ["collection"]),
+         :ok <-
+           require_params(
+             params,
+             if(action == :put, do: ["collection", "rkey"], else: ["collection"])
+           ),
+         :ok <- if(action == :put, do: require_nonempty_param(params, "rkey"), else: :ok),
          :ok <- require_record(params["record"]),
          {:ok, pid} <- Pesque.RepoSupervisor.ensure_started(conn.assigns.did) do
       validate = validate?(params)
@@ -554,7 +559,13 @@ defmodule PesqueWeb.Xrpc.RepoController do
   defp resolve_repo(repo), do: Accounts.repo_did(repo)
 
   defp require_params(params, keys) do
-    if Enum.all?(keys, &is_binary(params[&1])), do: :ok, else: {:error, :missing_params}
+    if Enum.all?(keys, &is_binary(params[&1])),
+      do: :ok,
+      else: {:error, :missing_params}
+  end
+
+  defp require_nonempty_param(params, key) do
+    if params[key] != "", do: :ok, else: {:error, :missing_params}
   end
 
   defp require_record(record) when is_map(record), do: :ok

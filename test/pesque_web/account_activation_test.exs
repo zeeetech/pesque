@@ -88,6 +88,7 @@ defmodule PesqueWeb.AccountActivationTest do
 
       refute repo_status(ctx.alice.did)["active"]
       assert repo_status(ctx.alice.did)["status"] == "deactivated"
+      assert repo_status(ctx.alice.did)["rev"] == RepoStore.get_meta("rev:" <> ctx.alice.did)
       refute check_account_status(ctx.alice.did)["activated"]
     end
 
@@ -104,6 +105,8 @@ defmodule PesqueWeb.AccountActivationTest do
 
       refute entry["active"]
       assert entry["status"] == "deactivated"
+      assert entry["head"] == RepoStore.get_meta("commit:" <> ctx.alice.did)
+      assert entry["rev"] == RepoStore.get_meta("rev:" <> ctx.alice.did)
     end
 
     test "the sync block endpoints answer RepoDeactivated", ctx do
