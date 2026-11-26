@@ -1,153 +1,91 @@
 # Operations
 
-Running a server that has real data in it.
-
-Commands below are written in the Compose bundle's spelling (`./pesque` in
-the bundle directory, `docker compose` for lifecycle). On NixOS the same
-verbs are `sudo pesque ...` and lifecycle is `systemctl`.
+Commands use Compose spelling (`./pesque`); on NixOS use `sudo pesque` and
+`systemctl`. Source-development commands use `mix run -e 'Pesque.Cli.main()'`.
 
 ## Backup and restore
 
-The data directory (`/data` in the container) is the whole server: the
-database, the keys, the blobs and the secret. Both deployment paths bind a
-host-visible backup directory at `/backups`, and `backup` and `restore`
-speak only to that directory.
-
-`pesque backup` writes `pesque-backup-<stamp>.tar.gz` and is safe to run
-while the server is up: the database is snapshotted with `VACUUM INTO`
-first, so the archive holds the committed state at one instant. The verb
-refuses a data directory that is missing a piece every booted server has: an
-archive that looks complete and restores into a server that cannot boot is
-worse than a refused backup.
+The data directory contains the database, keys, blobs and secret. `backup` writes
+`pesque-backup-<stamp>.tar.gz` to the configured directory. It is live-safe:
+SQLite is snapshotted with `VACUUM INTO`. Incomplete data directories are refused.
 
 ```bash
-./pesque backup                      # docker: archives land in ./backups
-sudo pesque backup                   # NixOS: archives land in backupDir
-sudo systemctl start pesque-backup   # NixOS: the same backup as a oneshot, for timers
+./pesque backup                 # Compose: ./backups
+sudo pesque backup              # NixOS: services.pesque.backupDir
+sudo systemctl start pesque-backup
 ```
 
-Both commands write only to their own backup directory (`--out /backups` is
-accepted for scripts; any other directory is refused). On docker the command
-prepares the directory's ownership itself, so archives are readable from the
-host and still owned by the container's non-root user.
-
-Restore is cold, and both host commands enforce it: docker refuses while the
-Compose service is running, NixOS refuses while the unit is active or its
-container exists. Stop the server first:
+Backups write only to their configured directory (`--out /backups` is accepted
+for scripts; any other directory is refused). The Compose command prepares
+directory ownership so archives remain host-readable. Restore is cold: stop
+Pesque first. Compose refuses while the service runs; NixOS refuses while its
+unit is active or the container still exists.
 
 ```bash
-# docker
 docker compose stop pesque
 ./pesque restore pesque-backup-20261011T123456Z.tar.gz
 docker compose up --detach --wait
 
-# NixOS
 sudo systemctl stop pesque
 sudo pesque restore pesque-backup-20261011T123456Z.tar.gz
 sudo systemctl start pesque
 ```
 
-The archive is named as a filename inside the backup directory, nothing
-else. `restore --dry-run` verifies an archive without touching anything. A
-real restore extracts into a staging directory and verifies against the
-archive's manifest before anything moves; a crash mid-swap leaves the
-previous state next to the new one, and the archive itself is always the way
-back.
+Pass an archive filename, not a path. `restore --dry-run` verifies without
+changing data. Restore stages and checks the manifest before swapping; after a
+crash, the prior state and archive remain. Migrations run at boot, so newer data
+cannot be opened by an older binary. Archives contain `server.secret`; losing it
+invalidates legacy sessions.
 
-Migrations run at boot, so restoring onto a newer binary is fine; a newer
-data directory onto an older binary is not. The archive carries
-`server.secret`, so treat it as you would the data directory: lose it and
-every legacy session dies.
+## Data and permissions
 
-## The data directory
-
-```
+```text
 data/
-├── pesque.db            SQLite: accounts, records, blocks, blobs, events, invites, preferences, OAuth state
-├── server.secret        HMAC secret for legacy session tokens
-├── keys/<digest>.key            secp256k1 signing key per DID
-├── keys/<digest>.rotation.key   did:plc rotation key, the account's only recovery path
-├── keys/oauth.p256.key          P-256 key OAuth tokens and the JWKS are signed with
-└── blobs/<digest>/<cid> blob bytes, addressed by CID
+├── pesque.db                    # accounts, records, blocks, blobs, events, invites, OAuth state
+├── server.secret                # legacy session HMAC secret
+├── keys/<digest>.key            # per-DID secp256k1 signing key
+├── keys/<digest>.rotation.key   # did:plc recovery key
+├── keys/oauth.p256.key          # OAuth signing key
+└── blobs/<digest>/<cid>         # blob bytes
 ```
 
-Key files are named after a SHA-256 digest of the DID, because a DID is not
-a filename. Sensitivity, highest first:
+`server.secret`, key files and backup archives are mode `0600`; the data
+directory and `keys/` are `0700`. Under Compose the data is the `pesque-data`
+volume; under NixOS it is `dataDir`, owned by the configured UID/GID.
 
-| What | If it leaks |
+Protect the directory: leaks can forge legacy sessions (`server.secret`), OAuth
+tokens (`oauth.p256.key`), PLC identities (rotation keys), or commits (signing
+keys). The database contains email addresses, Argon2 password hashes, records
+and events. Blobs are public by protocol.
+
+## Accounts and browser flows
+
+Pesque sends no email. Confirmation codes are logged for the operator to relay
+to the account holder. Codes expire after 15 minutes, are single-use, and use
+`XXXXX-XXXXX` from the official client's base32 alphabet (no `0`, `1`, `8` or `9`).
+Available operator commands:
+
+| Purpose | Command |
 | --- | --- |
-| `server.secret` | Mint a valid legacy session for any account |
-| `keys/oauth.p256.key` | Mint access tokens for any account |
-| `keys/*.rotation.key` | Take over a did:plc identity |
-| `keys/*.key` | Forge commits for one account |
-| `pesque.db` | Emails, password hashes (Argon2), records, events |
-| `blobs/` | Public by protocol |
+| PLC signature, identity changes or move-out | `account plc-token --did D \| --handle H` |
+| Email confirmation or change | `account email-token --did D \| --handle H` |
+| Password reset | `account reset-token --did D \| --handle H` |
 
-Secrets and backup archives are `0600`; the data directory and `keys/` are
-`0700`. Under Docker this directory is the named volume `pesque-data`; under
-NixOS it is `dataDir`, owned by the `uid`/`gid` you set.
+`requestPasswordReset` is anonymous and returns no code; only the log contains
+it. Completing `resetPassword` ends all sessions. `signPlcOperation` returns a
+signed operation for the client to submit to the PLC directory or destination PDS.
 
-## Accounts
+Other CLI operations include `account list|show|delete|takedown|activate|reset-password|app-passwords|revoke-app-password`; each accepts `--help`, and read commands accept `--json`. XRPC deletion uses `requestAccountDelete` then `deleteAccount` with the token and password; rows, blocks, blobs and keys are removed, but firehose events remain. Deactivation stops writes without changing the repo. App passwords are independently revocable; resetting the account password does not revoke them. Invite codes come from `invite create` or operator-authorized `createInviteCodes`; `getAccountInviteCodes` lists codes assigned to the calling account.
 
-Pesque sends no email. Every confirmation code reaches you, the operator,
-through the server log when a client asks for one, and you relay it to the
-account holder; each verb below mints a fresh code on demand. Codes are good
-for 15 minutes, single use, and shaped `XXXXX-XXXXX` (the base32 alphabet
-the official client requires, no `0`, `1`, `8` or `9`).
+Browser clients should use OAuth; legacy HS256 sessions have no proof of possession. In `multi`, `/signup` creates an account (invite required when registration is closed), asking for handle, email and a password of at least eight characters. Pesque sends no confirmation email; the address is for operator-assisted recovery. The confirmation page shows the handle and directs the account holder to sign in with the official app.
 
-| Flow | Mint on demand |
-| --- | --- |
-| PLC operation signature (identity changes, moving out) | `pesque account plc-token --did D \| --handle H` |
-| Email confirmation, email change | `pesque account email-token --did D \| --handle H` |
-| Password reset | `pesque account reset-token --did D \| --handle H` |
-
-`requestPasswordReset` is anonymous, so its code never appears in a response
-body, only in the log: a stranger cannot reset an account whose log they do
-not read. A completed `resetPassword` ends every session the account held.
-`signPlcOperation` answers with the signed operation rather than submitting
-it; the client submits it to the PLC directory or to the PDS the account is
-moving to.
-
-The rest of the operator surface is `pesque account list | show | delete |
-takedown | activate | reset-password | app-passwords | revoke-app-password`
-(every verb takes `--help`, the read ones take `--json`). Over XRPC,
-`deleteAccount` is two-step: `requestAccountDelete` returns a token in the
-body (no email is sent), then `deleteAccount` spends it with the password;
-rows, blocks, blobs and keys go, firehose events stay. `deactivateAccount` /
-`activateAccount` stop and resume writes without touching the repo. App
-passwords are named, revocable credentials an account's apps log in with;
-`revoke-app-password` is the recovery path when a user reports a compromised
-or forgotten one, because a password reset revives the account password but
-leaves the app-password rows alone. Invite codes are minted by the operator
-(`pesque invite create`, or `createInviteCodes` with your DID named in
-`admin_dids`); `getAccountInviteCodes` lists the codes earmarked for the
-calling account.
+`/migrate` asks for the old PDS URL, full handle, email and account password, not an app password; a closed server also requires an invite. The page shows copy progress, then asks for the code sent by the old PDS; it reports success or failure. If a move fails before the identity switch, the old account keeps working. These pages are unavailable in `single`; new browser accounts use `did:plc`.
 
 ## Moving an account in
 
-Moving an existing ATProto account onto this server. The DID does not
-change, so the handle's DNS record does not change either and keeps
-resolving throughout the move. Two servers are involved: the old PDS, which
-still holds the account, and this one.
+An account move preserves its DID and handle. This server must run `multi` behind TLS. Configure `crawler` if you want relay discovery and run `pesque doctor` as federation preflight. Before importing, publish `_atproto.<handle>` DNS TXT and the well-known document to match the DID document's `alsoKnownAs`.
 
-### Before you start
-
-- This server runs `mode = multi`, behind TLS, with `crawler` set if you
-  want a relay to pick it up.
-- The handle is verified before it is accepted: DNS TXT at
-  `_atproto.<handle>`, then the well-known document, cross-checked against
-  the DID document's `alsoKnownAs`. Publish the record first or the import
-  is refused.
-- The password you are prompted for is the old PDS account password, and it
-  becomes the new account's password. Not an app password: the PLC endpoints
-  the move relies on require a full-access session, and the old PDS answers
-  `400 Bad token scope` for anything less. If the account has 2FA, turn it
-  off for the move; the verb cannot supply a second factor.
-- The old PDS holds the rotation key and signs the identity step. Once that
-  signature lands, the move is one-way: the old PDS no longer controls the
-  identity. Migrating off `bsky.social` cannot be undone.
-
-### One command
+Use the old PDS account password, not an app password. The move requires a full-access session; disable 2FA if the old PDS requires it. The old PDS holds the rotation key and signs the identity change. Once submitted, the old PDS no longer controls the identity; moving off `bsky.social` cannot be undone.
 
 ```bash
 ./pesque migrate \
@@ -156,197 +94,94 @@ still holds the account, and this one.
   --email alice@example.com
 ```
 
-(`sudo pesque migrate ...` on NixOS; `mix run -e 'Pesque.Cli.main()' migrate
-...` from source.) What it does, in order: opens a session on the old PDS,
-creates the account here (deactivated), imports the repo and every blob,
-fetches this server's recommended DID credentials, asks the old PDS to sign
-the PLC operation carrying them (on `bsky.social` that emails a code to the
-account holder, which the prompt asks for), submits the operation here,
-activates the new account and deactivates the old one. A run that fails
-before the PLC submission is safe to re-run: the account is reused rather
-than recreated.
+The command signs in to the old PDS, creates a deactivated account here, imports the repo and blobs, requests this server's DID credentials, obtains and submits the PLC operation, then activates this account and deactivates the old one. On `bsky.social`, the code arrives by email. A failure before PLC submission can be retried; the account is reused. For non-interactive runs, set `MIGRATE_PLC_TOKEN=XXXXX-XXXXX` to skip the code request step.
 
-Where there is no terminal to prompt on, pass the code through the
-environment instead: get it from wherever the old PDS delivered it, then
-`MIGRATE_PLC_TOKEN=XXXXX-XXXXX ./pesque migrate ...` skips the request step
-and completes the move.
+`submitPlcOperation` accepts only this server as PDS endpoint, the account's signing key and a matching `alsoKnownAs` handle. The first `getRecommendedDidCredentials` call creates the rotation key in the data directory. Hosted handles need wildcard or per-handle DNS; a proxy with on-demand TLS can issue certificates as names are reached. Moving out reverses the process: the destination runs the move and this server signs the identity step. The operator gets the code from logs or `account plc-token`, not email.
 
-### Caveats
+## Sync support
 
-- This server's `submitPlcOperation` refuses an operation whose PDS endpoint
-  is not this server, whose signing key is not the account's, or whose
-  `alsoKnownAs` does not claim the account's handle.
-- `getRecommendedDidCredentials` mints this server's rotation key on the
-  first ask; it lives in the data directory from then on.
-- A handle this server itself hosts needs a DNS record for the name (a
-  wildcard `*.<handle-domain>` or one per handle). A proxy with on-demand
-  TLS issues the certificates as clients reach the names
-  ([Installation](installation.md#behind-a-tls-proxy)); a handle on a domain
-  you do not control is verified by a TXT record instead.
-- Moving an account out is the same dance in reverse: the destination PDS
-  runs the move, this server signs the identity step (`signPlcOperation`),
-  and the confirmation code reaches you, the operator, through the log or
-  `pesque account plc-token` ([Accounts](#accounts)), not an inbox.
-
-## Replace the legal pages
-
-`describeServer` advertises the links you set: `privacy_policy_url` and
-`terms_of_service_url` in the conf. Unset, the links are omitted. The image
-also serves placeholder `/privacy-policy.md` and `/terms-of-service.md`;
-point the conf keys at pages you actually stand behind before advertising a
-real domain.
-
-## Upgrades
-
-Updates are manual; nothing updates on its own.
-
-1. `pesque backup` (live-safe; no stop needed)
-2. Replace the release. Docker: unpack a newer bundle over the deployment
-   directory (or edit the image tag in `compose.yaml`), then
-   `docker compose up --detach --wait` recreates the container on the new
-   image; the data volume survives. NixOS: raise `services.pesque.image` to
-   the new pinned tag and `nixos-rebuild switch`.
-3. `curl /xrpc/_health`, which reads a table, so it is the migration check
-
-Run `pesque config validate` after the swap: an unknown conf key fails boot,
-and the provider names it before the CLI runs.
-
-### Recovering from a bad update
-
-There is no down migration. Once a release has booted, its migrations are in
-the database and an older binary cannot boot a newer data directory, so
-moving the image tag back alone is not a rollback. The rollback is the
-pre-upgrade backup:
-
-1. Stop the server (docker: `docker compose stop pesque`; NixOS:
-   `sudo systemctl stop pesque`)
-2. `pesque restore <archive name>`
-3. Move back to the previous release: docker, the previous bundle's
-   `compose.yaml` (or the old tag) and `docker compose up --detach --wait`;
-   NixOS, the previous `image` tag and `nixos-rebuild switch`
-4. `curl /xrpc/_health`
-
-A release that fails its own boot check (the strict config check names the
-offending key) is recovered the same way: restore, then remove the unknown
-key.
-
-## Health and logs
-
-`/xrpc/_health` runs `SELECT did FROM users LIMIT 1` rather than `SELECT 1`,
-because a bare `SELECT 1` succeeds against an unmigrated database. `503`
-means the server cannot read a single account; the reason is logged, never
-returned. At boot:
-
-```
-[info] pesque up data_dir=/var/lib/pesque hostname=pds.example.com mode=single registration=closed
-```
-
-Log metadata is an allowlist (`did`, `handle`, `route`, `reason`, `path`,
-`count`, `records`, `hostname`, `mode`, `registration`, `data_dir`); add
-keys in `config/config.exs`.
-
-Docker: `docker compose logs -f pesque`, and the image's `HEALTHCHECK` is
-what `up --detach --wait` waits on. NixOS: `journalctl -u pesque -f`, and
-`pesque health` inspects the running container without starting anything.
-
-## Retention
-
-| What | Rule |
+| XRPC surface | Support and bounds |
 | --- | --- |
-| Firehose events | dropped after 7 days; a cursor inside the window answers `OutdatedCursor` |
-| Blocks | dropped when unreachable from the current MST root |
+| `com.atproto.sync.getRepo` | Full CAR export; explicitly rejects `since`. Historical repo diffs are not supported. |
+| `com.atproto.sync.listBlobs` | Supported; explicitly rejects `since`. |
+| `com.atproto.sync.listRepos`, `com.atproto.sync.listReposByCollection`, `com.atproto.sync.getRepoStatus` | Supported. |
+| `com.atproto.sync.subscribeRepos` | Live stream with bounded replay and live queues; connection rate and concurrency caps apply. |
+| `com.atproto.sync.getBlocks` | Combined response limited by `sync_blocks_limit` (50,000,000 bytes by default). |
+| Relay-role methods | `getHostStatus`, `listHosts`, `requestCrawl` and `notifyOfUpdate` are outside the PDS surface. |
 
-So `getBlocks` and `getRecord?cid=` for a superseded version answer
-not-found after the sweep. Anything walking history needs to consume the
-firehose promptly.
+## Legal pages
 
-## Limits
+Set `privacy_policy_url` and `terms_of_service_url` to your legal pages;
+`describeServer` advertises them. Unset keys omit the links. The image serves
+placeholder `/privacy-policy.md` and `/terms-of-service.md`; replace them
+before advertising a real domain.
 
-| What | Default | Where |
-| --- | --- | --- |
-| Blob upload | 5 MiB (`blob_upload_limit`), in `describeServer.blobUploadLimit` | `Pesque.Blob` |
-| Repo import | 100 MiB (`repo_import_limit`) | `PesqueWeb.Xrpc.RepoController` |
-| `getBlocks` payload | 50,000,000 bytes (`sync_blocks_limit`) per request | `PesqueWeb.Xrpc.SyncController` |
-| Request body | 8 MB | `Plug.Parsers` |
-| Record block | 1,000,000 bytes of CBOR | `Pesque.Commit` |
-| Commit CAR | 2,000,000 bytes | `Pesque.Commit` |
-| Commit operations | 200 per write | `Pesque.Commit` |
-| Firehose frame | 5,000,000 bytes | `Pesque.Commit` |
-| Firehose replay | 10,000 frames per connect | `PesqueWeb.Firehose` |
-| Firehose replay payload | 50 MiB per connect (`firehose_replay_limit`) | `PesqueWeb.Firehose` |
-| Firehose live mailbox | 100 pending frames (`firehose_pending_frame_limit`) and 50 MiB (`firehose_pending_byte_limit`) per connection | `PesqueWeb.Firehose` |
-| Firehose connection attempts | 5 per IP per minute (`firehose_connection_rate_limit`) | `subscribeRepos` |
-| Concurrent firehose connections | 4 per IP (`firehose_ip_connection_limit`), 64 global (`firehose_global_connection_limit`) | `subscribeRepos` |
-| Page sizes | 50 records (max 100), 500 repos/blobs (max 1000) | controllers |
+## Upgrades and recovery
 
-Each write updates the MST incrementally against the stored root; a tree
-that cannot be walked falls back to a full rebuild and logs it. `getRepo`
-streams the CAR in batches.
+Updates are manual:
 
-## Rate limits and the proxy
+1. Run `pesque backup`; it is safe while live.
+2. Replace the release. Compose: unpack a newer bundle or update its image
+   tag, then `docker compose up --detach --wait`. NixOS: set a new pinned image
+   and run `nixos-rebuild switch`.
+3. Run `pesque config validate` and check `/xrpc/_health`.
 
-Buckets: sessions (100/hour), reads (3000/5 min), writes (600/5 min), OAuth
-(100/hour), and firehose connection attempts (5/minute). The ordinary request
-buckets count the account and address; the tighter of the two answers.
-Firehose attempts are address-only, as a connection does not name an account.
-`ratelimit-*` and `retry-after` describe firehose attempt-rate refusals.
+There is no down migration: an older binary cannot open a database migrated by
+a newer release. To roll back, stop the server, restore the pre-upgrade archive,
+return to the previous release, start it and check `/xrpc/_health`. If boot
+rejects an unknown config key, restore if needed and correct or remove the key.
 
-Firehose also has concurrent connection caps: 4 per address and 64 across the
-server. A saturated per-address cap returns 429; a full server-wide cap returns
-503. These are live connections, not replay limits.
+## Health, retention and limits
 
-The live mailbox budgets are inclusive: the frame that brings a connection
-exactly to either limit is accepted. If adding a frame would exceed either
-limit, the server sends `#info` with `ConsumerTooSlow` and closes without
-pushing that frame. These budgets cover live mailbox frames, not replay. Only
-binary firehose messages count in a mailbox scan; if the raw mailbox length
-already exceeds the frame limit, the connection is stopped without scanning.
+`/xrpc/_health` reads an account row, so it detects an unmigrated database; 200
+is healthy, while 503 means the server cannot read an account. The reason is
+logged, not returned. Compose uses the image health check; use
+`journalctl -u pesque -f` on NixOS. `pesque health` inspects the running
+container without starting it. The boot log includes data directory, hostname,
+mode and registration; logged metadata is allowlisted in `config/config.exs`.
 
-The address comes from `x-forwarded-for`, necessary behind a proxy and fatal
-without one: **a directly reachable server has a per-address limit worth
-nothing**. Counters are fixed-window, so a window seam can double the limit.
+| Resource | Limit or retention |
+| --- | --- |
+| Firehose events | 7 days; older cursors return `OutdatedCursor` |
+| Blocks | Removed when unreachable from the current MST root |
+| Blob upload | 5 MiB by default (`blob_upload_limit`); advertised by `describeServer` |
+| Repo import | 100 MiB (`repo_import_limit`) |
+| `getBlocks` payload | 50,000,000 bytes (`sync_blocks_limit`) per request |
+| Request body | 8 MB |
+| Record block | 1,000,000 bytes CBOR |
+| Commit CAR | 2,000,000 bytes |
+| Commit operations | 200 per write |
+| Firehose frame | 5,000,000 bytes |
+| Firehose replay | 10,000 frames and 50 MiB (`firehose_replay_limit`) per connection |
+| Live firehose queue | 100 frames (`firehose_pending_frame_limit`) and 50 MiB (`firehose_pending_byte_limit`) per connection |
+| Firehose connection attempts | 5/IP/minute (`firehose_connection_rate_limit`) |
+| Concurrent firehose connections | 4/IP (`firehose_ip_connection_limit`), 64 global (`firehose_global_connection_limit`) |
+| Page sizes | 50 records (max 100); 500 repos/blobs (max 1000); 500 repos by collection (max 2000) |
 
-## Security notes
+After unreachable blocks are swept, `getBlocks` and `getRecord?cid=` return not-found. Consumers needing history must read the firehose promptly. Writes update the MST incrementally; an unwalkable tree falls back to a logged full rebuild. `getRepo` streams CAR data in batches.
 
-- OAuth (ES256, DPoP-bound, short-lived) and legacy sessions (HS256, no
-  proof of possession) are both live. Browsers should use OAuth.
-- `data/keys/oauth.p256.key` signs every access token and is published in
-  the JWKS; losing it invalidates every outstanding OAuth token.
-- Client metadata is fetched from a URL a stranger chose: https only, no
-  redirects, private and loopback addresses refused, capped and timed out.
-  DNS rebinding is not closed.
-- CORS is `*`; authority travels in the token, not cookies.
-- Blobs ship with `content-disposition: attachment`, `nosniff` and a
-  restrictive CSP, so a `text/html` blob does not render from your origin.
-- Registration is closed by default: invite codes, one per account, spent
-  atomically. `createInviteCodes` is operator-only; under `multi` name
-  yourself in `admin_dids`.
+## Rate limits and proxy
 
-## Data exposure
+Request buckets are sessions (100/hour), reads (3000/5 minutes), writes (600/5 minutes), OAuth (100/hour), and firehose connection attempts (5/minute). Ordinary buckets count account and address; the tighter limit applies. Firehose attempts are address-only. `ratelimit-*` and `retry-after` describe attempt-rate refusals. Concurrent connections are separately capped at 4 per address and 64 globally; saturation returns 429 per address or 503 globally.
 
-**Everything you write is public**, by protocol design, with no per-repo
-setting. A deleted record is still in the blocks, and a firehose consumer
-that saw it has it. That includes photos: a blob's CID sits in the record
-referencing it, and EXIF is not stripped. Strip it client-side; a server
-that rewrites your bytes is a server you can no longer verify.
+Live queue limits include the incoming frame: an exact-limit frame is accepted; an over-limit frame causes `#info` with `ConsumerTooSlow` and closes the connection without enqueueing it. These budgets cover live messages, not replay. Only binary firehose messages count in a mailbox scan; an oversized raw mailbox closes without scanning. The address comes from `x-forwarded-for`, which requires a trusted proxy. Direct access makes per-IP limits ineffective. Fixed-window counters can double a limit at a window boundary.
 
-**Email addresses are not exposed by any endpoint**, only stored. **Account
-existence is public**: `listRepos` enumerates every hosted DID.
+## Security and data exposure
+
+- OAuth uses short-lived ES256 tokens bound to DPoP; legacy sessions use HS256 without proof of possession. Browsers should use OAuth.
+- Losing `keys/oauth.p256.key` invalidates outstanding OAuth tokens.
+- OAuth client metadata fetches require HTTPS, disallow redirects and private or loopback addresses, and are capped and timed out. DNS rebinding is not prevented.
+- CORS is `*`; authority is in the token, not cookies.
+- Blob responses use attachment disposition, `nosniff` and restrictive CSP.
+- Registration is closed by default. Invite codes are single-use and spent atomically; `createInviteCodes` is operator-only and requires your DID in `admin_dids` under `multi`.
+
+Everything written to a repo is public by protocol, including deleted records and blobs already seen by firehose consumers. Blob CIDs appear in records; EXIF is not stripped. Email addresses are not exposed by endpoints, but account existence is public through `listRepos`.
 
 ## Troubleshooting
 
-- **`_health` returns 503.** Check the data mount, write permission,
-  migrations.
-- **Boot dies on an `unknown key` or an invalid setting.** Server settings
-  live in `pesque.conf`; `PDS_CONFIG` only selects the file. The provider
-  names the file, key and line before the server or a verb starts.
-- **A `did:web` with a port does not resolve.** The port is only encoded for
-  loopback and private hosts; fix the proxy.
-- **The AppView shows nothing.** The account's DID document is not
-  resolving: an invalid certificate on the endpoint, or a DID minted under a
-  different hostname or port.
-- **Reads answer `RepoNotFound` for an account that exists.** The stored DID
-  was minted under a different hostname or port. See
-  [Configuration](installation.md#configuration).
-- **The firehose connects and goes silent.** Proxy buffering.
-- **`MethodNotImplemented` with a 501.** The route does not exist.
+- **`_health` returns 503:** check the data mount, write permissions and migrations.
+- **Boot reports an unknown key or invalid setting:** settings belong in `pesque.conf`; `PDS_CONFIG` selects the file. The error names the file, key and line. Run `pesque config validate`.
+- **`did:web` does not resolve:** confirm the public hostname, HTTPS document, proxy and advertised port.
+- **The AppView shows nothing or reads return `RepoNotFound`:** the DID may have been minted for another hostname or port. Check [configuration](installation.md#configuration).
+- **The firehose connects but stays silent:** disable proxy buffering.
+- **A method returns 501 `MethodNotImplemented`:** that route is not implemented; see [Sync support](#sync-support) for sync methods.
